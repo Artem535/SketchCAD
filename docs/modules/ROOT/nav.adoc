@@ -1,4 +1,11 @@
-* xref:prototype.adoc[Prototype specification]
-* xref:implementation-plan.adoc[Implementation plan]
-* xref:build.adoc[Build and validation]
-* xref:handoff.adoc[Project handoff]
+* Product
+** xref:product-vision.adoc[Product Vision]
+** xref:scope-0.1.adoc[Scope 0.1]
+** xref:scope-1.0.adoc[Scope 1.0]
+** xref:roadmap.adoc[Roadmap]
+** xref:decision-log.adoc[Decision Log]
+* Prototype and development
+** xref:prototype.adoc[Prototype specification]
+** xref:implementation-plan.adoc[Implementation plan]
+** xref:build.adoc[Build and validation]
+** xref:handoff.adoc[Project handoff]

@@ -1,0 +1,54 @@
+= Roadmap и условия выпуска
+:toc:
+
+== Состояние
+Этап 0: rectangle demo на Qt Quick/Ceres с размерами, переносом, anchor и rollback.
+Desktop Release build, 8 CTest checks, QML interaction/smoke и screenshot проверены в предыдущем запуске.
+Это не 0.1 и не Android readiness. Историческая issue #1 покрывает прототип.
+
+== Последовательность
+[cols="1,3,3",options="header"]
+|===
+|Этап |Результат |Условие перехода
+|Ранние spikes |Android build/input, topology references, Python embedding |Реальное evidence, ограничения и решение в ADR; Python может развиваться параллельно, но не входит в 0.1.
+|0.1 |Самостоятельный 2D Sketcher |Все критерии xref:scope-0.1.adoc[] на трёх платформах.
+|Следующий 3D релиз |Первые параметрические детали, сохранение и STEP/STL |Замкнутый профиль -> OCCT -> тело -> изменение -> save/open -> export.
+|Расширение деталей |Полный набор операций и параметров |Регрессионные детали, устойчивые ссылки и обработка ошибок истории.
+|Сборки |Связи, подсборки, пересечения, состав |Эталонные сборки и agreed performance budgets.
+|Чертежи |Ассоциативная документация |Матрица ЕСКД/ISO и проверенные образцы/экспорт.
+|Прямое редактирование и макросы |Импортированная/собственная геометрия, автоматизация |History/Undo/rollback и одинаковое поведение платформ.
+|1.0 |Стабильный полный согласованный продукт |Все R10 критерии и release gates; не просто наличие кнопок.
+|===
+
+Порядок приоритетов согласован; номера промежуточных релизов и даты не назначены.
+
+== Обязательные проверки до обещаний
+[cols="1,2,2,3",options="header"]
+|===
+|ID |Проверка |Владелец роли |Закрытие
+|CHK-OS |Минимальные ОС/SDK/ABI, Qt/OCCT compatibility |Ответственный за платформы |Сборки и реальные device/runtime checks; поддерживаемая матрица записана.
+|CHK-DEVICE |Тестовые устройства и budgets |Ответственный за QA/производительность |Пользователь принимает предложенные устройства и численные budgets после benchmark.
+|CHK-PY |CPython на Android |Ответственный за automation |APK выполняет macro API, rollback и упаковку stdlib; размер/время/ограничения измерены.
+|CHK-TOPO |Стабильные ссылки на геометрию |Ответственный за CAD core |Spike перестроения/удаления/изменения topology; стратегия ADR не допускает тихой смены ссылки.
+|CHK-LICENSE |Source-available license, Qt/OCCT/зависимости, магазины, contributions |Владелец продукта + юридический reviewer |Проверенный текст, notices, distribution obligations и соглашение; нет AGPL с дополнительными запретами.
+|CHK-FORMAT |Матрица import/export и fidelity |Ответственный за exchange |По каждому формату указаны направления, версии/сущности, независимые acceptance files.
+|CHK-DRAW |Поддерживаемые элементы ЕСКД/ISO |Ответственный за drawing + предметный reviewer |Ограниченный перечень и эталонные чертежи; стандарт не объявлен целиком поддержанным.
+|CHK-MACRO |Границы macro API и прекращение исполнения |Ответственный за automation |Определены доступ к проекту/файлам, доверие, зависший код и transaction semantics; нет обещания безопасной изоляции одним worker thread.
+|===
+
+Это владельцы ролей, а не назначенные люди. Технические факты исследует агент; consequential choices возвращаются пользователю.
+
+== Release gates
+* Нет известных дефектов заявленных сценариев, неверной геометрии или потери данных.
+* Core, UI/runtime, файлы и независимый обмен проверены отдельно.
+* Android проверен APK и реальным устройством; desktop tests недостаточны.
+* Публичные 0.x обеспечивают миграцию либо явный export transition; перед migration есть backup.
+* Полный suite, CI, platform artifacts, RU/EN руководства и release limitations актуальны.
+* Distribution/license obligations закрыты до публикации сборок.
+
+== Следующий шаг после ревью документов
+Декомпозировать 0.1 в отдельные tracked increments: общая Sketch model и ссылки;
+редактирование; constraints/dimensions/diagnostics; transactions/Undo;
+project storage; DXF; Android/Windows; release validation.
+Для каждого: Antora acceptance -> issue -> labels -> RED -> implementation -> GREEN/runtime evidence.
+Этот документ не создаёт issues автоматически и не разрешает обходить спецификацию.
