@@ -1,0 +1,18 @@
+= Prototype implementation plan
+
+Spec: xref:prototype.adoc[]. Issue: #1.
+
+== Core
+Files: include/sketchcad/rectangle.h, src/rectangle.cpp, tests/rectangle_test.cpp.
+Interface: Rectangle stores four points and dimensions; solve(width,height,anchor) returns bool and preserves state on failure; translate(dx,dy) moves a free rectangle.
+Write tests for 50x30 dimensions, anchor at origin, translation, contradictory width, negative dimensions and non-finite input. First run the tests against a deliberately unimplemented adapter and capture failure. Implement Ceres residuals for horizontal/vertical edges and signed coordinate dimensions. Validate residuals before committing solved coordinates. Run all tests through CTest.
+
+== Demonstration
+Files: app/main.cpp, app/controller.h, app/Main.qml.
+Expose rectangle coordinates, dimension editing, anchor toggle and translation through a QObject. Test controller validation and geometry notification using Qt Test before implementation. Render the rectangle with Qt Quick Canvas; pointer drag translates it when free. Launch offscreen to catch QML loading failures. This demonstration supports a preset rectangle; arbitrary entity drawing remains a follow-up issue.
+
+== Infrastructure
+CMake builds the Qt-independent core, tests and optional Qt app. GitHub Actions installs supported dependencies, runs CTest and builds Antora. Antora component descriptor, navigation and local playbook include prototype, plan and build instructions. Android build/device verification and robust general DOF/conflict diagnostics remain explicit follow-up tasks.
+
+== Review focus
+Reject zero/negative and non-finite dimensions. Preserve state on invalid input and conflict. Anchoring disables free translation. Verify QML property updates after successful operations. Do not report a numerical DOF estimate that has not been implemented.
