@@ -4,6 +4,7 @@
 Required: C++20 compiler, CMake 3.24+, Ninja, Git, vcpkg and Qt 6.5+ Quick/Test development packages.
 Ceres, Eigen and GoogleTest are managed by the repository vcpkg manifest.
 Qt comes from the installed Qt SDK; set CMAKE_PREFIX_PATH if needed.
+CI installs Qt 6.12.0 LTS with jurplel/install-qt-action, because Ubuntu 24.04 packages only provide Qt 6.4.
 
 [source,shell]
 ----

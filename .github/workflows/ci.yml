@@ -1,12 +1,22 @@
 name: CI
 on: [push, pull_request]
+env:
+  # Ubuntu 24.04 apt ships Qt 6.4, below the project minimum (6.5). Use the latest
+  # Qt LTS from the official installer instead; qtdeclarative (Qml/Quick) is part of
+  # the base desktop kit, so no extra modules are needed.
+  SKETCHCAD_QT_VERSION: "6.12.0"
 jobs:
   desktop:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install Qt and build tools
-        run: sudo apt-get update && sudo apt-get install -y ninja-build qt6-declarative-dev qt6-base-dev qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts qml6-module-qtquick-window qml6-module-qtqml-workerscript
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgl1-mesa-dev libegl1 libxkbcommon-dev libfontconfig1
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.SKETCHCAD_QT_VERSION }}
+          cache: true
       - name: Get pinned vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
