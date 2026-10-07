@@ -1,0 +1,24 @@
+= SketchCAD: first prototype
+
+== Product and scope
+Android tablet-first CAD: sketch, constraints, closed profile, feature, solid. Distribution uses pay what you want; license selection is a separate decision. The first prototype validates 2D sketch interaction. OCCT, feature history, export and engineering drawing sheets follow later. An editable sketch is not a manufacturing drawing.
+
+== Stack
+C++20; Qt 6 Quick/QML; CMake and Ninja; Ceres for nonlinear least squares; Eigen for linear algebra; GoogleTest for core tests. Match Android NDK to the chosen Qt release. Start with desktop tests and validate the same UI on a real Android tablet before declaring mobile readiness.
+
+== Architecture
+A Qt-free sketch core stores points with stable IDs and constraints. A Ceres adapter solves a copy of the parameters, checks every hard residual and commits only a valid result. QML talks to a QObject controller, never to solver objects or OCCT topology. Millimeters are the canonical unit. Drag targets are soft preferences and must not override hard constraints. Local Jacobian rank can estimate DOF; singular configurations and conflict diagnosis require additional work.
+
+== First acceptance scenario
+A rectangle has horizontal and vertical edges, width 50 mm and height 30 mm. Without an anchor it has two translational DOF. Dragging a corner moves the rectangle without changing its dimensions. Anchoring the lower-left corner at (0,0) leaves zero local DOF. A second contradictory width of 60 mm is rejected, preserving the previous valid geometry. Non-finite inputs and invalid point IDs are rejected. No performance target is claimed without measurement.
+
+== Incremental implementation
+. Core constraint solving: horizontal, vertical, coincidence and coordinate dimensions; finite-input checks and transactional rollback.
+. Qt Quick demonstration: constrained rectangle, pointer drag, dimensions and solve status.
+. Extend to arbitrary line creation, distance/perpendicular constraints and robust drag preferences.
+. Add local DOF diagnostics and conflict/redundancy reporting.
+. Validate Android build and touch interaction.
+. Introduce OCCT profile conversion and extrusion.
+
+== Verification
+Tests cover valid constrained geometry, contradictory dimensions, invalid input and rollback. UI must be launch-tested independently of core tests. Android validation requires an APK build and device interaction. Follow documentation, issue, labels, failing tests, implementation for each increment.
