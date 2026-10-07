@@ -156,7 +156,7 @@ Analytical DOF fixtures, redundant duplicates, contradictory dimensions, singula
 == U01: Build the sketch viewport and primitive drawing tools
 
 * Requirements: S01-GEO, S01-UI.
-* Dependencies: C01, C02, P01.
+* Dependencies: C01, C02, P01, xref:adr-0002-tablet-ui.adoc[ADR-0002].
 * Initial status: planned.
 * Suggested files: `app/sketch_controller.*; app/SketchViewport.qml; tests/sketch_ui_test.cpp`.
 
@@ -331,4 +331,3 @@ Representative sketches, create/edit/solve/undo/save/recovery/DXF across platfor
 
 === Verification
 Core/UI/files/independent consumer/device runs отдельно; performance results measured, CI state rechecked; release owner explicitly approves publication.
-

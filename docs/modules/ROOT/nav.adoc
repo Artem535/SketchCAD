@@ -8,6 +8,7 @@
 ** xref:licensing.adoc[Licensing package]
 * Architecture decisions
 ** xref:adr-0001-3d-viewer.adoc[ADR-0001: 3D viewer]
+** xref:adr-0002-tablet-ui.adoc[ADR-0002: Tablet UI shell]
 * Prototype and development
 ** xref:prototype.adoc[Prototype specification]
 ** xref:implementation-plan.adoc[Implementation plan]
