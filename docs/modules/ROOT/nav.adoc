@@ -6,6 +6,8 @@
 ** xref:decision-log.adoc[Decision Log]
 ** xref:backlog-0.1.adoc[Backlog 0.1]
 ** xref:licensing.adoc[Licensing package]
+* Architecture decisions
+** xref:adr-0001-3d-viewer.adoc[ADR-0001: 3D viewer]
 * Prototype and development
 ** xref:prototype.adoc[Prototype specification]
 ** xref:implementation-plan.adoc[Implementation plan]

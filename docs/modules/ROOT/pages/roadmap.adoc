@@ -30,6 +30,7 @@ Desktop Release build, 8 CTest checks, QML interaction/smoke и screenshot пр�
 |CHK-DEVICE |Тестовые устройства и budgets |Ответственный за QA/производительность |Пользователь принимает предложенные устройства и численные budgets после benchmark.
 |CHK-PY |CPython на Android |Ответственный за automation |APK выполняет macro API, rollback и упаковку stdlib; размер/время/ограничения измерены.
 |CHK-TOPO |Стабильные ссылки на геометрию |Ответственный за CAD core |Spike перестроения/удаления/изменения topology; стратегия ADR не допускает тихой смены ссылки.
+|CHK-3D |Встраивание 3D-просмотра в Qt Quick на Android |Ответственный за платформы + CAD core |Spike SPK-3D из xref:adr-0001-3d-viewer.adoc[ADR-0001] выполнен на реальном планшете; ADR принят или отклонён по замерам.
 |CHK-LICENSE |Source-available license, Qt/OCCT/зависимости, магазины, contributions |Владелец продукта + юридический reviewer |Проверенный текст, notices, distribution obligations и соглашение; нет AGPL с дополнительными запретами.
 |CHK-FORMAT |Матрица import/export и fidelity |Ответственный за exchange |По каждому формату указаны направления, версии/сущности, независимые acceptance files.
 |CHK-DRAW |Поддерживаемые элементы ЕСКД/ISO |Ответственный за drawing + предметный reviewer |Ограниченный перечень и эталонные чертежи; стандарт не объявлен целиком поддержанным.
