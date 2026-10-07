@@ -4,6 +4,8 @@
 ** xref:scope-1.0.adoc[Scope 1.0]
 ** xref:roadmap.adoc[Roadmap]
 ** xref:decision-log.adoc[Decision Log]
+** xref:backlog-0.1.adoc[Backlog 0.1]
+** xref:licensing.adoc[Licensing package]
 * Prototype and development
 ** xref:prototype.adoc[Prototype specification]
 ** xref:implementation-plan.adoc[Implementation plan]

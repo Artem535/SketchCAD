@@ -1,0 +1,334 @@
+= Backlog 0.1: спецификации задач
+:toc:
+
+Декомпозиция согласованного Scope 0.1, 7 октября 2026 года. Это задачи на реализацию, не готовая реализация.
+Issue #1 остаётся историей rectangle demo. Задачи ниже создаются отдельно; статусы planned не означают дефект.
+Готовность ready означает отсутствие внутренних зависимостей, но не наличие внешнего устройства/юриста.
+
+== Общие границы
+Qt-free core, stable IDs/mm, Ceres/Eigen и vcpkg; no OCCT/Python/3D в 0.1.
+Каждая команда transactional; hard residuals проверяются; drag residuals исключаются из DOF.
+Для каждого инкремента: уточнить specification/interface -> issue/labels -> RED -> implementation -> full relevant GREEN/runtime evidence -> review.
+Пути файлов ниже являются предлагаемым разделением ответственности; изменение интерфейсов фиксируется в спецификации до кода.
+Тест-план описывает наблюдаемое поведение; реализация не должна подменять независимые oracle проверками своих же вычислений.
+
+[[l01]]
+== L01: Review and adopt the source-available licensing package
+
+* Requirements: V-04.
+* Dependencies: нет внутренних зависимостей.
+* Initial status: review.
+* Suggested files: `LICENSE.draft.md; docs/modules/ROOT/pages/licensing.adoc`.
+
+=== Deliverable
+Проверенный текст software license, docs notices, dependency obligations и contribution agreement.
+
+=== Scope
+Проверить границы paid access/bundles, private macros и users output; проверить конкретные Qt modules/linking, Ceres/Eigen/OCCT и транзитивные лицензии; назвать праводержателей/контакт, patent policy и применимое право; подготовить соглашение вкладов.
+
+=== Acceptance
+Юридический reviewer и владелец продукта утверждают текст; LICENSE получает действующий текст только после ревью; notices для docs/third-party и разрешённые каналы дистрибуции записаны.
+
+=== Verification
+Матрица сценариев: коммерческая работа/закрытая модель разрешены; paid fork/hosted access запрещены; free fork предоставляет source; Qt obligations не перекрыты.
+
+[[p01]]
+== P01: Validate Android ARM64 Qt/vcpkg build and tablet input
+
+* Requirements: S01-UI, S01-REL.
+* Dependencies: нет внутренних зависимостей.
+* Initial status: ready.
+* Suggested files: `CMakePresets.json; platform/android/; docs/modules/ROOT/pages/platform-matrix.adoc`.
+
+=== Deliverable
+APK prototype и воспроизводимый Android toolchain.
+
+=== Scope
+Закрепить Qt/NDK/SDK/ABI после compatibility check; собрать текущий rectangle demo; на реальном планшете проверить touch/stylus, text input и orientation; измерить startup/artifact size.
+
+=== Acceptance
+Есть APK и device evidence; source/build instructions повторимы; установлены ограничения SDK и libraries; desktop pass не выдаётся за mobile pass.
+
+=== Verification
+Build smoke; install/launch; touch drag/anchor/conflict и ввод размеров на устройстве; протокол результатов.
+
+[[c01]]
+== C01: Introduce a Qt-free Sketch model with stable entity references
+
+* Requirements: S01-GEO.
+* Dependencies: нет внутренних зависимостей.
+* Initial status: ready.
+* Suggested files: `include/sketchcad/sketch.h; src/sketch.cpp; tests/sketch_test.cpp`.
+
+=== Deliverable
+Общая модель вместо обязательного rectangle preset.
+
+=== Scope
+Point/Line/Circle/Arc со stable IDs, finite validation, construction flag; операции создания/изменения/удаления; invalid references и deletion policy; полилиния/прямоугольник как создание связанных примитивов.
+
+=== Acceptance
+Неизвестные IDs, неконечные параметры и недопустимый радиус отклоняются; IDs не переиспользуются при undo/delete; delete не оставляет висячих refs; копирование модели независимо.
+
+=== Verification
+RED: wrong ID, NaN, dangling delete; GREEN: CRUD для каждого примитива, shared endpoints и независимая копия.
+
+[[c02]]
+== C02: Add atomic document commands and Undo/Redo
+
+* Requirements: S01-UNDO.
+* Dependencies: C01.
+* Initial status: planned.
+* Suggested files: `include/sketchcad/document.h; src/document.cpp; tests/document_test.cpp`.
+
+=== Deliverable
+Единая граница изменений, solver commit и истории.
+
+=== Scope
+Команды CRUD/constraints/dimensions; транзакция commit/rollback; одна drag gesture = одна undo command; redo branch сбрасывается после нового edit; dirty state относительно saved revision.
+
+=== Acceptance
+Неуспешная команда не меняет document/history; Undo/Redo восстанавливают ID, refs, parameters и constraints; dirty корректен при undo к saved state.
+
+=== Verification
+RED: partially failed batch; GREEN: create/delete/edit round trips, failed solve no history, redo invalidation, grouped drag.
+
+[[s01]]
+== S01: Generalize the transactional constraint solver
+
+* Requirements: S01-CON.
+* Dependencies: C01, C02.
+* Initial status: planned.
+* Suggested files: `include/sketchcad/constraint.h; src/constraint_solver.cpp; tests/constraint_solver_test.cpp`.
+
+=== Deliverable
+Constraint IDs и решение общей модели Ceres.
+
+=== Scope
+Совпадение, horizontal/vertical, parallel/perpendicular, tangent, equal, fix для применимых primitive pairs; type validation, tolerance policy, solve на копии; обновить Antora матрицу поддерживаемых пар до кода.
+
+=== Acceptance
+Каждый тип имеет позитивный/конфликтный сценарий; все hard residuals проверены; errors различают invalid input, numerical failure и unsatisfied constraints; rollback включает constraint set.
+
+=== Verification
+RED для каждого типа; GREEN с независимым residual oracle, mixed geometry и degenerate inputs; CTest core.
+
+[[s02]]
+== S02: Implement editable driving dimensions
+
+* Requirements: S01-DIM.
+* Dependencies: S01.
+* Initial status: planned.
+* Suggested files: `src/dimension.cpp; tests/dimension_test.cpp; app/dimension_model.*`.
+
+=== Deliverable
+Длина, distance, angle и radius управляют геометрией.
+
+=== Scope
+Определить applicable entity pairs, угол/ориентацию и единицы; finite/positive checks по типу; изменение размера через document command; Qt bridge отдельно от core.
+
+=== Acceptance
+Каждый размер даёт ожидаемую геометрию; невозможный размер сохраняет прежнее состояние и undo history; ошибки видимы в controller.
+
+=== Verification
+RED каждого dimension, zero/negative/NaN где недопустимо; GREEN edit/undo/conflict и controller notifications.
+
+[[s03]]
+== S03: Implement local DOF and conflict diagnostics
+
+* Requirements: S01-DIAG.
+* Dependencies: S01, S02.
+* Initial status: planned.
+* Suggested files: `src/constraint_diagnostics.cpp; tests/constraint_diagnostics_test.cpp`.
+
+=== Deliverable
+Jacobian rank, status и constraint IDs для UI.
+
+=== Scope
+DOF только persistent hard constraints; rank threshold/normalization и singular handling в ADR; конфликтная диагностика с bounded work, без обещания минимального набора; numerical unknown отдельно.
+
+=== Acceptance
+Free/fixed reference sketches дают ожидаемый DOF; redundant и conflicting cases различаются; drag residual не меняет DOF; при неопределённости точный диагноз не выдумывается.
+
+=== Verification
+Analytical DOF fixtures, redundant duplicates, contradictory dimensions, singular geometry, reproducibility; отдельно измерить diagnostics cost.
+
+[[u01]]
+== U01: Build the sketch viewport and primitive drawing tools
+
+* Requirements: S01-GEO, S01-UI.
+* Dependencies: C01, C02, P01.
+* Initial status: planned.
+* Suggested files: `app/sketch_controller.*; app/SketchViewport.qml; tests/sketch_ui_test.cpp`.
+
+=== Deliverable
+Рисование и редактирование всех примитивов 0.1.
+
+=== Scope
+World/view transform mm, pan/zoom, hit testing, selection/delete, drawing tools; touch/stylus/mouse and keyboard escape/cancel; отмена незавершённого инструмента.
+
+=== Acceptance
+Пользователь строит line/polyline/rectangle/circle/arc и редактирует геометрию; zoom не меняет модель; selection остаётся пригодным при разных масштабах; отмена не создаёт мусор.
+
+=== Verification
+Qt Test real controls/pointer interactions; populated screenshot; runtime на Android и desktop; object selection при zoom.
+
+[[u02]]
+== U02: Expose constraints, dimensions and diagnostics in the UI
+
+* Requirements: S01-CON, S01-DIM, S01-DIAG.
+* Dependencies: U01, S02, S03.
+* Initial status: planned.
+* Suggested files: `app/ConstraintPanel.qml; app/DimensionEditor.qml; tests/constraint_ui_test.cpp`.
+
+=== Deliverable
+Добавление constraints/размеров и понятный solve status.
+
+=== Scope
+Выбор applicable entities, list/select/delete constraints, numeric input, DOF display, conflicting IDs highlight и numerical failure guidance.
+
+=== Acceptance
+Реальные UI-команды изменяют document; conflict выделен и rollback виден; invalid selections не отправляются как допустимая команда; доступно keyboard/touch.
+
+=== Verification
+Actual click/edit tests, conflict rollback, undo from UI, singular failure display и RU/EN layout.
+
+[[u03]]
+== U03: Implement constrained interactive dragging
+
+* Requirements: S01-DRAG, S01-UNDO.
+* Dependencies: U01, S01, S02.
+* Initial status: planned.
+* Suggested files: `src/drag_session.cpp; app/DragHandler.qml; tests/drag_test.cpp`.
+
+=== Deliverable
+Warm-start drag с мягкой целью и приоритетом hard constraints.
+
+=== Scope
+Lifecycle begin/update/commit/cancel, bounded iterations, soft preference; останавливаться на valid geometry, не ослаблять hard constraints; gesture объединена в undo.
+
+=== Acceptance
+Размеры сохраняются при drag; fixed geometry не двигается; cancel восстанавливает исходное; неприемлемый intermediate solve не коммитится.
+
+=== Verification
+Free/constrained/fixed/singular fixtures; actual touch/mouse drag; latency measured on chosen devices без заранее обещанных 60 FPS.
+
+[[u04]]
+== U04: Add snapping, construction geometry and trim/extend
+
+* Requirements: S01-EDIT.
+* Dependencies: U01, S01.
+* Initial status: planned.
+* Suggested files: `src/sketch_edit.cpp; app/SnapOverlay.qml; tests/sketch_edit_test.cpp`.
+
+=== Deliverable
+Завершение полезного contour workflow.
+
+=== Scope
+Endpoint/center/intersection snaps с визуальным preview; construction toggle; trim/extend для применимых line/arc/circle cases; стабильные refs после topology edit.
+
+=== Acceptance
+Замкнутый контур создаётся воспроизводимо; preview не мутирует document; trim/delete корректно обрабатывают constraints, без dangling refs; construction исключается из рабочего профиля.
+
+=== Verification
+Intersections/tangent/ambiguous picks, invalid edit rollback; UI preview/cancel; constraint integrity после edit.
+
+[[f01]]
+== F01: Define a versioned project format and implement save/open
+
+* Requirements: S01-FILE, S01-REL.
+* Dependencies: C01, C02, S02.
+* Initial status: planned.
+* Suggested files: `src/project_io.cpp; tests/project_io_test.cpp; docs/modules/ROOT/pages/project-format.adoc`.
+
+=== Deliverable
+Portable document file с schema/version и validation.
+
+=== Scope
+Сначала schema ADR; entities/IDs/constraints/dimensions/construction; atomic save; reject corrupt/future version safely; save revision и migration fixtures.
+
+=== Acceptance
+Round trip сохраняет semantic model; failed write не уничтожает прежний файл; invalid load не меняет открытый document; locale independent.
+
+=== Verification
+Fixtures all primitive/constraint types, unicode paths, invalid refs, truncated/future files, write failure and cross-platform round trip.
+
+[[f02]]
+== F02: Implement autosave and crash recovery
+
+* Requirements: S01-FILE.
+* Dependencies: F01.
+* Initial status: planned.
+* Suggested files: `src/recovery_store.cpp; tests/recovery_test.cpp; app/RecoveryDialog.qml`.
+
+=== Deliverable
+Восстановление без тихой перезаписи пользовательского проекта.
+
+=== Scope
+Separate recovery snapshot, debounce, revision metadata, обнаружение incomplete write; explicit restore/discard; сохранение originals и recovery cleanup policy.
+
+=== Acceptance
+После simulated crash найден последний complete snapshot; original цел; пользователь выбирает восстановление; corrupted snapshot не подменяет valid file.
+
+=== Verification
+Fault injection interrupted writes, unsaved/new doc recovery, restore/discard, no stale replay после normal save/close.
+
+[[x01]]
+== X01: Export line/circle/arc sketch geometry to DXF
+
+* Requirements: S01-DXF.
+* Dependencies: C01, F01.
+* Initial status: planned.
+* Suggested files: `src/dxf_export.cpp; tests/dxf_export_test.cpp; tests/fixtures/dxf/`.
+
+=== Deliverable
+DXF geometry в mm с независимой проверкой.
+
+=== Scope
+Определить DXF version/backend и его лицензию до dependency change; units, arc direction и construction exclusion; dimensions/constraints не экспортируются.
+
+=== Acceptance
+Независимый reader открывает геометрию с корректным масштабом и ориентацией; никакие drafting sheets не заявлены; export failure не портит target.
+
+=== Verification
+Round trip independent reader, line/circle/arc coordinates/radii/angles, closed mixed contours и Unicode path.
+
+[[r01]]
+== R01: Deliver RU/EN UI, guides and cross-platform release packages
+
+* Requirements: S01-UI, S01-REL.
+* Dependencies: P01, U02, U03, U04, F02, X01, L01.
+* Initial status: planned.
+* Suggested files: `translations/; platform/; .github/workflows/ci.yml; docs/modules/ROOT/pages/release-0.1.adoc`.
+
+=== Deliverable
+Устанавливаемые Android/Linux/Windows artifacts и проверенная локализация.
+
+=== Scope
+Platform matrix/Qt floors, installers/packages/signing без публикации ключей; runtime Qt notices, optional update preference и opt-in crash reports; RU/EN основной workflow.
+
+=== Acceptance
+APK/package/installer устанавливаются и запускаются; модель совпадает между платформами; legal obligations выполнены; платёж не требуется; no implicit network telemetry.
+
+=== Verification
+CI builds плюс реальные runtime checks; offline scenario, localization truncation, installer uninstall и first-run; docs build.
+
+[[r02]]
+== R02: Run the 0.1 acceptance campaign and authorize release
+
+* Requirements: S01-GEO, S01-EDIT, S01-CON, S01-DIM, S01-DRAG, S01-DIAG, S01-UNDO, S01-FILE, S01-DXF, S01-UI, S01-REL.
+* Dependencies: R01, S03.
+* Initial status: planned.
+* Suggested files: `docs/modules/ROOT/pages/acceptance-0.1.adoc; tests/fixtures/acceptance/`.
+
+=== Deliverable
+Evidence matrix и go/no-go 0.1.
+
+=== Scope
+Representative sketches, create/edit/solve/undo/save/recovery/DXF across platforms; agreed device/performance budgets после measurement; migration rehearsals и outstanding defects.
+
+=== Acceptance
+Все acceptance IDs связаны с evidence; нет известных geometry/data-loss/scenario blockers; Android device не заменён desktop smoke; release limitations documented.
+
+=== Verification
+Core/UI/files/independent consumer/device runs отдельно; performance results measured, CI state rechecked; release owner explicitly approves publication.
+
