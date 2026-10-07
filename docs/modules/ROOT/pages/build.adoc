@@ -30,3 +30,6 @@ Antora reads Git HEAD. Commit documentation locally before building the site.
 == Android
 Desktop tests do not validate Android. APK build, ABI-specific vcpkg dependencies,
 Qt Android SDK/NDK compatibility and real tablet touch validation remain future work.
+
+== Desktop acceptance checks
+CTest includes core geometry/rollback tests, controller signal checks, and an offscreen QML test which edits the width, drags a corner, rejects a conflict and anchors the rectangle using actual controls. An additional application smoke checks QML loading and command execution. These are desktop software-renderer checks, not Android or touch-device validation.
