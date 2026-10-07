@@ -11,3 +11,4 @@
 ** xref:implementation-plan.adoc[Implementation plan]
 ** xref:build.adoc[Build and validation]
 ** xref:handoff.adoc[Project handoff]
+** xref:sketch-model.adoc[Sketch model contract]
