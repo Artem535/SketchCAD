@@ -1,0 +1,3 @@
+* xref:prototype.adoc[Prototype specification]
+* xref:implementation-plan.adoc[Implementation plan]
+* xref:build.adoc[Build and validation]

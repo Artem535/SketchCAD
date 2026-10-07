@@ -1,0 +1,32 @@
+= Build and validation
+
+== Desktop
+Required: C++20 compiler, CMake 3.24+, Ninja, Git, vcpkg and Qt 6.5+ Quick/Test development packages.
+Ceres, Eigen and GoogleTest are managed by the repository vcpkg manifest.
+Qt comes from the installed Qt SDK; set CMAKE_PREFIX_PATH if needed.
+
+[source,shell]
+----
+cmake -S . -B build/desktop -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build/desktop -j 4
+ctest --test-dir build/desktop --output-on-failure
+./build/desktop/sketchcad
+----
+
+Use -DSKETCHCAD_BUILD_APP=OFF for a Qt-independent core build.
+The demo supports a preset rectangle, dimension edits, anchor toggle and free translation.
+A conflict probe adds a contradictory width and must preserve geometry.
+No general entity editor or numerical DOF/conflict diagnosis is implemented in this increment.
+
+== Documentation
+[source,shell]
+----
+npm ci
+npm run docs
+----
+Antora reads Git HEAD. Commit documentation locally before building the site.
+
+== Android
+Desktop tests do not validate Android. APK build, ABI-specific vcpkg dependencies,
+Qt Android SDK/NDK compatibility and real tablet touch validation remain future work.
