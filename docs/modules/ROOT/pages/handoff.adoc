@@ -1,0 +1,237 @@
+= SketchCAD: идея проекта и передача следующему агенту
+:toc:
+
+Срез состояния: 7 октября 2026 года. Этот документ подготовлен по просьбе пользователя для передачи работы другому агенту. Обновление: первый desktop-прототип собран и прошёл проверки ниже. Последующие разделы первоначального среза сохранены как история и должны читаться с учётом этого обновления.
+
+== Обновление после продолжения работы
+
+7 октября 2026 года выполнены:
+
+* Повторный configure с актуальными targets через vcpkg.
+* Release build приложения и тестов: код возврата 0.
+* CTest: 8/8 прошли, включая core, controller, реальные QML edit/drag/conflict/anchor interactions и application smoke.
+* Отдельный запуск sketchcad --smoke --screenshot: код возврата 0; изображение build/prototype.png просмотрено, геометрия 50×30 мм и элементы интерфейса отрисованы корректно.
+* git diff --check: без ошибок.
+
+Android, аппаратный renderer, реальный планшет и performance budget не проверены. Общий sketch model, численный DOF и OCCT остаются вне первого прототипа. Проверка через offscreen/software не заменяет ручной запуск на целевом устройстве.
+
+== Краткий контекст
+
+SketchCAD — открытый проект параметрической CAD-системы, ориентированной прежде всего на Android-планшеты и работу касанием. Начать нужно с удобного 2D Sketcher, затем перейти к построению объёмных деталей. Распространение предполагается по модели pay what you want. Публичность репозитория не означает, что выбрана лицензия: лицензия и платёжная интеграция пока не определены.
+
+Пользователь выбрал подход Qt Quick + собственная модель эскиза + Ceres/Eigen + OCCT. Затем отдельно потребовал использовать vcpkg. Не возвращаться к FetchContent для зависимостей.
+
+Исходный разговор: https://chatgpt.com/share/6ac607b0-7ed4-83ed-a358-dc21dc1d6d8d[Движки C++ для 3D САПР].
+
+* Репозиторий: https://github.com/Artem535/SketchCAD[Artem535/SketchCAD].
+* Задача первого прототипа: https://github.com/Artem535/SketchCAD/issues/1[issue #1].
+* Локальная папка: `/home/a.durynin/Projects/C++/SketchCAD`.
+* Рабочая ветка: `feature/1-rectangle-prototype`.
+
+== Принятый стек
+
+[cols="1,3"]
+|===
+|Слой |Решение
+|Язык и стиль |C++20, Google C++ Style, snake_case для функций и переменных
+|Интерфейс |Qt 6 Quick/QML; крупные элементы управления для планшета
+|Модель эскиза |Собственные сущности со стабильными ID, единицы — миллиметры
+|Решение ограничений |Ceres, residual-функции и automatic differentiation
+|Линейная алгебра |Eigen; в будущем анализ ранга Jacobian для локального DOF
+|Геометрическое ядро |OCCT на следующем этапе, после рабочего Sketcher
+|Зависимости |vcpkg manifest с закреплённым baseline; Qt из установленного SDK
+|Сборка |CMake + Ninja
+|Тесты |GoogleTest для core, Qt Test для контроллера и QML
+|Документация |Antora + AsciiDoc, канонические страницы в docs/modules/ROOT/pages
+|CI |GitHub Actions: desktop build/tests и Antora build
+|===
+
+Не заменять выбранный стек без нового решения пользователя. Не добавлять OCCT, платежи или другие крупные подсистемы в текущий прототип.
+
+== Архитектурная идея
+
+[source,text]
+----
+Qt Quick / QML
+        |
+QObject Controller
+        |
+Sketch Model (Qt-free, stable IDs, millimeters)
+        |
+Constraint Engine
+  - build problem
+  - solve on a copy
+  - validate each hard residual
+  - commit or rollback
+  - later: DOF / redundancy / conflict diagnosis
+        |
+Ceres + Eigen
+        |
+Solved sketch
+        |
+Future: OcctProfileBuilder -> Wire -> Face -> Extrude / Revolve / Boolean
+----
+
+Эскиз хранит параметры, а не OCCT topology. OCCT должен получать решённый профиль через отдельный конвертер. Core не должен зависеть от Qt или OCCT. Это разделение должно облегчить будущие Undo/Redo и сериализацию; сами они ещё не реализованы и не специфицированы подробно.
+
+Ceres — оптимизатор нелинейных least squares, а не готовый CAD constraint engine. Его успешная сходимость не доказывает выполнение ограничений. Нужны проверка residual каждого обязательного ограничения, транзакционность и собственная диагностика.
+
+Перетаскивание общего эскиза в будущем предполагает временную мягкую drag-цель, warm start и ограниченный бюджет итераций. Мягкая цель не должна нарушать жёсткие ограничения. Нельзя включать drag/stabilization residual в расчёт DOF. Цель плавного взаимодействия обсуждалась, но измерений производительности и обещания 60 FPS нет.
+
+== Обязательный порядок разработки
+
+Требования пользователя и AGENTS.md:
+
+. Сначала написать или обновить Antora-спецификацию с критериями приёмки.
+. Создать GitHub issue со ссылкой на спецификацию.
+. Поставить labels типа задачи, подсистемы и статуса.
+. Написать тесты и увидеть ожидаемое падение из-за отсутствия поведения.
+. Реализовать поведение и пройти полный относящийся к нему набор тестов.
+. Ссылаться на issue в commits/PR; записать доказательства проверок и ограничения в issue.
+
+Issue #1 уже существует, открыта и имеет labels `enhancement`, `area:sketch`, `status:ready`. Для предусмотренного ей прототипа не нужна дублирующая issue.
+
+Shell-команды всегда запускать через `rtk`; для неподдерживаемых команд использовать `rtk proxy`. Это указано в `/home/a.durynin/.codex/RTK.md`.
+
+Не объявлять Android-поддержку по desktop-тестам. Не выбирать лицензию и не добавлять платежи без отдельного решения.
+
+== Первый прототип: согласованный объём
+
+Проверить пресет прямоугольника:
+
+* Горизонтальные и вертикальные стороны, ширина 50 мм, высота 30 мм.
+* Без фиксации его можно переносить с сохранением размеров.
+* Фиксация нижнего левого угла в (0,0) блокирует перенос.
+* Противоречащая ширина 60 мм при исходной 50 мм отклоняется.
+* После ошибки сохраняются прежняя геометрия и состояние фиксации.
+* Нулевые, отрицательные и нечисловые/бесконечные размеры отклоняются.
+* QML отображает изменения модели и статус решения.
+
+В общей математической модели свободный прямоугольник имеет две поступательные DOF, зафиксированный — ноль. В текущем инкременте численный анализ DOF НЕ реализован и интерфейс его не показывает.
+
+Это preset rectangle demo. Произвольное рисование линий, общая система сущностей и ограничений, круги/дуги, distance/perpendicular constraints, диагностика конфликтующих constraint IDs и OCCT остаются следующими этапами. Некорректные пользовательские ID пока нельзя подать: публичный API произвольных сущностей отсутствует.
+
+== Что находится в рабочем дереве
+
+=== Документация
+
+До этого запуска в main были только AGENTS.md, короткий README и страницы prototype.adoc / implementation-plan.adoc.
+
+В текущей ветке создан локальный коммит:
+
+`47b5598 docs: define vcpkg build and Antora entry points for #1`
+
+Он добавляет Antora descriptor, navigation, playbook, build instructions, package.json/package-lock.json и обновлённый README. Коммит не был отправлен на GitHub в этом запуске.
+
+После коммита build.adoc дополнен описанием UI acceptance tests; это изменение пока не закоммичено. Этот handoff тоже создаётся как локальный документ.
+
+=== Код и инфраструктура — написаны, но пока не проверены сборкой проекта
+
+[cols="2,4"]
+|===
+|Файл |Назначение
+|include/sketchcad/rectangle.h |Четыре точки со стабильными ID, solve(width,height,anchor,optional additional_width), translate(dx,dy)
+|src/rectangle.cpp |Ceres residuals для горизонтальности, вертикальности, координатных размеров и положения начала; проверка residual с tolerance 1e-7 мм; commit/rollback; валидация переноса
+|tests/rectangle_test.cpp |Размеры/ID, свободный перенос, фиксация, конфликт/rollback, некорректные значения
+|app/controller.h / controller.cpp |QObject bridge, points/anchored/status, команды resize/translate/conflict, сигналы обновления
+|tests/controller_test.cpp |Успешные уведомления, сохранение геометрии при ошибках, блокировка переноса
+|app/Main.qml |Canvas с сеткой 10 мм, контур и углы; поля размеров, apply, фиксация, конфликт; drag за угол
+|app/main.cpp |Загрузка QML, --smoke, --screenshot PATH
+|tests/qml_test.cpp |Взаимодействие с QML: размер 70 мм, drag на 10/5 мм, конфликт, фиксация
+|CMakeLists.txt |Core, тесты, optional Qt app, offscreen smoke/UI tests
+|vcpkg.json |Manifest и baseline 1600ce2ba1b6b621bfc5a31a785c4963b817a1c7; ceres без default features, eigen3, gtest
+|.github/workflows/ci.yml |Ubuntu desktop build/tests через pinned vcpkg и отдельный Antora job
+|.clang-format / .gitignore |Google formatting; build/node_modules/public исключены
+|===
+
+Все перечисленные файлы кода и инфраструктуры ещё untracked. Не удалять их как случайный мусор и не начинать с повторного clone. Сначала посмотреть git status/diff и проверить фактическое содержимое.
+
+Реализация resize удерживает прежний свободный origin как gauge для конкретной операции, а при anchor использует (0,0). Это не общая система drag-ограничений и не вычисление DOF. Перенос пресета делает транзакционный сдвиг координат и проверяет сохранение размеров. Общий solver на произвольных точках пока отсутствует.
+
+== Что реально проверено
+
+=== RED перед реализацией
+
+В предыдущих частях этого запуска были временные stubs.
+
+* На stub solve=false: 4 из 5 GoogleTest-тестов ожидаемо упали на отсутствии решения.
+* На permissive stub solve/translate=true: все 5 тестов ожидаемо упали, включая валидацию и rollback.
+* На stub Qt controller: три содержательных Qt Test-теста упали на resize=false; init/cleanup прошли.
+* Отдельный минимальный QML load probe без ресурса Main.qml завершился с кодом 1. Основной application smoke пока не запускался.
+
+RED core/controller запускался прямой компиляцией с системными GoogleTest/Qt, пока vcpkg собирал зависимости. Итоговую GREEN-проверку требуется выполнить через основной CMake/vcpkg build.
+
+Изначальные логи находились в /tmp и после прерывания больше не обнаружены. Не утверждать, что эти файлы сохранились: доказательства RED есть в истории данного чата.
+
+=== Зависимости
+
+На момент подготовки handoff vcpkg/CMake configuration завершилась успешно:
+
+* Ceres 2.2.0.
+* Eigen 5.0.1, выбранный закреплённым vcpkg baseline.
+* GoogleTest 1.17.0.
+* Системный Qt 6.11.2.
+* Release configuration; generated build files in build/vcpkg.
+
+Лог: `build/configure.log`. Фактический использованный toolchain: `/home/a.durynin/Soft/vcpkg/scripts/buildsystems/vcpkg.cmake`.
+
+Первый подход через FetchContent остановлен после требования пользователя использовать vcpkg. В корневом CMake FetchContent удалён. В build могут оставаться старые временные файлы; это не актуальный способ сборки.
+
+=== Документация
+
+`npm ci --ignore-scripts` и `npm run docs` завершились с кодом 0. Antora создала public/sketchcad/prototype.html, implementation-plan.html и build.html. Handoff и последнее изменение build.adoc появились после той проверки; их следует включить в следующую сборку документации.
+
+npm сообщил 11 уязвимостей в дереве инструментов документации (2 moderate, 9 high). Исправления или аудит ещё не выполнялись; не утверждать, что зависимости документации прошли security review.
+
+=== НЕ выполнено
+
+* Сборка собственных C++ targets после завершения конфигурации.
+* GREEN CTest для core/controller/QML.
+* Скриншот и визуальная проверка окна.
+* Реальный интерактивный desktop smoke человеком.
+* Android APK build и тест на планшете.
+* Измерения производительности.
+* Проверка CI на GitHub, публикация ветки или PR.
+* Запись итогового verification evidence в issue #1.
+
+Отсутствие этих проверок не означает известную ошибку; означает, что результат ещё нельзя называть рабочим.
+
+== Что следующему агенту сделать сначала
+
+. Прочитать AGENTS.md, RTK.md, prototype.adoc, implementation-plan.adoc и этот документ.
+. Проверить текущую ветку, git status и build/configure.log. Не стирать незакоммиченные файлы.
+. Повторить CMake configure: после старта предыдущей конфигурации добавлялись qml_test и QML resources; generated files могут ещё не содержать последних targets.
+. Собрать проект, выполнить CTest, исправить обнаруженные проблемы без расширения объёма.
+. Проверить реальные QML edit/drag/anchor/conflict tests; не считать только успех компиляции достаточным.
+. Сделать screenshot, осмотреть окно и отдельно провести доступный runtime smoke.
+. Проверить Antora, scoped diff и C++ formatting.
+. Записать результаты и явные ограничения в issue #1. Только после этого считать прототип проверенным; при подготовке PR связать его с #1.
+
+[source,shell]
+----
+rtk proxy cmake -S . -B build/vcpkg -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=/home/a.durynin/Soft/vcpkg/scripts/buildsystems/vcpkg.cmake
+rtk proxy cmake --build build/vcpkg -j 4
+rtk proxy ctest --test-dir build/vcpkg --output-on-failure
+rtk proxy env QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/vcpkg/sketchcad --smoke --screenshot /home/a.durynin/Projects/C++/SketchCAD/build/prototype.png
+rtk proxy npm run docs
+rtk git diff --check
+----
+
+Для обычного desktop launch: `rtk proxy build/vcpkg/sketchcad`.
+В другом окружении заменить путь toolchain на установленный vcpkg; Qt SDK при необходимости задаётся через CMAKE_PREFIX_PATH. Не устанавливать зависимости на host без необходимости: vcpkg уже согласован.
+
+== Дальнейшая дорожная карта
+
+. Довести preset rectangle demo и закрыть критерии issue #1.
+. Специфицировать общий sketch model: точки, линии, ссылки по стабильным ID; arbitrary line creation и валидация ссылок.
+. Добавить coincidence, distance и perpendicular constraints, затем другие типы. Для каждого инкремента документация, issue, labels, RED, GREEN.
+. Сделать устойчивую интерактивную drag-цель с приоритетом hard constraints и warm start.
+. Добавить локальный анализ DOF через Jacobian rank, учитывая вырожденные конфигурации; затем conflict/redundancy diagnostics.
+. Проверить Android toolchain/APK, реальное touch interaction и производительность на планшете.
+. Добавить конвертер профиля в OCCT и первый Sketch -> Face -> Extrude.
+. Следующие продуктовые направления — revolve/boolean, история features, сохранение, undo/redo, экспорт и чертежи — требуют отдельных спецификаций и решений.
+
+Не превращать эти идеи автоматически в требования текущей issue. Пользователь передаёт проект другому агенту; текущий запрос — handoff, а не продолжение реализации.

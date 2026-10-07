@@ -1,0 +1,24 @@
+= Decision Log
+
+Согласовано 7 октября 2026 года в интервью grilling Q1–Q40. Все ниже — целевые решения; реализация отдельно.
+
+[cols="1,3",options="header"]
+|===
+|Вопросы |Решение
+|Q1–Q5 |Параметрический механический CAD + direct editing; инженеры/небольшие бюро; Android/Linux/Windows; offline/no account; полезные 0.x.
+|Q6–Q11 |Полный набор features, assemblies, drawings ЕСКД/ISO, exchange, direct editing, automation; специализированные направления после 1.0.
+|Q12–Q16 |Полный Sketcher, parameters/history, 100 unique/500 instances как ориентир; ассоциативные drawings; импорт без восстановления истории, mesh остаётся mesh.
+|Q17/Q17.1 |Широкое предложение Python пересмотрено: embedded CPython macros создают обычные операции; stdlib + own API; Android spike; custom code-on-rebuild features не входят.
+|Q18–Q23 |External refs + package, recovery; полный Android/input; assembly constraints; mm/in и свойства; текст/изображения включены в 1.0 вопреки ранней рекомендации; migrations/backup и explicit external updates.
+|Q24 |Permissive и затем AGPL отвергнуты пользователем. Закрытые CAD-проекты и коммерческое использование разрешены; сторонняя продажа приложения запрещена.
+|Q24.3–Q24.6 |Запрет paid builds/access/bundles без разрешения; free source-providing forks; voluntary payments; private macros without SketchCAD code; docs CC BY 4.0; юридические тексты pending.
+|Q25–Q29 |Direct APK/Linux packages/Windows installer; Google Play optional; RU/EN; opt-in diagnostics/update checks; ARM64 Android/x86-64 desktop; 0.1 = 2D Sketcher.
+|Q30–Q35 |Конкретный набор 0.1, три платформы, macros later; contributions agreement; release gates/compatibility; Antora Vision/Scopes/Roadmap/Decision Log.
+|Q36–Q40 |Priority details -> assemblies -> drawings -> direct; право relicensing через contributor agreement; DOF/conflict в 0.1; DXF geometry only; документы до реализации.
+|===
+
+== Изменение решений
+Изменение принятого scope требует явного решения пользователя и обновления затронутых requirement IDs,
+критериев, roadmap и issues. Новая идея не становится молча требованием текущей задачи.
+Исторические prototype.adoc/implementation-plan.adoc описывают этап 0; release scopes описывают будущий продукт.
+Лицензия не вступает в силу через этот decision log: отдельный проверенный текст и notices обязательны.
