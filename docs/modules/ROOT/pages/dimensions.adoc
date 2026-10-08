@@ -86,3 +86,17 @@ Qt (`sketch_controller_test`): `add_dimension` on a drawn line, `set_dimension` 
 state unchanged; Undo restores the previous value.
 
 All existing CTest checks stay green; desktop only.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, CMake 4.2, Ceres 2.2 (vcpkg), system Qt 6.10.2; build directory `build/ubuntu`.
+Baseline: 82/82 CTest checks passed before S02 (branch stacked on S01).
+
+RED (core): 11/11 new tests (10 in `dimension_test`, the delete cascade in `sketch_tool_test`) failed on assertion failures
+against stubs (`build/issue7-red.log`). RED (bridge): 3/3 new `sketch_controller_test` cases failed against stubs.
+During GREEN one failure was a test-helper bug (the helper returned the ID of a rolled-back command); the helper was fixed,
+not the expectation.
+GREEN: Release build and 88/88 full CTest checks passed (`build/issue7-green.log`); the count drops from 93 because the
+five `Rectangle` tests were removed with the prototype; their scenario is `Dimensions.PrototypeRectangleScenario`.
+A Debug build with `-Wall -Wextra -Werror -fsanitize=address,undefined` passes 88/88.
+The app now solves on every command; `qml_test` and `qml_smoke` still pass with the solver installed.
+Desktop only; no dimension UI yet (U02).

@@ -273,6 +273,81 @@ std::optional<EntityId> Sketch::add_constraint(ConstraintKind kind,
   constraints_.emplace(*id, c);
   return id;
 }
+std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
+                                              EntityId first, EntityId second,
+                                              double value) {
+  const auto get = [&](EntityId id) -> const Entity* {
+    auto it = entities_.find(id);
+    return it == entities_.end() ? nullptr : &it->second;
+  };
+  const auto line = [&](EntityId id) {
+    const Entity* e = get(id);
+    return e && std::holds_alternative<SketchLine>(*e);
+  };
+  const auto curve = [&](EntityId id) {
+    const Entity* e = get(id);
+    return e && (std::holds_alternative<SketchCircle>(*e) ||
+                 std::holds_alternative<SketchArc>(*e));
+  };
+  Constraint c{0, kind, first, second};
+  c.value = value;
+  switch (kind) {
+    case ConstraintKind::kLength:
+      if (second != 0 || !line(first)) return std::nullopt;
+      break;
+    case ConstraintKind::kDistance:
+      if (second == 0 || first == second) return std::nullopt;
+      if (line(first) && is_point(second)) std::swap(c.first, c.second);
+      if (is_point(c.first) && line(c.second)) {
+        // Remember the side of the line the point is on now.
+        const auto& l = std::get<SketchLine>(*get(c.second));
+        const Position a = std::get<SketchPoint>(*get(l.start)).position;
+        const Position b = std::get<SketchPoint>(*get(l.end)).position;
+        const Position p = std::get<SketchPoint>(*get(c.first)).position;
+        const double cross =
+            (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        c.side = cross < 0 ? -1 : 1;
+      } else if (!is_point(first) || !is_point(second)) {
+        return std::nullopt;
+      }
+      break;
+    case ConstraintKind::kAngle:
+      if (second == 0 || first == second || !line(first) || !line(second))
+        return std::nullopt;
+      break;
+    case ConstraintKind::kRadius:
+      if (second != 0 || !curve(first)) return std::nullopt;
+      break;
+    default:
+      return std::nullopt;
+  }
+  if (!valid_dimension(c, value)) return std::nullopt;
+  const auto id = allocate();
+  if (!id) return std::nullopt;
+  c.id = *id;
+  constraints_.emplace(*id, c);
+  return id;
+}
+bool Sketch::set_dimension(EntityId id, double value) {
+  auto it = constraints_.find(id);
+  if (it == constraints_.end() || !is_dimension(it->second.kind) ||
+      !valid_dimension(it->second, value))
+    return false;
+  it->second.value = value;
+  return true;
+}
+bool Sketch::valid_dimension(const Constraint& c, double value) const {
+  if (!std::isfinite(value)) return false;
+  switch (c.kind) {
+    case ConstraintKind::kAngle:
+      return value > 0 && value < std::numbers::pi;
+    case ConstraintKind::kDistance:
+      // Zero point-line distance puts the point on the line.
+      return value > 0 || (value == 0 && !is_point(c.second));
+    default:
+      return value > 0;
+  }
+}
 std::optional<Constraint> Sketch::constraint(EntityId id) const {
   auto it = constraints_.find(id);
   if (it == constraints_.end()) return std::nullopt;

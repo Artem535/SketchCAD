@@ -247,3 +247,41 @@ TEST_F(Tools, SnappingDisabledKeepsRawPositions) {
   EXPECT_EQ(point_at(sketch(), l.start), (Position{0.123, 0.456}));
   EXPECT_EQ(point_at(sketch(), l.end), (Position{9.87, 0.01}));
 }
+TEST_F(Tools, DeleteRemovesConstraintsOfErasedGeometryInOneStep) {
+  snapping();  // The second line reuses the first line's end point.
+  session.set_tool(Tool::kLine);
+  session.press({0, 0});
+  session.press({10, 0});
+  session.set_tool(Tool::kLine);
+  session.press({10, 0});
+  session.press({10, 8});
+  const SketchLine first = only<SketchLine>(sketch());
+  EntityId second = 0, shared = 0;
+  for (const auto& [id, e] : sketch().entities())
+    if (const auto* l = std::get_if<SketchLine>(&e); l && id != first.id) {
+      second = id;
+      shared = l->start;
+    }
+  ASSERT_EQ(shared, first.end);
+  ASSERT_TRUE(doc.execute("Constrain", [&](Sketch& s) {
+    return s.add_constraint(ConstraintKind::kHorizontal, first.id) &&
+           s.add_constraint(ConstraintKind::kFix, first.start) &&
+           s.add_dimension(ConstraintKind::kLength, second, 0, 8) &&
+           s.add_constraint(ConstraintKind::kFix, shared);
+  }));
+  const Sketch before = sketch();
+  session.set_tool(Tool::kSelect);
+  session.press({5, 0});
+  session.release({5, 0});
+  ASSERT_EQ(session.selection(), first.id);
+  EXPECT_EQ(session.delete_selection(), DeleteResult::kDeleted);
+  EXPECT_FALSE(sketch().entity(first.id));
+  EXPECT_FALSE(sketch().entity(first.start));
+  // The shared point stays with its own fix; the other line's length stays.
+  EXPECT_TRUE(sketch().entity(shared));
+  EXPECT_EQ(sketch().constraints().size(), 2u);
+  for (const auto& [id, c] : sketch().constraints())
+    EXPECT_NE(c.first, first.id);
+  ASSERT_TRUE(session.undo());
+  EXPECT_TRUE(sketch() == before);
+}

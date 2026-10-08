@@ -4,6 +4,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <numbers>
 
 #include "sketchcad/solver.h"
 
@@ -23,13 +24,19 @@ enum class Shape {
   kEqualLength,
   kEqualRadius,
   kFix,
+  kLength,
+  kPointDistance,
+  kPointLine,
+  kAngle,
+  kRadius,
 };
 
 int residual_count(Shape shape) {
   return shape == Shape::kCoincident || shape == Shape::kFix ? 2 : 1;
 }
 bool angular(Shape shape) {
-  return shape == Shape::kParallel || shape == Shape::kPerpendicular;
+  return shape == Shape::kParallel || shape == Shape::kPerpendicular ||
+         shape == Shape::kAngle;
 }
 
 // One constraint as a cost over deduplicated parameter blocks: Ceres does
@@ -39,12 +46,17 @@ struct Cost {
   int axis = 0;  // kAxis: 0 compares x (vertical), 1 compares y.
   bool internal = false;
   Position target{0, 0};
+  double value = 0;  // Dimensions.
+  int side = 1;      // kPointLine.
   std::vector<int> point_slots;   // Indices into `blocks`.
   std::vector<int> radius_slots;  // Indices into `blocks`.
 
   template <typename T>
   bool operator()(T const* const* blocks, T* r) const {
     using std::abs;
+    using std::atan2;
+    using std::cos;
+    using std::sin;
     using std::sqrt;
     const auto x = [&](int i) { return blocks[point_slots[i]][0]; };
     const auto y = [&](int i) { return blocks[point_slots[i]][1]; };
@@ -89,6 +101,28 @@ struct Cost {
       case Shape::kFix:
         r[0] = x(0) - T(target.x);
         r[1] = y(0) - T(target.y);
+        break;
+      case Shape::kLength:
+      case Shape::kPointDistance:
+        r[0] = len(x(1) - x(0), y(1) - y(0)) - T(value);
+        break;
+      case Shape::kPointLine: {
+        // Slots: the point, then the line's endpoints.
+        const T ux = x(2) - x(1), uy = y(2) - y(1);
+        const T cross = ux * (y(0) - y(1)) - uy * (x(0) - x(1));
+        r[0] = T(side) * cross / len(ux, uy) - T(value);
+        break;
+      }
+      case Shape::kAngle: {
+        // Undirected: lines at theta and theta + pi are the same angle.
+        const T ux = x(1) - x(0), uy = y(1) - y(0);
+        const T vx = x(3) - x(2), vy = y(3) - y(2);
+        const T phi = atan2(ux * vy - uy * vx, ux * vx + uy * vy) - T(value);
+        r[0] = T(0.5) * atan2(sin(T(2) * phi), cos(T(2) * phi));
+        break;
+      }
+      case Shape::kRadius:
+        r[0] = rad(0) - T(value);
         break;
     }
     return true;
@@ -290,7 +324,34 @@ class Problem {
         term.cost.target = c.target;
         add_point(term, c.first);
         break;
+      case ConstraintKind::kLength:
+        term.cost.shape = Shape::kLength;
+        defined = add_line(term, c.first);
+        break;
+      case ConstraintKind::kDistance:
+        add_point(term, c.first);
+        if (is_line(c.second)) {
+          term.cost.shape = Shape::kPointLine;
+          term.cost.side = c.side;
+          defined = add_line(term, c.second);
+        } else {
+          term.cost.shape = Shape::kPointDistance;
+          add_point(term, c.second);
+          const Position a = position(c.first), b = position(c.second);
+          defined = std::hypot(a.x - b.x, a.y - b.y) > kLengthTolerance;
+        }
+        break;
+      case ConstraintKind::kAngle:
+        term.cost.shape = Shape::kAngle;
+        defined = add_line(term, c.first);
+        defined = add_line(term, c.second) && defined;
+        break;
+      case ConstraintKind::kRadius:
+        term.cost.shape = Shape::kRadius;
+        add_curve(term, c.first);
+        break;
     }
+    term.cost.value = c.value;
     terms_.push_back(std::move(term));
     return defined;
   }
@@ -302,6 +363,63 @@ class Problem {
   std::vector<Term> terms_;
 };
 }  // namespace
+
+std::optional<double> measure(const Sketch& sketch, ConstraintKind kind,
+                              EntityId first, EntityId second) {
+  const auto get = [&](EntityId id) { return sketch.entity(id); };
+  const auto point = [&](EntityId id) -> std::optional<Position> {
+    const auto e = get(id);
+    if (!e || !std::holds_alternative<SketchPoint>(*e)) return std::nullopt;
+    return std::get<SketchPoint>(*e).position;
+  };
+  // Line direction start->end and its start, if `id` is a non-degenerate line.
+  const auto line = [&](EntityId id)
+      -> std::optional<std::pair<Position, Position>> {
+    const auto e = get(id);
+    if (!e || !std::holds_alternative<SketchLine>(*e)) return std::nullopt;
+    const auto& l = std::get<SketchLine>(*e);
+    const Position a = *point(l.start), b = *point(l.end);
+    const Position d{b.x - a.x, b.y - a.y};
+    if (std::hypot(d.x, d.y) <= kLengthTolerance) return std::nullopt;
+    return std::pair{a, d};
+  };
+  switch (kind) {
+    case ConstraintKind::kLength:
+      if (const auto l = line(first); l && second == 0)
+        return std::hypot(l->second.x, l->second.y);
+      return std::nullopt;
+    case ConstraintKind::kDistance: {
+      if (line(first) && point(second)) std::swap(first, second);
+      const auto p = point(first);
+      if (!p || first == second) return std::nullopt;
+      if (const auto q = point(second)) return std::hypot(q->x - p->x, q->y - p->y);
+      const auto l = line(second);
+      if (!l) return std::nullopt;
+      const auto [a, d] = *l;
+      return std::abs(d.x * (p->y - a.y) - d.y * (p->x - a.x)) /
+             std::hypot(d.x, d.y);
+    }
+    case ConstraintKind::kAngle: {
+      const auto a = line(first), b = line(second);
+      if (!a || !b || first == second) return std::nullopt;
+      const Position u = a->second, v = b->second;
+      const double angle = std::fmod(
+          std::atan2(u.x * v.y - u.y * v.x, u.x * v.x + u.y * v.y) +
+              2 * std::numbers::pi,
+          std::numbers::pi);
+      return angle;
+    }
+    case ConstraintKind::kRadius: {
+      const auto e = get(first);
+      if (!e || second != 0) return std::nullopt;
+      if (const auto* c = std::get_if<SketchCircle>(&*e)) return c->radius;
+      if (const auto* a = std::get_if<SketchArc>(&*e)) return a->radius;
+      return std::nullopt;
+    }
+    default:
+      return std::nullopt;
+  }
+}
 
 SolveResult solve(Sketch& sketch) {
   if (sketch.constraints().empty()) return {SolveStatus::kSolved, {}};

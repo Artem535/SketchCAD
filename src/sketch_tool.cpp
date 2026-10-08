@@ -169,10 +169,18 @@ DeleteResult ToolSession::delete_selection() {
     defining = {c->center};
   else if (const auto* a = std::get_if<SketchArc>(&entity))
     defining = {a->center};
+  const auto unconstrain = [](Sketch& sk, EntityId entity) {
+    for (EntityId c : sk.constraints_of(entity)) sk.erase(c);
+  };
   const bool ok = document_.execute("Delete", [&](Sketch& sk) {
+    unconstrain(sk, id);
     if (!sk.erase(id)) return false;
-    // Points still used by other entities refuse to erase and stay.
-    for (EntityId point : defining) sk.erase(point);
+    // Points still used by other entities stay, with their constraints.
+    for (EntityId point : defining) {
+      Sketch trial = sk;
+      unconstrain(trial, point);
+      if (trial.erase(point)) sk = std::move(trial);
+    }
     return true;
   });
   if (!ok) return DeleteResult::kPointInUse;
