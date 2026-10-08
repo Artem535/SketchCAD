@@ -15,3 +15,4 @@
 ** xref:build.adoc[Build and validation]
 ** xref:handoff.adoc[Project handoff]
 ** xref:sketch-model.adoc[Sketch model contract]
+** xref:document-commands.adoc[Document commands and Undo/Redo]
