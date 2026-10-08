@@ -20,7 +20,7 @@ bool Document::execute(std::string label, const Edit& edit) {
   if (gesture_active()) return false;
   std::optional<Sketch> result = apply(edit);
   if (!result) return false;
-  const bool changed = result->entities() != live_.entities();
+  const bool changed = !(*result == live_);
   // Assignment keeps the higher watermark, so IDs consumed by a no-op edit
   // are not issued again.
   live_ = std::move(*result);
@@ -76,7 +76,7 @@ bool Document::end_gesture() {
   if (!gesture_active()) return false;
   std::string label = std::move(*gesture_label_);
   gesture_label_.reset();
-  if (live_.entities() != states_[position_].sketch.entities())
+  if (!(live_ == states_[position_].sketch))
     record(std::move(label));
   return true;
 }
@@ -99,7 +99,7 @@ bool Document::mark_saved() {
 bool Document::dirty() const {
   if (revision() != saved_revision_) return true;
   return gesture_active() &&
-         live_.entities() != states_[position_].sketch.entities();
+         !(live_ == states_[position_].sketch);
 }
 
 // Appends the live state as a new step and discards the redo branch.

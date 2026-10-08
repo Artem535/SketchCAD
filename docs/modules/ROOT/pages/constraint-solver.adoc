@@ -71,8 +71,9 @@ Convergence does not prove satisfaction: after every solve each hard residual is
 [cols="1,3"]
 |===
 |`kSolved` |All hard residuals within tolerance; solved values written back. An empty constraint set is solved without change.
-|`kInvalidInput` |A residual is undefined for the input geometry before solving (for example a zero-length line in a parallel,
-perpendicular or equal-length constraint, or concentric curves in an internal tangency). Nothing is solved.
+|`kInvalidInput` |A residual or its derivative is undefined for the input geometry before solving: a line no longer than the
+length tolerance in a parallel, perpendicular, equal-length or tangent constraint, or concentric centres in a circle–circle tangency
+(internal or external). Nothing is solved.
 |`kUnsatisfied` |Ceres converged to a minimum with at least one hard residual out of tolerance: the constraints
 contradict each other (locally). `violated` lists those constraint IDs.
 |`kNumericalFailure` |Ceres failed, hit its iteration limit with residuals out of tolerance, or produced non-finite values.
@@ -106,3 +107,21 @@ Core GoogleTest (`constraint_test` for the model, `constraint_solver_test` for s
   history unchanged; a satisfiable one is one undo step and Undo restores both geometry and constraint set.
 
 All existing CTest checks stay green. Desktop-only; nothing here is claimed for Android.
+
+== Implementation notes
+* Ceres rejects the same parameter block twice in one residual (lines sharing a point), so every constraint is a
+  `DynamicAutoDiffCostFunction` over deduplicated point/radius blocks.
+* If all hard residuals are already within tolerance, Ceres is not run and nothing is written back.
+* Solver options: Levenberg–Marquardt, dense QR, at most 200 iterations, function/gradient/parameter tolerances 1e-16.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, CMake 4.2, Ceres 2.2 (vcpkg), system Qt 6.10.2; build directory `build/ubuntu`.
+Baseline: 58/58 CTest checks passed before S01 (branch stacked on U01).
+
+RED: 23/24 new tests failed on assertion failures against stubs (`build/issue6-red.log`).
+`Constraint.RejectsInvalidReferencesAtomically` passed against the stub, which rejects everything; it is meaningful only with the implementation.
+GREEN: Release build and 82/82 full CTest checks passed (`build/issue6-green.log`).
+A Debug build with `-Wall -Wextra -Werror -fsanitize=address,undefined` passes 82/82 (core tests also with LeakSanitizer).
+Residual margins observed: solved scenarios ≤ 4e-15 mm and ≤ 4e-17 angular; conflict scenarios ≥ 0.045 mm or ≥ 0.47 angular.
+No numerical-failure scenario is forced by a test; the status is reachable only when Ceres does not converge.
+Not wired into the app; desktop core only.
