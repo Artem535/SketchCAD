@@ -65,6 +65,17 @@ class SketchController : public QObject {
   Q_PROPERTY(QVariantList selection_properties READ selection_properties
                  NOTIFY changed)
   Q_PROPERTY(QString selection_title READ selection_title NOTIFY changed)
+  // U08: automatic dimensions, dynamic input and live preview dimensions.
+  Q_PROPERTY(bool auto_dimensions READ auto_dimensions WRITE
+                 set_auto_dimensions NOTIFY changed)
+  Q_PROPERTY(QString input_field READ input_field NOTIFY changed)
+  Q_PROPERTY(double input_value READ input_value NOTIFY changed)
+  Q_PROPERTY(QString preview_dimension_path READ preview_dimension_path
+                 NOTIFY changed)
+  Q_PROPERTY(QString preview_dimension_arrows_path READ
+                 preview_dimension_arrows_path NOTIFY changed)
+  Q_PROPERTY(QVariantList preview_dimension_labels READ
+                 preview_dimension_labels NOTIFY changed)
   // Points with a fix constraint, drawn as filled handles.
   Q_PROPERTY(QString fixed_path READ fixed_path NOTIFY changed)
 
@@ -113,6 +124,15 @@ class SketchController : public QObject {
   QVariantList selection_properties() const;
   QString selection_title() const;
   QString fixed_path() const { return fixed_path_; }
+  bool auto_dimensions() const { return session_.auto_dimensions(); }
+  void set_auto_dimensions(bool enabled);
+  QString input_field() const;
+  double input_value() const;
+  QString preview_dimension_path() const { return preview_dimension_path_; }
+  QString preview_dimension_arrows_path() const {
+    return preview_dimension_arrows_path_;
+  }
+  QVariantList preview_dimension_labels() const;
   QString dimension_path() const { return dimension_path_; }
   QString dimension_arrows_path() const { return dimension_arrows_path_; }
 
@@ -139,6 +159,7 @@ class SketchController : public QObject {
   // not applicable (message invalid_action) or rejected.
   Q_INVOKABLE qulonglong apply(const QString& key);
   Q_INVOKABLE bool remove_constraint(qulonglong id);
+  Q_INVOKABLE bool enter_value(double value);
   // Highlights the constraints the diagnosis lists as dependent.
   Q_INVOKABLE void highlight_dependent();
   Q_INVOKABLE QPointF screen_of(double x_mm, double y_mm) const;
@@ -187,6 +208,8 @@ class SketchController : public QObject {
   QString fixed_path_;
   QString dimension_path_;
   QString dimension_arrows_path_;
+  QString preview_dimension_path_;
+  QString preview_dimension_arrows_path_;
   qulonglong selected_constraint_ = 0;
   std::vector<sketchcad::EntityId> conflict_entities_;
   sketchcad::Diagnosis diagnosis_;

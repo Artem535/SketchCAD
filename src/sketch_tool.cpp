@@ -298,4 +298,9 @@ void ToolSession::drop_stale_selection() {
   std::erase_if(selected_,
                 [&](EntityId id) { return !document_.sketch().entity(id); });
 }
+InputField ToolSession::input_field() const { return InputField::kNone; }
+
+double ToolSession::input_value() const { return 0; }
+
+bool ToolSession::enter_value(double) { return false; }
 }  // namespace sketchcad

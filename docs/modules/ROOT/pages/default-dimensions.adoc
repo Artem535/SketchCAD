@@ -1,7 +1,7 @@
 = U08: Live dimensions while drawing and automatic dimensions
 :toc:
 
-Requirements: S01-DIM, S01-EDIT, S01-UI. Depends on U01 (xref:sketch-viewport.adoc[]), S02 (xref:dimensions.adoc[]),
+Issue: https://github.com/Artem535/SketchCAD/issues/39[#39]. Requirements: S01-DIM, S01-EDIT, S01-UI. Depends on U01 (xref:sketch-viewport.adoc[]), S02 (xref:dimensions.adoc[]),
 S03 (xref:diagnostics.adoc[]), U06 (xref:dimension-style.adoc[]), U07 (xref:ui-help.adoc[]).
 
 Origin: user remark 5 after U02 testing ("dimensions should probably always be shown by default"); the user chose both

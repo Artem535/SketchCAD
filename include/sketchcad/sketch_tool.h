@@ -11,6 +11,9 @@ enum class Tool { kSelect, kLine, kPolyline, kRectangle, kCircle, kArc };
 
 enum class DeleteResult { kDeleted, kNothingSelected, kPointInUse };
 
+// Value the next typed number sets while drawing (default-dimensions.adoc).
+enum class InputField { kNone, kLength, kWidth, kHeight, kRadius };
+
 // Drawing and selection state machine over a Document, in world mm.
 // Every finished shape is one Document command; unfinished shapes exist
 // only in preview().
@@ -35,6 +38,16 @@ class ToolSession {
 
   bool finish();
   bool cancel();
+
+  // Driving dimensions added to every finished shape (on by default).
+  void set_auto_dimensions(bool enabled) { auto_dimensions_ = enabled; }
+  bool auto_dimensions() const { return auto_dimensions_; }
+
+  // Dynamic input: the field the next value sets, its current preview value,
+  // and entering it (> 0 and finite).
+  InputField input_field() const;
+  double input_value() const;
+  bool enter_value(double value);
   bool in_progress() const { return !vertices_.empty(); }
 
   // Most recently selected entity.
@@ -74,6 +87,9 @@ class ToolSession {
   std::vector<EntityId> selected_;
   std::optional<EntityId> dragged_point_;
   bool dragging_ = false;
+  bool auto_dimensions_ = true;
+  std::optional<Position> hover_;
+  std::optional<double> locked_width_;  // Rectangle, signed.
   std::optional<SnapResult> last_snap_;
   Sketch preview_;
 };

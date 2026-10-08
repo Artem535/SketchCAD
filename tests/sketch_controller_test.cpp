@@ -22,6 +22,8 @@ class SketchControllerTest : public QObject {
     auto* c = new SketchController(this);
     c->set_viewport_size(800, 600);
     c->set_snap_enabled(false);
+    // U01-U07 cases predate automatic dimensions (U08).
+    c->set_auto_dimensions(false);
     return c;
   }
   void tap(SketchController* c, double x_mm, double y_mm) {
@@ -451,6 +453,48 @@ class SketchControllerTest : public QObject {
     QVERIFY(c->undo());
     QVERIFY(c->dimension_path().isEmpty());
     QVERIFY(c->dimension_arrows_path().isEmpty());
+  }
+  void dynamic_input_and_live_dimensions() {
+    auto* c = make();
+    QCOMPARE(c->input_field(), QString());
+    c->set_tool("line");
+    QCOMPARE(c->input_field(), QString());
+    QVERIFY(!c->enter_value(10));
+    const QPointF a = c->screen_of(10, 10), b = c->screen_of(30, 10);
+    c->press(a.x(), a.y());
+    c->release(a.x(), a.y());
+    c->hover(b.x(), b.y());
+    QCOMPARE(c->input_field(), QString("length"));
+    QVERIFY(std::abs(c->input_value() - 20) < 1e-6);
+    QCOMPARE(c->preview_dimension_labels().size(), 1);
+    QVERIFY(!c->preview_dimension_path().isEmpty());
+    QVERIFY(!c->preview_dimension_arrows_path().isEmpty());
+    QCOMPARE(c->preview_dimension_labels().front().toMap()["text"].toString(),
+             QString("20"));
+    QVERIFY(!c->enter_value(-5));
+    QCOMPARE(c->message(), QString("invalid_value"));
+    QVERIFY(c->enter_value(45));
+    QVERIFY(!c->in_progress());
+    QCOMPARE(lines(c).size(), std::size_t{1});
+    QVERIFY(std::abs(length(c, lines(c).front()) - 45) < 1e-9);
+    QVERIFY(c->preview_dimension_labels().isEmpty());
+    QVERIFY(c->preview_dimension_path().isEmpty());
+    QVERIFY(c->dimensions().isEmpty());  // Auto dimensions are off here.
+  }
+  void auto_dimensions_follow_the_setting() {
+    auto* c = make();
+    QVERIFY(!c->auto_dimensions());
+    c->set_auto_dimensions(true);
+    QVERIFY(c->auto_dimensions());
+    line(c);
+    QCOMPARE(c->dimensions().size(), 1);
+    QCOMPARE(dimension(c)["kind"].toString(), QString("length"));
+    QCOMPARE(c->dof(), 3);
+    QVERIFY(c->undo());
+    QVERIFY(c->dimensions().isEmpty());
+    c->set_auto_dimensions(false);
+    line(c);
+    QVERIFY(c->dimensions().isEmpty());
   }
   void unknown_tool_name_is_ignored() {
     auto* c = make();

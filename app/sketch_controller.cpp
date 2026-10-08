@@ -771,3 +771,13 @@ void SketchController::refresh_dimensions() {
           move_to(a[0]) + line_to(a[1]) + line_to(a[2]) + QStringLiteral("Z ");
   }
 }
+
+void SketchController::set_auto_dimensions(bool) {}
+
+QString SketchController::input_field() const { return {}; }
+
+double SketchController::input_value() const { return 0; }
+
+bool SketchController::enter_value(double) { return false; }
+
+QVariantList SketchController::preview_dimension_labels() const { return {}; }
