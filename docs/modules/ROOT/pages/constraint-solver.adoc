@@ -132,7 +132,19 @@ Not wired into the app; desktop core only.
 
 == Degenerate solutions (issue #29)
 Added after user testing of U02: horizontal followed by vertical on one line was accepted and collapsed the line to a point.
-`kDegenerate` rejects such solutions. Diagnostics report a degenerate candidate as `kUnknown` with `kInvalidGeometry`.
-Acceptance: horizontal + vertical on one line, coincident on both endpoints of one line, and a radius dimension driven to
-the lower bound through an equal constraint are each `kDegenerate` and leave the sketch unchanged; with `solver_step()`
+`kDegenerate` rejects such solutions.
+Before rejecting, the solver retries once with the lengths of the collapsed lines and the radii of the collapsed curves held
+at their input values (temporary, not stored, no IDs allocated in the result). If that solves, its geometry is used:
+vertical applied to an exactly horizontal line rotates the line and keeps its length instead of collapsing it.
+If the retry fails, the status is `kDegenerate`. Diagnostics report a degenerate candidate as `kUnknown` with `kInvalidGeometry`.
+Acceptance: vertical on an exactly horizontal line solves with its length kept; horizontal + vertical on one line, coincident on both endpoints of one line, and a fixed-centre circle tangent to a
+fixed line through that centre (radius driven to its lower bound) are each `kDegenerate` and leave the sketch unchanged; with `solver_step()`
 the command is rolled back; points made coincident on purpose (two free points) still solve.
+
+=== Execution record (issue #29)
+RED (test output, not saved to a file): 4/4 new `SolverDegenerate` tests and the new controller case failed; then the
+rotation test failed against the first implementation, which rejected instead of rotating, and the size-holding retry
+was specified and added. The retry alone still failed from an exactly horizontal start (no gradient across the line);
+a deterministic 1e-3 rad pre-rotation of collapsed lines fixed it.
+U02 expectation changed by this issue: two endpoints of one line no longer offer `coincident`.
+GREEN: 106/106 CTest (`build/issue29-green.log`); the `-Werror` + ASan/UBSan build also passes.

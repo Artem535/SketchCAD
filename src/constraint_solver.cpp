@@ -62,7 +62,56 @@ std::optional<double> measure(const Sketch& sketch, ConstraintKind kind,
   }
 }
 
-SolveResult solve(Sketch& sketch) {
+namespace {
+constexpr double kNudge = 1e-3;  // Radians.
+
+SolveResult solve_once(Sketch& sketch, bool retry);
+
+// Retries with the collapsed sizes held at their input values; on success
+// copies only the solved geometry back, without the temporary dimensions.
+SolveResult hold_sizes(Sketch& sketch, const std::vector<EntityId>& ids,
+                       SolveResult rejected) {
+  Sketch held = sketch;
+  for (EntityId id : ids) {
+    const Entity e = *sketch.entity(id);
+    const bool line = std::holds_alternative<SketchLine>(e);
+    const ConstraintKind kind =
+        line ? ConstraintKind::kLength : ConstraintKind::kRadius;
+    const auto size = measure(sketch, kind, id);
+    if (!size || !held.add_dimension(kind, id, 0, *size)) return rejected;
+    if (line) {
+      // An exactly axis-aligned line is a symmetric start where nothing
+      // tells the solver which way to turn; a tiny deterministic rotation
+      // about the midpoint breaks the tie.
+      const auto& l = std::get<SketchLine>(e);
+      const Position a = std::get<SketchPoint>(*held.entity(l.start)).position;
+      const Position b = std::get<SketchPoint>(*held.entity(l.end)).position;
+      const Position m{(a.x + b.x) / 2, (a.y + b.y) / 2};
+      const auto turn = [&](Position p) {
+        const double c = std::cos(kNudge), s = std::sin(kNudge);
+        return Position{m.x + c * (p.x - m.x) - s * (p.y - m.y),
+                        m.y + s * (p.x - m.x) + c * (p.y - m.y)};
+      };
+      held.update_point(l.start, turn(a));
+      held.update_point(l.end, turn(b));
+    }
+  }
+  const SolveResult result = solve_once(held, false);
+  if (result.status != SolveStatus::kSolved) return rejected;
+  for (const auto& [id, e] : held.entities()) {
+    if (const auto* p = std::get_if<SketchPoint>(&e))
+      sketch.update_point(id, p->position);
+    else if (const auto* c = std::get_if<SketchCircle>(&e))
+      sketch.update_circle(id, c->center, c->radius);
+    else if (const auto* a = std::get_if<SketchArc>(&e))
+      sketch.update_arc(id, a->center, a->radius, a->start_angle,
+                        a->sweep_angle);
+  }
+  return {SolveStatus::kSolved, {}, result.max_length_residual,
+          result.max_angle_residual};
+}
+
+SolveResult solve_once(Sketch& sketch, bool retry) {
   if (sketch.constraints().empty()) return {SolveStatus::kSolved, {}};
   Problem problem(sketch);
   if (!problem.build()) return {SolveStatus::kInvalidInput, {}};
@@ -76,12 +125,21 @@ SolveResult solve(Sketch& sketch) {
   if (!problem.finite()) return {SolveStatus::kNumericalFailure, {}};
   SolveResult result = problem.check();
   if (result.status == SolveStatus::kSolved) {
-    sketch = problem.apply();
-  } else if (termination != ceres::CONVERGENCE) {
-    result.status = SolveStatus::kNumericalFailure;
+    const std::vector<EntityId> collapsed = problem.collapsed();
+    if (collapsed.empty()) {
+      sketch = problem.apply();
+      return result;
+    }
+    const SolveResult degenerate{SolveStatus::kDegenerate, {}};
+    return retry ? hold_sizes(sketch, collapsed, degenerate) : degenerate;
   }
+  if (termination != ceres::CONVERGENCE)
+    result.status = SolveStatus::kNumericalFailure;
   return result;
 }
+}  // namespace
+
+SolveResult solve(Sketch& sketch) { return solve_once(sketch, true); }
 
 Edit solver_step() {
   return [](Sketch& sketch) {

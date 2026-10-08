@@ -52,7 +52,8 @@ Diagnosis diagnose(const Sketch& sketch) {
   // Solved geometry when possible, the input geometry for a conflict.
   Sketch solved = sketch;
   const SolveResult result = solve(solved);
-  if (result.status == SolveStatus::kInvalidInput)
+  if (result.status == SolveStatus::kInvalidInput ||
+      result.status == SolveStatus::kDegenerate)
     return unknown(d, UnknownReason::kInvalidGeometry);
   if (result.status == SolveStatus::kNumericalFailure)
     return unknown(d, UnknownReason::kNumericalFailure);

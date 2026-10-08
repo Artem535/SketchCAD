@@ -12,6 +12,8 @@ enum class SolveStatus {
   kInvalidInput,
   kUnsatisfied,
   kNumericalFailure,
+  // Satisfied only by collapsing a line or a radius.
+  kDegenerate,
 };
 
 struct SolveResult {
