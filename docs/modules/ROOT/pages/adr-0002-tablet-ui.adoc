@@ -50,6 +50,11 @@ QML только показывает пути и передаёт событи�
 |Отклонён: растеризация на CPU через JavaScript, как в прототипе этапа 0.
 |===
 
+Открытые альтернативы на случай, если замеры на планшете покажут узкое место Shapes и своего `QQuickItem`:
+NanoVG (zlib; на нём построен Qt Canvas Painter, только OpenGL/GLES — встраивается в обход RHI, как OCCT в xref:adr-0001-3d-viewer.adoc[ADR-0001]),
+ThorVG (MIT; CPU и GPU-бэкенды), Blend2D (zlib; быстрая CPU-растеризация в текстуру) и Skia (BSD; тяжёлая сборка под Android).
+Решение о переходе — отдельный ADR по данным P01.
+
 Источники: документация Qt 6.12 «Shape QML Type» (рендереры, рекомендации по производительности) и «Qt Canvas Painter»
 (раздел Licenses and Attributions: Commercial или GPLv3). Обязательства поставки LGPL-модулей Qt связываются с L01 (issue #2).
 
