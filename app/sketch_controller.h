@@ -1,0 +1,115 @@
+#pragma once
+#include <QObject>
+#include <QPointF>
+#include <QString>
+
+#include "sketchcad/document.h"
+#include "sketchcad/sketch_tool.h"
+#include "sketchcad/sketch_view.h"
+
+// Bridges the Qt-free document, tool session and view transform to QML.
+// Geometry is published as SVG path strings in viewport pixels, one per
+// rendering layer (ADR-0002).
+class SketchController : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString tool READ tool WRITE set_tool NOTIFY changed)
+  Q_PROPERTY(QString geometry_path READ geometry_path NOTIFY changed)
+  Q_PROPERTY(QString selected_path READ selected_path NOTIFY changed)
+  Q_PROPERTY(QString preview_path READ preview_path NOTIFY changed)
+  Q_PROPERTY(QString points_path READ points_path NOTIFY changed)
+  Q_PROPERTY(QString grid_minor_path READ grid_minor_path NOTIFY changed)
+  Q_PROPERTY(QString grid_major_path READ grid_major_path NOTIFY changed)
+  Q_PROPERTY(QString axes_path READ axes_path NOTIFY changed)
+  Q_PROPERTY(bool snap_visible READ snap_visible NOTIFY changed)
+  Q_PROPERTY(double snap_x READ snap_x NOTIFY changed)
+  Q_PROPERTY(double snap_y READ snap_y NOTIFY changed)
+  Q_PROPERTY(QString snap_kind READ snap_kind NOTIFY changed)
+  Q_PROPERTY(bool snap_enabled READ snap_enabled WRITE set_snap_enabled NOTIFY
+                 changed)
+  Q_PROPERTY(bool finger_draws READ finger_draws WRITE set_finger_draws NOTIFY
+                 changed)
+  Q_PROPERTY(bool can_undo READ can_undo NOTIFY changed)
+  Q_PROPERTY(bool can_redo READ can_redo NOTIFY changed)
+  Q_PROPERTY(int entity_count READ entity_count NOTIFY changed)
+  Q_PROPERTY(bool has_selection READ has_selection NOTIFY changed)
+  Q_PROPERTY(bool in_progress READ in_progress NOTIFY changed)
+  Q_PROPERTY(QString message READ message NOTIFY changed)
+  Q_PROPERTY(double scale READ scale NOTIFY changed)
+
+ public:
+  explicit SketchController(QObject* parent = nullptr);
+
+  const sketchcad::Document& document() const { return document_; }
+
+  QString tool() const;
+  void set_tool(const QString& name);
+  QString geometry_path() const { return geometry_path_; }
+  QString selected_path() const { return selected_path_; }
+  QString preview_path() const { return preview_path_; }
+  QString points_path() const { return points_path_; }
+  QString grid_minor_path() const { return grid_minor_path_; }
+  QString grid_major_path() const { return grid_major_path_; }
+  QString axes_path() const { return axes_path_; }
+  bool snap_visible() const;
+  double snap_x() const;
+  double snap_y() const;
+  QString snap_kind() const;
+  bool snap_enabled() const { return snap_enabled_; }
+  void set_snap_enabled(bool enabled);
+  bool finger_draws() const { return finger_draws_; }
+  void set_finger_draws(bool enabled);
+  bool can_undo() const { return document_.can_undo(); }
+  bool can_redo() const { return document_.can_redo(); }
+  int entity_count() const;
+  bool has_selection() const { return session_.selection().has_value(); }
+  bool in_progress() const { return session_.in_progress(); }
+  // Translation key of the last rejected action, empty when none.
+  QString message() const { return message_; }
+  double scale() const { return view_.scale(); }
+
+  Q_INVOKABLE void set_viewport_size(double width, double height);
+  Q_INVOKABLE void hover(double x, double y);
+  Q_INVOKABLE void press(double x, double y);
+  Q_INVOKABLE void drag(double x, double y);
+  Q_INVOKABLE void release(double x, double y);
+  Q_INVOKABLE void pan(double dx, double dy);
+  Q_INVOKABLE void zoom_at(double x, double y, double factor);
+  Q_INVOKABLE void fit();
+  Q_INVOKABLE bool finish();
+  Q_INVOKABLE bool cancel();
+  Q_INVOKABLE void clear_selection();
+  Q_INVOKABLE bool delete_selection();
+  Q_INVOKABLE bool undo();
+  Q_INVOKABLE bool redo();
+  Q_INVOKABLE QPointF screen_of(double x_mm, double y_mm) const;
+  Q_INVOKABLE QPointF world_of(double x, double y) const;
+
+ signals:
+  void changed();
+
+ private:
+  sketchcad::Position world(double x, double y) const;
+  void sync_tolerances();
+  void refresh_scene();
+  void refresh_grid();
+  QString curve_path(const sketchcad::Sketch& sketch,
+                     const sketchcad::Entity& entity) const;
+  QString marker_path(sketchcad::Position p, double radius_px) const;
+
+  sketchcad::Document document_;
+  sketchcad::ToolSession session_{document_};
+  sketchcad::ViewTransform view_;
+  double width_ = 0;
+  double height_ = 0;
+  bool snap_enabled_ = true;
+  bool finger_draws_ = true;
+  bool snap_hint_ = false;
+  QString message_;
+  QString geometry_path_;
+  QString selected_path_;
+  QString preview_path_;
+  QString points_path_;
+  QString grid_minor_path_;
+  QString grid_major_path_;
+  QString axes_path_;
+};

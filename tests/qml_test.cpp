@@ -1,64 +1,117 @@
+#include <QCoreApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QQuickStyle>
 #include <QQuickWindow>
+#include <QInputDevice>
+#include <QWheelEvent>
+#include <QtQuickTest/quicktest.h>
 #include <QtTest>
-#include <cmath>
 
-#include "controller.h"
+#include "sketch_controller.h"
 class QmlTest : public QObject {
   Q_OBJECT
+  QQuickWindow* window_ = nullptr;
+  // Walks the visual tree: Repeater delegates are not QObject children.
+  static QQuickItem* find(QQuickItem* root, const QString& name) {
+    if (root->objectName() == name) return root;
+    for (QQuickItem* child : root->childItems())
+      if (QQuickItem* found = find(child, name)) return found;
+    return nullptr;
+  }
+  QQuickItem* item(const char* name) {
+    return find(window_->contentItem(), name);
+  }
+  void click(QQuickItem* target) {
+    QVERIFY(target);
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    QVERIFY(target->isVisible());
+    QTest::mouseClick(
+        window_, Qt::LeftButton, Qt::NoModifier,
+        target->mapToScene(QPointF(target->width() / 2, target->height() / 2))
+            .toPoint());
+  }
+  QPoint scene_of(SketchController& c, double x_mm, double y_mm) {
+    return item("sketchCanvas")->mapToScene(c.screen_of(x_mm, y_mm)).toPoint();
+  }
+  void tap(SketchController& c, double x_mm, double y_mm) {
+    QTest::mouseClick(window_, Qt::LeftButton, Qt::NoModifier,
+                      scene_of(c, x_mm, y_mm));
+  }
+
  private slots:
-  void edit_drag_anchor_and_conflict() {
-    Controller controller;
-    QVERIFY(controller.resize(50, 30, false));
+  void initTestCase() { QQuickStyle::setStyle("Material"); }
+  void draw_select_delete_undo_and_zoom() {
+    SketchController controller;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("sketch", &controller);
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
-    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-    QVERIFY(window);
-    QVERIFY(QTest::qWaitForWindowExposed(window));
-    auto item = [&](const char* name) {
-      return window->findChild<QQuickItem*>(name);
+    window_ = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    QVERIFY(window_);
+    QVERIFY(QTest::qWaitForWindowExposed(window_));
+    window_->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window_));
+    QVERIFY(item("sketchCanvas"));
+
+    click(item("snapToggle"));
+    QVERIFY(!controller.snap_enabled());
+    click(item("tool_line"));
+    QCOMPARE(controller.tool(), QString("line"));
+    tap(controller, 10, 60);
+    QVERIFY(controller.in_progress());
+    QVERIFY(item("contextBar")->isVisible());
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QVERIFY(!controller.in_progress());
+    QCOMPARE(controller.entity_count(), 0);
+
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    QCOMPARE(controller.entity_count(), 3);
+
+    click(item("tool_select"));
+    tap(controller, 35, 60);
+    QVERIFY(controller.has_selection());
+    click(item("deleteSelection"));
+    QCOMPARE(controller.entity_count(), 0);
+    click(item("undoButton"));
+    QCOMPARE(controller.entity_count(), 3);
+
+    click(item("tool_rectangle"));
+    tap(controller, 30, 30);
+    tap(controller, 70, 80);
+    QCOMPARE(controller.entity_count(), 11);
+
+    // Wayland reports laptop touchpads as their own device type; the tool
+    // handler must accept them like a mouse (synthetic touchpad input
+    // needs private QPA API, so the handler configuration is checked).
+    auto* tool_point = item("sketchCanvas")->findChild<QObject*>("toolPoint");
+    QVERIFY(tool_point);
+    const auto accepts = [&](QInputDevice::DeviceType type) {
+      return (tool_point->property("acceptedDevices").toInt() &
+              static_cast<int>(type)) != 0;
     };
-    auto click = [&](QQuickItem* target) {
-      QVERIFY(target);
-      QTest::mouseClick(
-          window, Qt::LeftButton, Qt::NoModifier,
-          target->mapToScene(QPointF(target->width() / 2, target->height() / 2))
-              .toPoint());
-    };
-    auto* width = item("widthInput");
-    QVERIFY(width);
-    width->setProperty("text", "70");
-    click(item("applyDimensions"));
-    auto points = controller.points();
-    auto x = [](const QVariant& p) { return p.toMap()["x"].toDouble(); };
-    auto y = [](const QVariant& p) { return p.toMap()["y"].toDouble(); };
-    QVERIFY(std::abs(x(points[1]) - x(points[0]) - 70) < 1e-7);
-    auto* canvas = item("sketchCanvas");
-    QVERIFY(canvas);
-    const QPoint corner =
-        canvas
-            ->mapToScene(QPointF(
-                canvas->property("originX").toDouble() + x(points[0]) * 4,
-                canvas->property("originY").toDouble() - y(points[0]) * 4))
-            .toPoint();
-    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, corner);
-    QTest::mouseMove(window, corner + QPoint(40, -20), 20);
-    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
-                        corner + QPoint(40, -20));
-    QTRY_VERIFY(std::abs(x(controller.points()[0]) - x(points[0]) - 10) < 1e-7);
-    QVERIFY(std::abs(y(controller.points()[0]) - y(points[0]) - 5) < 1e-7);
-    points = controller.points();
-    click(item("conflictProbe"));
-    QCOMPARE(controller.points(), points);
-    QVERIFY(controller.status().startsWith("Rejected"));
-    click(item("anchorOrigin"));
-    QVERIFY(controller.anchored());
-    QVERIFY(std::abs(x(controller.points()[0])) < 1e-7);
-    QVERIFY(std::abs(y(controller.points()[0])) < 1e-7);
+    QVERIFY(accepts(QInputDevice::DeviceType::Mouse));
+    QVERIFY(accepts(QInputDevice::DeviceType::TouchPad));
+    QVERIFY(accepts(QInputDevice::DeviceType::Stylus));
+    QVERIFY(accepts(QInputDevice::DeviceType::TouchScreen));
+    click(item("fingerToggle"));
+    QVERIFY(!controller.finger_draws());
+    QVERIFY(!accepts(QInputDevice::DeviceType::TouchScreen));
+    QVERIFY(accepts(QInputDevice::DeviceType::TouchPad));
+
+    const double scale = controller.scale();
+    const QPointF at = scene_of(controller, 50, 50);
+    QWheelEvent wheel(at, window_->mapToGlobal(at), QPoint(), QPoint(0, 120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(window_, &wheel);
+    QTRY_VERIFY(controller.scale() > scale);
+    click(item("fitView"));
+
+    const QString shot =
+        QCoreApplication::applicationDirPath() + "/sketch_u01.png";
+    QVERIFY(window_->grabWindow().save(shot));
   }
 };
 QTEST_MAIN(QmlTest)
