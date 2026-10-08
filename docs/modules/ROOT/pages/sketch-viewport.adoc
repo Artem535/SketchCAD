@@ -64,7 +64,8 @@ Deleting a point still referenced by another entity is rejected without change, 
 * Material style, light/dark from the system. Visible strings use `qsTr`; translation is R01.
 
 == Input
-* Mouse: left button drives the tool; middle or right drag pans; wheel zooms at the cursor.
+* Mouse and touchpad: left button (or touchpad tap/click) drives the tool; middle or right drag pans; wheel or two-finger scroll zooms at the cursor.
+  Wayland reports laptop touchpads as a separate `TouchPad` device, so the tool must accept it like a mouse.
 * Touch: one finger drives the tool when "finger draws" is on (default), otherwise pans; two fingers pan and pinch-zoom.
 * Stylus: drives the tool. Distinguishing stylus from finger is verified on the device in P01.
 * Keyboard: Escape cancels, Delete deletes, Enter finishes a polyline, Ctrl+Z / Ctrl+Shift+Z undo/redo.
@@ -82,7 +83,7 @@ App (Qt Test): pixel input through the controller creates geometry at the expect
 selection still works after zoom; path strings update for geometry, selection and preview; undo/redo state signals.
 
 QML (Qt Test, offscreen): real clicks on rail buttons and the canvas draw a line and a rectangle, Escape cancels, select + Delete removes,
-the wheel zooms; a populated screenshot is saved for comparison with the reference.
+the tool handler accepts touchpad devices (and touchscreen only while "finger draws" is on), the wheel zooms; a populated screenshot is saved for comparison with the reference.
 
 All CTest checks stay green; the core stays Qt-free. Runtime on Android is verified in P01, not by these tests.
 

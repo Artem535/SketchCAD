@@ -4,6 +4,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QInputDevice>
 #include <QWheelEvent>
 #include <QtQuickTest/quicktest.h>
 #include <QtTest>
@@ -81,6 +82,24 @@ class QmlTest : public QObject {
     tap(controller, 30, 30);
     tap(controller, 70, 80);
     QCOMPARE(controller.entity_count(), 11);
+
+    // Wayland reports laptop touchpads as their own device type; the tool
+    // handler must accept them like a mouse (synthetic touchpad input
+    // needs private QPA API, so the handler configuration is checked).
+    auto* tool_point = item("sketchCanvas")->findChild<QObject*>("toolPoint");
+    QVERIFY(tool_point);
+    const auto accepts = [&](QInputDevice::DeviceType type) {
+      return (tool_point->property("acceptedDevices").toInt() &
+              static_cast<int>(type)) != 0;
+    };
+    QVERIFY(accepts(QInputDevice::DeviceType::Mouse));
+    QVERIFY(accepts(QInputDevice::DeviceType::TouchPad));
+    QVERIFY(accepts(QInputDevice::DeviceType::Stylus));
+    QVERIFY(accepts(QInputDevice::DeviceType::TouchScreen));
+    click(item("fingerToggle"));
+    QVERIFY(!controller.finger_draws());
+    QVERIFY(!accepts(QInputDevice::DeviceType::TouchScreen));
+    QVERIFY(accepts(QInputDevice::DeviceType::TouchPad));
 
     const double scale = controller.scale();
     const QPointF at = scene_of(controller, 50, 50);

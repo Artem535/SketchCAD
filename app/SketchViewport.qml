@@ -96,14 +96,16 @@ Item {
                                               point.position.y)
     }
 
-    // Drives the active tool: mouse, stylus, and touch when fingers draw.
+    // Drives the active tool: mouse, touchpad, stylus, and touch when
+    // fingers draw. Wayland reports laptop touchpads as TouchPad.
     PointHandler {
         id: toolPoint
+        objectName: "toolPoint"
         property point last
         acceptedButtons: Qt.LeftButton
-        acceptedDevices: PointerDevice.Mouse | PointerDevice.Stylus
-                         | (root.controller.finger_draws
-                            ? PointerDevice.TouchScreen : 0)
+        acceptedDevices: root.controller.finger_draws
+                         ? PointerDevice.AllDevices
+                         : PointerDevice.AllDevices & ~PointerDevice.TouchScreen
         onActiveChanged: {
             if (active) {
                 last = point.position
