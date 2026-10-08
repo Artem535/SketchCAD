@@ -1,5 +1,7 @@
 = SketchCAD: first prototype
 
+NOTE: Historical. The `Rectangle` prototype was retired in S02; its acceptance scenario is now a general-solver test (xref:dimensions.adoc[]).
+
 == Product and scope
 Android tablet-first CAD: sketch, constraints, closed profile, feature, solid. Distribution uses pay what you want; license selection is a separate decision. The first prototype validates 2D sketch interaction. OCCT, feature history, export and engineering drawing sheets follow later. An editable sketch is not a manufacturing drawing.
 

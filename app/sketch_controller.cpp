@@ -43,6 +43,11 @@ QString line_to(ScreenPoint p) {
 }  // namespace
 
 SketchController::SketchController(QObject* parent) : QObject(parent) {
+  // Every command is solved; the status explains a rejected one.
+  document_.set_commit_step([this](Sketch& sketch) {
+    last_status_ = sketchcad::solve(sketch).status;
+    return last_status_ == sketchcad::SolveStatus::kSolved;
+  });
   sync_tolerances();
   refresh_scene();
 }
@@ -331,4 +336,94 @@ void SketchController::refresh_grid() {
   };
   for (double i = std::ceil(lo.x / step); i * step <= hi.x; ++i) add(i, true);
   for (double i = std::ceil(lo.y / step); i * step <= hi.y; ++i) add(i, false);
+}
+
+namespace {
+constexpr std::array<std::pair<sketchcad::ConstraintKind, const char*>, 4>
+    kDimensions{{
+        {sketchcad::ConstraintKind::kLength, "length"},
+        {sketchcad::ConstraintKind::kDistance, "distance"},
+        {sketchcad::ConstraintKind::kAngle, "angle"},
+        {sketchcad::ConstraintKind::kRadius, "radius"},
+    }};
+constexpr double kDegree = std::numbers::pi / 180;
+
+QString status_message(sketchcad::SolveStatus status) {
+  switch (status) {
+    case sketchcad::SolveStatus::kUnsatisfied:
+      return QStringLiteral("conflict");
+    case sketchcad::SolveStatus::kInvalidInput:
+      return QStringLiteral("invalid_geometry");
+    case sketchcad::SolveStatus::kNumericalFailure:
+      return QStringLiteral("numerical_failure");
+    case sketchcad::SolveStatus::kSolved:
+      break;
+  }
+  return {};
+}
+}  // namespace
+
+QVariantList SketchController::dimensions() const {
+  QVariantList list;
+  for (const auto& [id, c] : document_.sketch().constraints()) {
+    for (const auto& [kind, name] : kDimensions) {
+      if (kind != c.kind) continue;
+      const bool angle = kind == sketchcad::ConstraintKind::kAngle;
+      list.append(QVariantMap{
+          {"id", QVariant::fromValue<qulonglong>(id)},
+          {"kind", QString(name)},
+          {"value", angle ? c.value / kDegree : c.value},
+      });
+    }
+  }
+  return list;
+}
+
+qulonglong SketchController::add_dimension(const QString& name,
+                                           qulonglong first,
+                                           qulonglong second) {
+  std::optional<sketchcad::ConstraintKind> kind;
+  for (const auto& [k, n] : kDimensions)
+    if (name == n) kind = k;
+  const auto value =
+      kind ? sketchcad::measure(document_.sketch(), *kind, first, second)
+           : std::nullopt;
+  std::optional<sketchcad::EntityId> id;
+  bool ok = false;
+  // Validate on a copy so a rejected reference is not reported as a solve
+  // error.
+  Sketch probe = document_.sketch();
+  if (!value || !probe.add_dimension(*kind, first, second, *value)) {
+    message_ = QStringLiteral("invalid_dimension");
+  } else {
+    ok = document_.execute("Dimension", [&](Sketch& s) {
+      id = s.add_dimension(*kind, first, second, *value);
+      return id.has_value();
+    });
+    message_ = ok ? QString() : status_message(last_status_);
+  }
+  refresh_scene();
+  emit changed();
+  return ok ? *id : 0;
+}
+
+bool SketchController::set_dimension(qulonglong id, double value) {
+  const auto c = document_.sketch().constraint(id);
+  bool ok = false;
+  if (!c || !sketchcad::is_dimension(c->kind)) {
+    message_ = QStringLiteral("invalid_dimension");
+  } else {
+    if (c->kind == sketchcad::ConstraintKind::kAngle) value *= kDegree;
+    Sketch probe = document_.sketch();
+    if (!probe.set_dimension(id, value)) {
+      message_ = QStringLiteral("invalid_value");
+    } else {
+      ok = document_.execute(
+          "Dimension", [&](Sketch& s) { return s.set_dimension(id, value); });
+      message_ = ok ? QString() : status_message(last_status_);
+    }
+  }
+  refresh_scene();
+  emit changed();
+  return ok;
 }

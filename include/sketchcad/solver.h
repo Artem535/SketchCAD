@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <vector>
 
 #include "sketchcad/document.h"
@@ -23,6 +24,11 @@ struct SolveResult {
 
 inline constexpr double kLengthTolerance = 1e-7;
 inline constexpr double kAngleTolerance = 1e-9;
+
+// Current value of a dimension kind for the given references, nullopt if
+// they are invalid or the value is undefined.
+std::optional<double> measure(const Sketch& sketch, ConstraintKind kind,
+                              EntityId first, EntityId second = 0);
 
 // Solves all constraints of `sketch`; writes back only on kSolved.
 SolveResult solve(Sketch& sketch);

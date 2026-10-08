@@ -7,7 +7,7 @@ Depends on C01 (xref:sketch-model.adoc[]) and C02 (xref:document-commands.adoc[]
 Core only and Qt-free; Ceres stays a private dependency of `sketchcad_core`.
 Not in this increment: driving dimensions (S02), drag with stabilization residuals and DOF/conflict diagnostics (S03),
 constraint UI and glyphs (U02), constraint-creating snaps (U04), persistence.
-The stage-0 `Rectangle` prototype keeps its own solver until S02 replaces its dimensions.
+The stage-0 `Rectangle` prototype is retired in S02 (xref:dimensions.adoc[]).
 
 == Constraint model
 Constraints live in `Sketch` (`include/sketchcad/constraint.h`, `sketch.h`), so Document snapshots,

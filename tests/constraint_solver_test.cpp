@@ -68,6 +68,11 @@ std::pair<double, bool> oracle(const Sketch& s, const Constraint& c) {
       return {curve(s, c.first).second - curve(s, c.second).second, false};
     case K::kFix:
       return {length(at(s, c.first), c.target), false};
+    case K::kLength:
+    case K::kDistance:
+    case K::kAngle:
+    case K::kRadius:
+      break;  // Dimensions have their own oracle in dimension_test.
   }
   return {INFINITY, false};
 }

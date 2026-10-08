@@ -80,6 +80,10 @@ class Sketch {
 
   std::optional<EntityId> add_constraint(ConstraintKind kind, EntityId first,
                                          EntityId second = 0);
+  std::optional<EntityId> add_dimension(ConstraintKind kind, EntityId first,
+                                        EntityId second, double value);
+  // Changes a dimension's value without solving.
+  bool set_dimension(EntityId id, double value);
   std::optional<Constraint> constraint(EntityId) const;
   const std::map<EntityId, Constraint>& constraints() const {
     return constraints_;
@@ -92,6 +96,7 @@ class Sketch {
  private:
   bool is_point(EntityId) const;
   std::optional<EntityId> allocate();
+  bool valid_dimension(const Constraint&, double value) const;
   std::optional<EntityId> insert(Entity);
   std::map<EntityId, Entity> entities_;
   std::map<EntityId, Constraint> constraints_;

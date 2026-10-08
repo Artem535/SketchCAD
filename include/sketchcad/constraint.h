@@ -20,7 +20,17 @@ enum class ConstraintKind {
   kTangent,
   kEqual,
   kFix,
+  // Driving dimensions (dimensions.adoc): constraints with a value.
+  kLength,
+  kDistance,
+  kAngle,
+  kRadius,
 };
+
+constexpr bool is_dimension(ConstraintKind kind) {
+  return kind == ConstraintKind::kLength || kind == ConstraintKind::kDistance ||
+         kind == ConstraintKind::kAngle || kind == ConstraintKind::kRadius;
+}
 
 struct Constraint {
   EntityId id;
@@ -32,6 +42,10 @@ struct Constraint {
   Position target{0, 0};
   // Circle-circle kTangent: internal instead of external contact.
   bool internal = false;
+  // Dimensions: millimetres, or radians for kAngle.
+  double value = 0;
+  // Point-line kDistance: side of the line at creation (+1 or -1).
+  int side = 1;
   bool operator==(const Constraint&) const = default;
 };
 }  // namespace sketchcad
