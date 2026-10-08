@@ -376,6 +376,66 @@ class SketchControllerTest : public QObject {
     QVERIFY(std::abs(point_of(s, l.end).x - 60) < 1e-3);
     QCOMPARE(c->diagnosis(), QString("consistent"));
   }
+  // Inspector rows as "label=value unit" strings.
+  QStringList rows(SketchController* c) {
+    QStringList out;
+    for (const QVariant& v : c->selection_properties()) {
+      const auto m = v.toMap();
+      out << QString("%1=%2 %3")
+                 .arg(m["label"].toString(), m["value"].toString(),
+                      m["unit"].toString())
+                 .trimmed();
+    }
+    return out;
+  }
+  void inspector_describes_the_selection() {
+    auto* c = make();
+    QCOMPARE(c->selection_title(), QString("Эскиз"));
+    QCOMPARE(rows(c), (QStringList{"Объектов=0", "Ограничений=0", "DOF=0"}));
+    line(c);  // (10,10)-(60,10)
+    c->set_tool("circle");
+    tap(c, 100, 50);
+    tap(c, 112.5, 50);
+    c->set_tool("arc");
+    tap(c, 100, 0);
+    tap(c, 110, 0);
+    tap(c, 100, 10);
+    c->set_tool("select");
+    QCOMPARE(rows(c).first(), QString("Объектов=7"));
+
+    tap(c, 35, 10);
+    QCOMPARE(c->selection_title(), QString("Линия"));
+    QCOMPARE(rows(c), (QStringList{"Длина=50 мм", "Угол=0 °"}));
+    c->clear_selection();
+    tap(c, 10, 10);
+    QCOMPARE(c->selection_title(), QString("Точка"));
+    QCOMPARE(rows(c), (QStringList{"X=10 мм", "Y=10 мм"}));
+    c->clear_selection();
+    tap(c, 100, 62.5);
+    QCOMPARE(c->selection_title(), QString("Окружность"));
+    QCOMPARE(rows(c), (QStringList{"Радиус=12.5 мм", "Диаметр=25 мм"}));
+    c->clear_selection();
+    const QPointF on_arc = c->screen_of(100 + 10 * std::cos(0.7),
+                                        10 * std::sin(0.7));
+    c->press(on_arc.x(), on_arc.y());
+    c->release(on_arc.x(), on_arc.y());
+    QCOMPARE(c->selection_title(), QString("Дуга"));
+    QCOMPARE(rows(c), (QStringList{"Радиус=10 мм", "Угол дуги=90 °"}));
+    tap(c, 35, 10);
+    QCOMPARE(c->selection_title(), QString("2 объекта"));
+    QVERIFY(rows(c).isEmpty());
+  }
+  void fixed_points_are_published() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    QVERIFY(c->fixed_path().isEmpty());
+    tap(c, 10, 10);
+    QVERIFY(c->apply("fix") != 0);
+    QVERIFY(!c->fixed_path().isEmpty());
+    QVERIFY(c->undo());
+    QVERIFY(c->fixed_path().isEmpty());
+  }
   void unknown_tool_name_is_ignored() {
     auto* c = make();
     c->set_tool("rectangle");

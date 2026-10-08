@@ -697,3 +697,7 @@ void SketchController::highlight_dependent() {
   refresh_scene();
   emit changed();
 }
+
+QVariantList SketchController::selection_properties() const { return {}; }
+
+QString SketchController::selection_title() const { return {}; }

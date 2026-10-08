@@ -55,6 +55,12 @@ class SketchController : public QObject {
   Q_PROPERTY(QString diagnosis_reason READ diagnosis_reason NOTIFY changed)
   // {id, x, y, text} in viewport pixels.
   Q_PROPERTY(QVariantList dimension_labels READ dimension_labels NOTIFY changed)
+  // U05 inspector: {label, value, unit} rows and title for the selection.
+  Q_PROPERTY(QVariantList selection_properties READ selection_properties
+                 NOTIFY changed)
+  Q_PROPERTY(QString selection_title READ selection_title NOTIFY changed)
+  // Points with a fix constraint, drawn as filled handles.
+  Q_PROPERTY(QString fixed_path READ fixed_path NOTIFY changed)
 
  public:
   explicit SketchController(QObject* parent = nullptr);
@@ -97,6 +103,9 @@ class SketchController : public QObject {
   int dof() const;
   QString diagnosis_reason() const;
   QVariantList dimension_labels() const;
+  QVariantList selection_properties() const;
+  QString selection_title() const;
+  QString fixed_path() const { return fixed_path_; }
 
   Q_INVOKABLE void set_viewport_size(double width, double height);
   Q_INVOKABLE void hover(double x, double y);
@@ -165,6 +174,7 @@ class SketchController : public QObject {
   QString axes_path_;
   QString constraint_path_;
   QString conflict_path_;
+  QString fixed_path_;
   qulonglong selected_constraint_ = 0;
   std::vector<sketchcad::EntityId> conflict_entities_;
   sketchcad::Diagnosis diagnosis_;
