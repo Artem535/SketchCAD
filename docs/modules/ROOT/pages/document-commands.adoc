@@ -1,0 +1,114 @@
+= C02: Document commands and Undo/Redo
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/5[#5]. Requirement: S01-UNDO. Depends on C01 (xref:sketch-model.adoc[]).
+Core only and Qt-free. No solver, constraints, dimensions, persistence or UI wiring are added here;
+the Rectangle demo and its controller stay unchanged.
+
+== Purpose
+`Document` is the single boundary through which a sketch changes.
+Every change is an atomic command: it either fully commits and becomes one history step, or leaves
+the document, history, revision and dirty state exactly as they were.
+
+== Contract
+Namespace sketchcad; include/sketchcad/document.h; src/document.cpp.
+
+=== Commands
+`execute(label, edit)` runs `edit` on a working copy of the current `Sketch`, then runs the commit step on the same copy.
+The command commits only if both return true. Otherwise it fails and nothing observable changes.
+An exception thrown by `edit` or the commit step propagates; the document is unchanged (strong guarantee).
+
+A partially applied batch is impossible: an edit that performs several operations and fails on a later one
+leaves none of them in the document.
+
+A successful edit whose result has the same entities as the current state is a no-op:
+it returns true and adds no history step and no dirty change.
+
+=== Commit step (solver hook)
+`set_commit_step(step)` installs a `std::function<bool(Sketch&)>` that runs after every edit and gesture step.
+It may adjust the working copy (the future solver writes solved positions) and returns false to reject the change.
+The default step accepts everything. S01 installs solve plus explicit hard-residual verification here;
+a failed solve therefore produces no history.
+
+=== Undo/Redo
+History is a linear list of committed states with the current position.
+`undo()` and `redo()` move one step and return false when there is nothing to move to.
+Undo/Redo restore entities exactly: IDs, references, parameters and construction flags.
+`undo_label()` / `redo_label()` return the label of the step that would be undone or redone.
+A successful new command after an undo discards the redo branch.
+
+=== IDs
+Restoring states uses `Sketch` assignment, which keeps the higher allocation watermark.
+Allocation never moves backwards, so an ID issued once in a document is never issued again,
+even after undo, cancel or a no-op edit.
+
+=== Gestures (grouped drag)
+`begin_gesture(label)` starts a gesture from the current state.
+`gesture_step(edit)` applies an edit plus the commit step to a copy of the live state; on success the live state is
+replaced and visible through `sketch()`; on failure the live state is kept and the gesture continues.
+`end_gesture()` records one history step from the gesture start to the live state, or none if nothing changed.
+`cancel_gesture()` restores the gesture start state and records nothing.
+While a gesture is active, `execute`, `undo`, `redo` and `mark_saved` return false and change nothing;
+`begin_gesture` returns false when a gesture is already active.
+
+=== Dirty state
+Every committed state has a unique revision number; the initial state is revision 0 and numbers are never reused.
+`mark_saved()` records the current revision as saved. `dirty()` is true when the current revision differs from the
+saved one, or when an active gesture has changed the live state.
+Undoing back to the saved revision makes the document clean again. If the saved revision was on a discarded
+redo branch, the document stays dirty until the next save.
+
+== Planned public API
+[source,cpp]
+----
+using Edit = std::function<bool(Sketch&)>;
+class Document {
+ public:
+  explicit Document(Sketch initial = {});
+  const Sketch& sketch() const;
+  bool execute(std::string label, const Edit& edit);
+  void set_commit_step(Edit step);
+  bool can_undo() const;
+  bool can_redo() const;
+  bool undo();
+  bool redo();
+  std::optional<std::string> undo_label() const;
+  std::optional<std::string> redo_label() const;
+  bool begin_gesture(std::string label);
+  bool gesture_step(const Edit& edit);
+  bool end_gesture();
+  bool cancel_gesture();
+  bool gesture_active() const;
+  std::uint64_t revision() const;
+  bool mark_saved();
+  bool dirty() const;
+};
+----
+
+== Limitations
+History stores full `Sketch` snapshots: memory grows with history length times sketch size.
+There is no history depth limit in this increment; a limit or delta storage is revisited once device budgets exist (CHK-DEVICE).
+No thread-safety guarantee; callers serialize access.
+
+== Acceptance / test cases
+* Failed edit inside a multi-operation batch: document, history, revision, dirty state and next ID unchanged.
+* Rejected commit step: no change and no history step.
+* Throwing edit: exception propagates, document unchanged.
+* Create, delete and edit round trips: undo and redo restore identical entities, IDs and references.
+* New command after undo discards redo; IDs issued after undo do not reuse undone IDs.
+* No-op edit adds no history step.
+* Grouped drag: many gesture steps become one undo step; a failing step keeps the last valid live state;
+  cancel restores the start; commands are rejected while a gesture is active.
+* Dirty state: clean initially and after save; dirty after edit; clean again when undoing to the saved revision;
+  stays dirty when the saved revision was discarded.
+* All existing CTest checks stay green; the core stays Qt-free.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, CMake 4.2, system Qt 6.10.2, vcpkg Ceres/Eigen/GoogleTest; fresh build directory `build/ubuntu`.
+Baseline: 19/19 CTest checks passed before changes.
+
+RED: 14/14 new `Document` tests failed on assertion failures against the stub implementation (no crashes); log `build/issue5-red.log`.
+GREEN: Release build and 33/33 full CTest checks passed, including the existing controller, QML interaction and application smoke checks; log `build/issue5-green.log`.
+The `Document` tests also pass when built with `-Wall -Wextra -Wpedantic -Werror` and AddressSanitizer/UndefinedBehaviorSanitizer.
+clang-format was not available on the machine; line length was checked manually.
+No Android/device validation and no UI wiring are claimed by this core increment.
