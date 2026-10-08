@@ -4,7 +4,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Ceres CONFIG REQUIRED)
 add_library(sketchcad_core src/document.cpp src/sketch.cpp
-            src/sketch_tool.cpp src/sketch_view.cpp src/constraint_solver.cpp)
+            src/sketch_tool.cpp src/sketch_view.cpp src/constraint_solver.cpp
+            src/constraint_diagnostics.cpp)
 target_include_directories(sketchcad_core PUBLIC include)
 target_link_libraries(sketchcad_core PRIVATE Ceres::ceres)
 enable_testing()
@@ -17,6 +18,7 @@ add_executable(document_test tests/document_test.cpp)
 target_link_libraries(document_test PRIVATE sketchcad_core GTest::gtest_main)
 gtest_discover_tests(document_test)
 foreach(name sketch_view_test sketch_tool_test constraint_test dimension_test
+  constraint_diagnostics_test
   constraint_solver_test)
   add_executable(${name} tests/${name}.cpp)
   target_link_libraries(${name} PRIVATE sketchcad_core GTest::gtest_main)

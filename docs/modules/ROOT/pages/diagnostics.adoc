@@ -56,3 +56,24 @@ struct Diagnosis {
   execution record; no pass/fail threshold.
 
 All existing CTest checks stay green. Desktop only.
+
+== Implementation notes
+* The Ceres problem (residual formulas, parameter blocks) moved to the internal header `src/solver_problem.h`,
+  shared by `solve` and `diagnose`; the Jacobian comes from `ceres::Problem::Evaluate`, so diagnostics and solving
+  can never disagree on residual definitions.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, CMake 4.2, Ceres 2.2 and Eigen 5.0.1 (vcpkg); build directory `build/ubuntu`.
+Baseline: 88/88 CTest checks passed before S03 (branch stacked on S02).
+
+RED: 10/10 new `constraint_diagnostics_test` cases failed against the stub (`build/issue8-red.log`).
+GREEN: Release build and 98/98 full CTest checks passed (`build/issue8-green.log`);
+a Debug build with `-Wall -Wextra -Werror -fsanitize=address,undefined` passes 98/98.
+
+Observed dependent sets: parallel on a rectangle's horizontal sides lists exactly both horizontals and the parallel
+(rank 4, DOF 4); the contradictory 60 mm top length lists both lengths and both verticals, the loop that ties top to
+bottom (rank 7, DOF 1, the height being free).
+Cost: 20 constrained rectangles (160 parameters, 160 rows) diagnose in about 1 ms on the development machine
+(`diagnose_20_rectangles_us` test property, one run, Release); no target is claimed.
+No test reaches `kIllConditioned`, `kTooLarge` or `kNumericalFailure`; they are implemented as specified but unexercised.
+Desktop only; nothing is displayed in the UI yet (U02).
