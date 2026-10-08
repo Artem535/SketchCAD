@@ -42,6 +42,7 @@ ApplicationWindow {
         case "invalid_value": return qsTr("Значение должно быть конечным числом в допустимых пределах")
         case "invalid_geometry": return qsTr("Геометрия вырождена — ограничение не определено")
         case "numerical_failure": return qsTr("Решатель не сошёлся — изменение отменено; попробуйте меньшее изменение значения")
+        case "degenerate": return qsTr("Ограничение схлопывает геометрию — изменение отменено")
         case "invalid_action": return qsTr("Ограничение не подходит к выбранным объектам")
         case "invalid_dimension": return qsTr("Размер не подходит к выбранным объектам")
         }

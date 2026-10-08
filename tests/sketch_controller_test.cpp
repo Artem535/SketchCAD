@@ -249,8 +249,9 @@ class SketchControllerTest : public QObject {
     QCOMPARE(pick(c, {{35, 10}, {25, 45}}),
              (L{"parallel", "perpendicular", "equal", "angle"}));
     QCOMPARE(pick(c, {{10, 10}}), L{"fix"});
+    // Coincident ends of one line would collapse it, so it is not offered.
     QCOMPARE(pick(c, {{10, 10}, {60, 10}}),
-             (L{"coincident", "horizontal", "vertical", "distance"}));
+             (L{"horizontal", "vertical", "distance"}));
     QCOMPARE(pick(c, {{10, 30}, {35, 10}}), L{"distance"});
     QCOMPARE(pick(c, {{90, 40}}), L{"radius"});
     QCOMPARE(pick(c, {{90, 40}, {35, 10}}), L{"tangent"});
@@ -339,6 +340,21 @@ class SketchControllerTest : public QObject {
     QVERIFY(c->set_dimension(id, 12.5));
     label = c->dimension_labels().front().toMap();
     QCOMPARE(label["text"].toString(), QString("12.5"));
+  }
+  void collapsing_actions_are_not_offered() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    tap(c, 35, 10);
+    QVERIFY(c->apply("horizontal") != 0);
+    QVERIFY(!c->applicable().contains("vertical"));
+    QCOMPARE(c->apply("vertical"), 0ull);
+    QCOMPARE(c->message(), QString("invalid_action"));
+    c->clear_selection();
+    tap(c, 10, 10);
+    tap(c, 60, 10);
+    QVERIFY(!c->applicable().contains("coincident"));
+    QVERIFY(c->applicable().contains("distance"));
   }
   void unknown_tool_name_is_ignored() {
     auto* c = make();

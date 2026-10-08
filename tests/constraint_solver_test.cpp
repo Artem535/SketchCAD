@@ -340,3 +340,66 @@ TEST(SolverDocument, ConstraintOnSatisfiedGeometryIsStillAChange) {
   EXPECT_TRUE(doc.can_undo());
   EXPECT_TRUE(doc.dirty());
 }
+
+TEST(SolverDegenerate, HorizontalAndVerticalOnOneLine) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 3});
+  ASSERT_TRUE(s.add_constraint(K::kHorizontal, l));
+  ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+  ASSERT_TRUE(s.add_constraint(K::kVertical, l));
+  const Sketch before = s;
+  EXPECT_EQ(solve(s).status, SolveStatus::kDegenerate);
+  EXPECT_TRUE(s == before);
+}
+
+TEST(SolverDegenerate, CoincidentEndpointsOfOneLine) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 3});
+  const auto [a, b] = points_of(s, l);
+  ASSERT_TRUE(s.add_constraint(K::kCoincident, a, b));
+  const Sketch before = s;
+  EXPECT_EQ(solve(s).status, SolveStatus::kDegenerate);
+  EXPECT_TRUE(s == before);
+}
+
+TEST(SolverDegenerate, RadiusCollapse) {
+  Sketch s;
+  const EntityId center = *s.create_point({5, 0});
+  const EntityId c = *s.create_circle(center, 3);
+  const EntityId l = line(s, {0, 0}, {10, 0});
+  ASSERT_TRUE(s.add_constraint(K::kFix, center));
+  pin(s, l);
+  ASSERT_TRUE(s.add_constraint(K::kTangent, l, c));
+  const Sketch before = s;
+  EXPECT_EQ(solve(s).status, SolveStatus::kDegenerate);
+  EXPECT_TRUE(s == before);
+}
+
+TEST(SolverDegenerate, DocumentRollsBackAndFreePointsStillMeet) {
+  Sketch initial;
+  const EntityId l = line(initial, {0, 0}, {10, 3});
+  const EntityId p = *initial.create_point({20, 0});
+  const EntityId q = *initial.create_point({25, 4});
+  ASSERT_TRUE(initial.add_constraint(K::kHorizontal, l));
+  Document doc(initial);
+  doc.set_commit_step(solver_step());
+  const Sketch before = doc.sketch();
+  EXPECT_FALSE(doc.execute("Vertical", [&](Sketch& s) {
+    return s.add_constraint(K::kVertical, l).has_value();
+  }));
+  EXPECT_TRUE(doc.sketch() == before);
+  EXPECT_TRUE(doc.execute("Coincident", [&](Sketch& s) {
+    return s.add_constraint(K::kCoincident, p, q).has_value();
+  }));
+}
+
+TEST(SolverDegenerate, VerticalOnHorizontalLineRotatesKeepingLength) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 0});
+  ASSERT_TRUE(s.add_constraint(K::kVertical, l));
+  const std::size_t constraints = s.constraints().size();
+  expect_solved(s);
+  const auto [a, b] = points_of(s, l);
+  EXPECT_NEAR(length(at(s, a), at(s, b)), 10, kLengthTolerance);
+  EXPECT_EQ(s.constraints().size(), constraints) << "no constraint is kept";
+}

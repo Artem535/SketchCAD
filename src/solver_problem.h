@@ -223,6 +223,34 @@ class Problem {
     return dense;
   }
 
+  // Lines and curves whose length or radius the current values collapse,
+  // although the input sketch did not.
+  std::vector<EntityId> collapsed() const {
+    std::vector<EntityId> ids;
+    const auto now = [&](EntityId point) {
+      auto it = points_.find(point);
+      if (it != points_.end()) return Position{it->second[0], it->second[1]};
+      return position(point);
+    };
+    for (const auto& [id, e] : sketch_.entities()) {
+      if (const auto* l = std::get_if<SketchLine>(&e)) {
+        const Position a = position(l->start), b = position(l->end);
+        const Position c = now(l->start), d = now(l->end);
+        if (std::hypot(b.x - a.x, b.y - a.y) > kLengthTolerance &&
+            std::hypot(d.x - c.x, d.y - c.y) <= kLengthTolerance)
+          ids.push_back(id);
+      }
+    }
+    for (const auto& [id, r] : radii_) {
+      const Entity e = *sketch_.entity(id);
+      const double before = std::holds_alternative<SketchCircle>(e)
+                                ? std::get<SketchCircle>(e).radius
+                                : std::get<SketchArc>(e).radius;
+      if (before > kLengthTolerance && r <= kLengthTolerance) ids.push_back(id);
+    }
+    return ids;
+  }
+
   // Applies solved values; only called when every residual is satisfied.
   Sketch apply() const {
     Sketch result = sketch_;

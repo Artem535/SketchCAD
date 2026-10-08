@@ -363,6 +363,8 @@ QString status_message(sketchcad::SolveStatus status) {
       return QStringLiteral("invalid_geometry");
     case sketchcad::SolveStatus::kNumericalFailure:
       return QStringLiteral("numerical_failure");
+    case sketchcad::SolveStatus::kDegenerate:
+      return QStringLiteral("degenerate");
     case sketchcad::SolveStatus::kSolved:
       break;
   }
@@ -498,8 +500,12 @@ void SketchController::refresh_analysis() {
   if (applicable_selection_ != session_.selected()) {
     applicable_.clear();
     for (const auto& a : kActions) {
+      // Actions that could only collapse geometry are not offered;
+      // conflicting ones are, so the conflict can be shown.
       Sketch probe = sketch;
-      if (add_action(probe, a.key)) applicable_.append(a.key);
+      if (add_action(probe, a.key) &&
+          sketchcad::solve(probe).status != sketchcad::SolveStatus::kDegenerate)
+        applicable_.append(a.key);
     }
     applicable_selection_ = session_.selected();
   }
