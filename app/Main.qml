@@ -1,139 +1,234 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
 
+// Tablet shell from design/sketchcad-tablet.html, reduced to U01 scope.
 ApplicationWindow {
     id: window
     visible: true
-    width: 1040
-    height: 720
-    minimumWidth: 780
-    minimumHeight: 520
-    title: "SketchCAD — Rectangle prototype"
-    color: "#edf1f5"
-    font.family: "Sans Serif"
-    font.pixelSize: 16
-    header: Rectangle {
-        height: 72
-        color: "#ffffff"
+    width: 1280
+    height: 800
+    minimumWidth: 720
+    minimumHeight: 480
+    title: qsTr("SketchCAD")
+    Material.theme: Material.System
+    Material.accent: Material.Blue
+
+    readonly property var tools: [
+        { name: "select", label: qsTr("Выбор") },
+        { name: "line", label: qsTr("Линия") },
+        { name: "polyline", label: qsTr("Ломаная") },
+        { name: "rectangle", label: qsTr("Прямоуг.") },
+        { name: "circle", label: qsTr("Окружн.") },
+        { name: "arc", label: qsTr("Дуга") }
+    ]
+
+    function statusText() {
+        if (sketch.message === "point_in_use")
+            return qsTr("Точка используется другой геометрией")
+        if (sketch.in_progress) {
+            if (sketch.tool === "polyline")
+                return qsTr("Касание — вершина; первая точка замыкает, «Готово» — завершить")
+            return qsTr("Укажите следующую точку · Esc — отмена")
+        }
+        return qsTr("Объектов: %1").arg(sketch.entity_count)
+    }
+
+    header: ToolBar {
+        Material.elevation: 1
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 20
-            Label { text: "SketchCAD"; font.pixelSize: 26; font.bold: true; color: "#1e3348" }
-            Item { Layout.fillWidth: true }
-            Label { text: "Rectangle sketch"; color: "#53687a" }
-            Label { text: "mm"; font.bold: true; color: "#1e3348" }
+            anchors.leftMargin: 16
+            anchors.rightMargin: 8
+            spacing: 8
+            Label {
+                text: qsTr("Эскиз 01")
+                font.pixelSize: 18
+                font.weight: Font.Medium
+            }
+            Label {
+                objectName: "statusText"
+                text: window.statusText()
+                opacity: 0.7
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+            }
+            ToolButton {
+                objectName: "undoButton"
+                icon.source: "qrc:/icons/undo.svg"
+                enabled: sketch.can_undo
+                onClicked: sketch.undo()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Отменить")
+            }
+            ToolButton {
+                objectName: "redoButton"
+                icon.source: "qrc:/icons/redo.svg"
+                enabled: sketch.can_redo
+                onClicked: sketch.redo()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Повторить")
+            }
         }
     }
-    RowLayout {
+
+    SketchViewport {
+        id: viewport
         anchors.fill: parent
-        spacing: 1
-        Rectangle {
-            Layout.preferredWidth: 260
-            Layout.fillHeight: true
-            color: "#ffffff"
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 20
-                spacing: 14
-                Label { text: "Dimensions"; font.pixelSize: 22; font.bold: true; color: "#1e3348" }
-                Label { text: "Width, mm" }
-                TextField { id: widthInput; objectName: "widthInput"; text: "50"; Layout.fillWidth: true; Layout.preferredHeight: 48; inputMethodHints: Qt.ImhFormattedNumbersOnly; selectByMouse: true }
-                Label { text: "Height, mm" }
-                TextField { id: heightInput; objectName: "heightInput"; text: "30"; Layout.fillWidth: true; Layout.preferredHeight: 48; inputMethodHints: Qt.ImhFormattedNumbersOnly; selectByMouse: true }
-                Button {
-                    objectName: "applyDimensions"
-                    text: "Apply dimensions"; Layout.fillWidth: true; Layout.preferredHeight: 48
-                    onClicked: sketch.resize(Number(widthInput.text), Number(heightInput.text), sketch.anchored)
-                }
-                CheckBox {
-                    id: anchorBox
-                    objectName: "anchorOrigin"
-                    text: "Fix corner at origin"
-                    checked: sketch.anchored
-                    onClicked: {
-                        sketch.resize(Number(widthInput.text), Number(heightInput.text), checked)
-                        checked = sketch.anchored
-                    }
-                }
-                Label {
-                    text: sketch.anchored ? "Corner fixed at (0, 0). Unfix it to move the rectangle." : "Drag a blue corner to move the rectangle. Dimensions stay fixed."
-                    wrapMode: Text.WordWrap; Layout.fillWidth: true; color: "#53687a"
-                }
-                Item { Layout.fillHeight: true }
-                Button { text: "Try conflicting width"; objectName: "conflictProbe"; Layout.fillWidth: true; Layout.preferredHeight: 48; onClicked: sketch.conflict() }
-                Label { text: "Adds a second width +10 mm. The sketch must stay unchanged."; wrapMode: Text.WordWrap; Layout.fillWidth: true; color: "#53687a"; font.pixelSize: 13 }
-            }
+        controller: sketch
+    }
+
+    // Left tool rail.
+    Pane {
+        id: rail
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.margins: 8
+        width: 80
+        padding: 4
+        background: Rectangle {
+            color: window.Material.dialogColor
+            radius: 16
+            border.color: window.Material.dividerColor
         }
-        Canvas {
-            id: canvas
-            objectName: "sketchCanvas"
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            property real scale: 4
-            property real originX: width / 2 - 100
-            property real originY: height / 2 + 60
-            function px(p) { return originX + p.x * scale }
-            function py(p) { return originY - p.y * scale }
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d")
-                ctx.reset()
-                ctx.fillStyle = "#edf1f5"
-                ctx.fillRect(0, 0, width, height)
-                ctx.strokeStyle = "#dce3eb"
-                ctx.lineWidth = 1
-                ctx.beginPath()
-                for (let x = originX % 40; x < width; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, height) }
-                for (let y = originY % 40; y < height; y += 40) { ctx.moveTo(0, y); ctx.lineTo(width, y) }
-                ctx.stroke()
-                ctx.strokeStyle = "#a4b3c2"
-                ctx.beginPath(); ctx.moveTo(originX, 0); ctx.lineTo(originX, height); ctx.moveTo(0, originY); ctx.lineTo(width, originY); ctx.stroke()
-                const p = sketch.points
-                if (p.length !== 4) return
-                ctx.beginPath(); ctx.moveTo(px(p[0]), py(p[0]))
-                for (let i = 1; i < 4; ++i) ctx.lineTo(px(p[i]), py(p[i]))
-                ctx.closePath(); ctx.fillStyle = "#dae7f6"; ctx.fill()
-                ctx.strokeStyle = "#246bc4"; ctx.lineWidth = 3; ctx.stroke()
-                for (let i = 0; i < 4; ++i) {
-                    ctx.beginPath(); ctx.arc(px(p[i]), py(p[i]), 7, 0, Math.PI * 2)
-                    ctx.fillStyle = sketch.anchored && i === 0 ? "#1e3348" : "#246bc4"; ctx.fill()
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 2
+            Repeater {
+                model: window.tools
+                delegate: ToolButton {
+                    required property var modelData
+                    objectName: "tool_" + modelData.name
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 60
+                    display: AbstractButton.TextUnderIcon
+                    icon.source: "qrc:/icons/" + modelData.name + ".svg"
+                    text: modelData.label
+                    font.pixelSize: 11
+                    checkable: true
+                    checked: sketch.tool === modelData.name
+                    onClicked: sketch.tool = modelData.name
                 }
-                ctx.fillStyle = "#1e3348"; ctx.font = "16px sans-serif"; ctx.textAlign = "center"
-                ctx.fillText((p[1].x-p[0].x).toFixed(2) + " mm", (px(p[0])+px(p[1]))/2, py(p[2])-22)
-                ctx.textAlign = "left"
-                ctx.fillText((p[2].y-p[1].y).toFixed(2) + " mm", px(p[1])+18, (py(p[1])+py(p[2]))/2)
-                ctx.font = "13px sans-serif"; ctx.fillStyle = "#53687a"; ctx.fillText("(0, 0)", originX+10, originY+22)
             }
-            Connections { target: sketch; function onGeometry_changed() { canvas.requestPaint(); anchorBox.checked = sketch.anchored } }
-            MouseArea {
-                anchors.fill: parent
-                enabled: !sketch.anchored
-                property bool dragging: false
-                property real lastX: 0
-                property real lastY: 0
-                onPressed: function(mouse) {
-                    dragging = false
-                    for (const p of sketch.points) {
-                        if (Math.hypot(mouse.x-canvas.px(p), mouse.y-canvas.py(p)) <= 24) dragging = true
-                    }
-                    lastX = mouse.x; lastY = mouse.y
-                }
-                onPositionChanged: function(mouse) {
-                    if (pressed && dragging) {
-                        sketch.translate((mouse.x-lastX)/canvas.scale, -(mouse.y-lastY)/canvas.scale)
-                        lastX = mouse.x; lastY = mouse.y
-                    }
-                }
-                onReleased: dragging = false
-                onCanceled: dragging = false
+            MenuSeparator { Layout.fillWidth: true }
+            ToolButton {
+                objectName: "snapToggle"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 60
+                display: AbstractButton.TextUnderIcon
+                icon.source: "qrc:/icons/snap.svg"
+                text: qsTr("Привязка")
+                font.pixelSize: 11
+                checkable: true
+                checked: sketch.snap_enabled
+                onToggled: sketch.snap_enabled = checked
+            }
+            ToolButton {
+                objectName: "fingerToggle"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 60
+                display: AbstractButton.TextUnderIcon
+                icon.source: "qrc:/icons/finger.svg"
+                text: qsTr("Палец")
+                font.pixelSize: 11
+                checkable: true
+                checked: sketch.finger_draws
+                onToggled: sketch.finger_draws = checked
+            }
+            Item { Layout.fillHeight: true }
+        }
+    }
+
+    // Context bar: selection actions or the shape in progress.
+    Pane {
+        id: contextBar
+        objectName: "contextBar"
+        visible: sketch.has_selection || sketch.in_progress
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 14
+        padding: 6
+        background: Rectangle {
+            color: window.Material.dialogColor
+            radius: height / 2
+            border.color: window.Material.dividerColor
+        }
+        RowLayout {
+            spacing: 4
+            Button {
+                objectName: "deleteSelection"
+                visible: sketch.has_selection
+                flat: true
+                icon.source: "qrc:/icons/delete.svg"
+                text: qsTr("Удалить")
+                Material.foreground: Material.Red
+                onClicked: sketch.delete_selection()
+            }
+            Button {
+                objectName: "finishShape"
+                visible: sketch.in_progress && sketch.tool === "polyline"
+                flat: true
+                icon.source: "qrc:/icons/check.svg"
+                text: qsTr("Готово")
+                onClicked: sketch.finish()
+            }
+            Button {
+                objectName: "closeContext"
+                flat: true
+                icon.source: "qrc:/icons/close.svg"
+                text: sketch.in_progress ? qsTr("Отмена") : ""
+                onClicked: sketch.in_progress ? sketch.cancel()
+                                              : sketch.clear_selection()
             }
         }
     }
-    footer: Rectangle {
-        height: 48; color: "#ffffff"
-        Label { anchors.left: parent.left; anchors.leftMargin: 20; anchors.verticalCenter: parent.verticalCenter; text: sketch.status; color: sketch.status.startsWith("Rejected") ? "#a02c30" : "#1e3348" }
-        Label { anchors.right: parent.right; anchors.rightMargin: 20; anchors.verticalCenter: parent.verticalCenter; text: "Grid 10 mm"; color: "#53687a" }
+
+    // Zoom controls.
+    Pane {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 14
+        padding: 2
+        background: Rectangle {
+            color: window.Material.dialogColor
+            radius: width / 2
+            border.color: window.Material.dividerColor
+        }
+        ColumnLayout {
+            spacing: 0
+            ToolButton {
+                objectName: "zoomIn"
+                icon.source: "qrc:/icons/zoom_in.svg"
+                onClicked: sketch.zoom_at(viewport.width / 2,
+                                          viewport.height / 2, 1.25)
+            }
+            ToolButton {
+                objectName: "zoomOut"
+                icon.source: "qrc:/icons/zoom_out.svg"
+                onClicked: sketch.zoom_at(viewport.width / 2,
+                                          viewport.height / 2, 0.8)
+            }
+            ToolButton {
+                objectName: "fitView"
+                icon.source: "qrc:/icons/fit.svg"
+                onClicked: sketch.fit()
+            }
+        }
+    }
+
+    Shortcut { sequences: [StandardKey.Undo]; onActivated: sketch.undo() }
+    Shortcut { sequences: [StandardKey.Redo]; onActivated: sketch.redo() }
+    Shortcut {
+        sequences: ["Escape"]
+        onActivated: sketch.cancel() || sketch.clear_selection()
+    }
+    Shortcut {
+        sequences: [StandardKey.Delete, "Backspace"]
+        onActivated: sketch.delete_selection()
+    }
+    Shortcut {
+        sequences: ["Return", "Enter"]
+        onActivated: sketch.finish()
     }
 }

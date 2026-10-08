@@ -85,3 +85,22 @@ QML (Qt Test, offscreen): real clicks on rail buttons and the canvas draw a line
 the wheel zooms; a populated screenshot is saved for comparison with the reference.
 
 All CTest checks stay green; the core stays Qt-free. Runtime on Android is verified in P01, not by these tests.
+
+== Implementation notes
+* `SketchController` converts pixel tolerances to millimetres at the current zoom: picking 16 px, point snap 12 px; the grid snap step is the visible minor grid step.
+* Arcs and circles are emitted as SVG `A` commands split into pieces of at most half a turn; a counter-clockwise world sweep is sweep-flag 0 on the Y-down screen.
+* The first non-empty viewport size fits the sketch (or the default 100 × 100 mm area); later resizes keep the current view.
+* The context bar floats over the canvas bottom centre, as in the mockup; canvas taps under it reach the bar, not the tool.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, CMake 4.2, system Qt 6.10.2, vcpkg Ceres/Eigen/GoogleTest; build directory `build/ubuntu`.
+Baseline: 33/33 CTest checks passed before U01.
+
+Core: RED 25/25 new view and tool tests failed on assertion failures against stubs (`build/issue9-core-red.log`); GREEN 58/58 (commit 621bdf7).
+App: RED 9/9 `sketch_controller_test` cases, `qml_test` and `qml_smoke` failed against the stub controller with the new shell already loading (`build/issue9-app-red.log`).
+GREEN: Release build and 58/58 full CTest checks passed (`build/issue9-app-green.log`); `qml_test` saves `sketch_u01.png` next to the binary, which was inspected against the mockup.
+A separate Debug build with `-Wall -Wextra -Werror -fsanitize=address,undefined` passes 58/58 with `ASAN_OPTIONS=detect_leaks=0`;
+LeakSanitizer only reports allocations inside system fontconfig/pango/glib during Qt start-up, none from project code.
+`-Wno-self-move` is needed for the existing intentional self-move test in `sketch_test`.
+clang-format was not available on the machine; line length was checked manually.
+Only desktop offscreen runs are claimed; touch, stylus and pinch behaviour on a device is verified in P01 (issue #3).
