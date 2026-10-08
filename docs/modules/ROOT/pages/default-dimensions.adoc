@@ -1,0 +1,77 @@
+= U08: Live dimensions while drawing and automatic dimensions
+:toc:
+
+Requirements: S01-DIM, S01-EDIT, S01-UI. Depends on U01 (xref:sketch-viewport.adoc[]), S02 (xref:dimensions.adoc[]),
+S03 (xref:diagnostics.adoc[]), U06 (xref:dimension-style.adoc[]), U07 (xref:ui-help.adoc[]).
+
+Origin: user remark 5 after U02 testing ("dimensions should probably always be shown by default"); the user chose both
+"live dimensions while drawing" and "automatically add a dimension".
+
+Not in this increment: angle input while drawing (only lengths and radii), polar/relative coordinate input, automatic
+dimensions for already existing geometry, a setting that persists across sessions (no settings storage before F01).
+
+== Live dimensions (preview, display only)
+* While a shape is in progress, `ToolSession::preview()` carries driving dimensions at the measured values of the
+  rubber band, laid out and drawn like U06 dimensions:
+  line and the current polyline segment → length; rectangle → width (bottom side) and height (right side) of the
+  preview; circle → radius; arc → radius from the second tap on.
+* They live only in the preview sketch and never enter the document.
+
+== Dynamic input (core, `ToolSession`)
+* `input_field()` names the value the next number sets, or none: `kLength` for a line or polyline with at least one
+  vertex, `kWidth` then `kHeight` for a rectangle after its first corner, `kRadius` for a circle after its centre and for
+  an arc after its centre (the start point). Otherwise none.
+* `enter_value(double)` (> 0 and finite, otherwise rejected without change):
+  ** length: places the next vertex at that distance from the last vertex towards the last hover position (along +X if
+     the hover is on the vertex), exactly as a tap there would, but without snapping;
+  ** rectangle: width keeps the sign of the hover x offset and locks the width; the next hover changes only the height;
+     height keeps the sign of the hover y offset and finishes the rectangle;
+  ** circle radius: finishes the circle; arc radius: places the arc start point at that distance towards the hover.
+* `input_value()` is the current preview value of the field (for the editor's initial text).
+
+== Automatic dimensions (core, `ToolSession`)
+* `set_auto_dimensions(bool)`, on by default. When on, each finished shape gets driving dimensions in the same
+  document command as the geometry (one undo step):
+  line → length; polyline → length of every segment; rectangle → horizontal on the bottom and top sides, vertical on the
+  left and right sides, width (bottom length) and height (right length); circle → radius; arc → radius.
+* Values are the measured ones, so the solver accepts them.
+* A dimension that would be redundant is not added: after adding the shape, each automatic dimension is kept only if
+  `diagnose` of the candidate does not list it as dependent (and the diagnosis is not unknown); the others are dropped,
+  in shape order. Example: a line drawn between two fixed points gets no length.
+* With auto dimensions off, shapes are created as in U01.
+
+== Controller and QML
+* `auto_dimensions` (read/write, on); overflow menu item "Авторазмеры" (`autoDimensionsToggle`, checkable).
+* `input_field` (`""`, `length`, `width`, `height`, `radius`), `input_value`, `enter_value(value)` → bool
+  (failure key `invalid_value`).
+* Preview dimensions: `preview_dimension_path`, `preview_dimension_arrows_path` and `preview_dimension_labels`
+  (`{x, y, angle, text}`), drawn in `primary` (lines dashed) so they read as "not yet committed".
+* While a field is available, typing a digit (or `.`) on a physical keyboard or tapping a preview label
+  (`previewDimensionLabel_<index>`) opens the dimension editor in input mode: title from the field ("Длина", "Ширина",
+  "Высота", "Радиус"), the typed digit as the first character (or the current value when tapped), Apply calls
+  `enter_value`, Cancel keeps drawing. Escape in the editor closes only the editor.
+* The help (U07) gains `autodim` (Авторазмеры) and `input` (Ввод значения при рисовании) entries.
+
+== Acceptance / test cases
+Core (`sketch_tool_test`):
+
+* Auto on: a line is one command with one `kLength` equal to its length; Undo removes line and dimension.
+* Auto off: no constraints are created.
+* Rectangle: 4 axis constraints and 2 lengths (width, height); with the solver step, DOF is 2.
+* Circle and arc: one radius each; open polyline with 3 vertices: 2 lengths.
+* Redundant skipped: with both points of a segment fixed, a new line between them gets no length, and the line is
+  still created.
+* Preview: during a line, `preview()` has one `kLength` equal to the rubber band length; none when idle.
+* Dynamic input: line from (0,0) with hover (10,10), `enter_value(30)` → end at 30/√2 (30/√2); rectangle from (0,0)
+  with hover (−10, 5): width 40 → locked, hover (−3, 30), height 25 → rectangle x −40..0, y 0..25; circle radius 12;
+  arc start at radius 10 towards the hover; invalid values (0, −1, NaN, ∞) and no field → false, unchanged.
+
+Qt (`sketch_controller_test`): `input_field` follows the tool state; `enter_value` draws and reports `invalid_value`;
+preview labels appear while drawing and disappear after; `auto_dimensions` off creates no dimensions.
+
+QML (`qml_test`): with the line tool, tap the first point, hover, type `4`, `0` → editor in input mode shows "40";
+Enter → a 40 mm line with a length dimension; the "Авторазмеры" menu item turns automatic dimensions off; a tap on the
+preview label opens the editor with the current value. A screenshot `sketch_u08_drawing.png` (rubber band with live
+dimension) is saved and inspected.
+
+Desktop only; Android not claimed.
