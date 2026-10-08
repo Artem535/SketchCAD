@@ -2,10 +2,12 @@
 #include <QObject>
 #include <QPointF>
 #include <QString>
+#include <QVariantList>
 
 #include "sketchcad/document.h"
 #include "sketchcad/sketch_tool.h"
 #include "sketchcad/sketch_view.h"
+#include "sketchcad/solver.h"
 
 // Bridges the Qt-free document, tool session and view transform to QML.
 // Geometry is published as SVG path strings in viewport pixels, one per
@@ -35,6 +37,8 @@ class SketchController : public QObject {
   Q_PROPERTY(bool in_progress READ in_progress NOTIFY changed)
   Q_PROPERTY(QString message READ message NOTIFY changed)
   Q_PROPERTY(double scale READ scale NOTIFY changed)
+  // {id, kind, value}; lengths in mm, angles in degrees.
+  Q_PROPERTY(QVariantList dimensions READ dimensions NOTIFY changed)
 
  public:
   explicit SketchController(QObject* parent = nullptr);
@@ -66,6 +70,7 @@ class SketchController : public QObject {
   // Translation key of the last rejected action, empty when none.
   QString message() const { return message_; }
   double scale() const { return view_.scale(); }
+  QVariantList dimensions() const;
 
   Q_INVOKABLE void set_viewport_size(double width, double height);
   Q_INVOKABLE void hover(double x, double y);
@@ -81,6 +86,11 @@ class SketchController : public QObject {
   Q_INVOKABLE bool delete_selection();
   Q_INVOKABLE bool undo();
   Q_INVOKABLE bool redo();
+  // Creates a dimension at the current measured value; 0 on failure.
+  Q_INVOKABLE qulonglong add_dimension(const QString& kind, qulonglong first,
+                                       qulonglong second = 0);
+  // Angles in degrees. False with a message key when rejected.
+  Q_INVOKABLE bool set_dimension(qulonglong id, double value);
   Q_INVOKABLE QPointF screen_of(double x_mm, double y_mm) const;
   Q_INVOKABLE QPointF world_of(double x, double y) const;
 
@@ -104,6 +114,7 @@ class SketchController : public QObject {
   bool snap_enabled_ = true;
   bool finger_draws_ = true;
   bool snap_hint_ = false;
+  sketchcad::SolveStatus last_status_ = sketchcad::SolveStatus::kSolved;
   QString message_;
   QString geometry_path_;
   QString selected_path_;

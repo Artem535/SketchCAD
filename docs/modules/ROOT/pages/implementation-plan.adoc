@@ -1,5 +1,7 @@
 = Prototype implementation plan
 
+NOTE: Historical plan for issue #1. The `Rectangle` code was retired in S02 (xref:dimensions.adoc[]).
+
 Spec: xref:prototype.adoc[]. Issue: #1.
 
 == Core

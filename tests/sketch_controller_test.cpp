@@ -3,6 +3,9 @@
 #include <QSignalSpy>
 #include <QtTest>
 #include <cmath>
+#include <numbers>
+
+#include "sketchcad/solver.h"
 
 using sketchcad::SketchLine;
 using sketchcad::SketchPoint;
@@ -30,6 +33,22 @@ class SketchControllerTest : public QObject {
     c->set_tool("line");
     tap(c, 10, 10);
     tap(c, 60, 10);
+  }
+  // IDs of lines in creation order.
+  std::vector<sketchcad::EntityId> lines(SketchController* c) {
+    std::vector<sketchcad::EntityId> ids;
+    for (const auto& [id, e] : c->document().sketch().entities())
+      if (std::holds_alternative<SketchLine>(e)) ids.push_back(id);
+    return ids;
+  }
+  double length(SketchController* c, sketchcad::EntityId id) {
+    const auto& s = c->document().sketch();
+    const auto l = std::get<SketchLine>(*s.entity(id));
+    const auto a = point_of(s, l.start), b = point_of(s, l.end);
+    return std::hypot(b.x - a.x, b.y - a.y);
+  }
+  QVariantMap dimension(SketchController* c, int index = 0) {
+    return c->dimensions().value(index).toMap();
   }
  private slots:
   void viewport_frames_default_area_and_draws_grid() {
@@ -141,6 +160,68 @@ class SketchControllerTest : public QObject {
     QCOMPARE(c->entity_count(), 3);
     c->clear_selection();
     QVERIFY(!c->has_selection());
+  }
+  void length_dimension_drives_drawn_line() {
+    auto* c = make();
+    line(c);
+    const auto id = lines(c).front();
+    QSignalSpy spy(c, &SketchController::changed);
+    const qulonglong dim = c->add_dimension("length", id);
+    QVERIFY(dim != 0);
+    QVERIFY(spy.count() > 0);
+    QCOMPARE(c->dimensions().size(), 1);
+    QCOMPARE(dimension(c)["kind"].toString(), QString("length"));
+    QVERIFY(near(dimension(c)["value"].toDouble(), 50));
+    QCOMPARE(dimension(c)["id"].toULongLong(), dim);
+
+    QVERIFY(c->set_dimension(dim, 80));
+    QVERIFY(std::abs(length(c, id) - 80) < sketchcad::kLengthTolerance);
+    QVERIFY(near(dimension(c)["value"].toDouble(), 80));
+    QVERIFY(c->message().isEmpty());
+    QVERIFY(c->undo());
+    QVERIFY(std::abs(length(c, id) - 50) < sketchcad::kLengthTolerance);
+    QVERIFY(near(dimension(c)["value"].toDouble(), 50));
+  }
+  void angle_dimension_uses_degrees() {
+    auto* c = make();
+    line(c);
+    c->set_tool("line");
+    tap(c, 10, 30);
+    tap(c, 40, 60);
+    const auto ids = lines(c);
+    const qulonglong dim = c->add_dimension("angle", ids[0], ids[1]);
+    QVERIFY(dim != 0);
+    QVERIFY(std::abs(dimension(c)["value"].toDouble() - 45) < 1e-9);
+    QVERIFY(c->set_dimension(dim, 90));
+    const auto& s = c->document().sketch();
+    QVERIFY(std::abs(*sketchcad::measure(s, sketchcad::ConstraintKind::kAngle,
+                                         ids[0], ids[1]) -
+                     std::numbers::pi / 2) < sketchcad::kAngleTolerance);
+    QVERIFY(c->set_dimension(dim, 180) == false);
+    QCOMPARE(c->message(), QString("invalid_value"));
+  }
+  void rejected_dimensions_report_and_keep_state() {
+    auto* c = make();
+    line(c);
+    const auto id = lines(c).front();
+    const qulonglong first = c->add_dimension("length", id);
+    QVERIFY(c->add_dimension("length", id) != 0);
+    const auto before = c->document().sketch();
+    const auto label = c->document().undo_label();
+
+    QVERIFY(!c->set_dimension(first, -5));
+    QCOMPARE(c->message(), QString("invalid_value"));
+    QVERIFY(c->document().sketch() == before);
+    QVERIFY(!c->set_dimension(first, 80));
+    QCOMPARE(c->message(), QString("conflict"));
+    QVERIFY(c->document().sketch() == before);
+    QCOMPARE(c->document().undo_label(), label);
+
+    QCOMPARE(c->add_dimension("teapot", id), 0ull);
+    QCOMPARE(c->message(), QString("invalid_dimension"));
+    QCOMPARE(c->add_dimension("radius", id), 0ull);
+    QCOMPARE(c->message(), QString("invalid_dimension"));
+    QVERIFY(c->document().sketch() == before);
   }
   void unknown_tool_name_is_ignored() {
     auto* c = make();

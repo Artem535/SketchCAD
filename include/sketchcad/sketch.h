@@ -7,13 +7,9 @@
 #include <variant>
 #include <vector>
 
+#include "sketchcad/constraint.h"
+
 namespace sketchcad {
-using EntityId = std::uint64_t;
-struct Position {
-  double x;
-  double y;
-  bool operator==(const Position&) const = default;
-};
 struct SketchPoint {
   EntityId id;
   Position position;
@@ -70,6 +66,8 @@ class Sketch {
   bool update_arc(EntityId, EntityId center, double radius, double start_angle,
                   double sweep_angle);
   bool set_construction(EntityId, bool);
+  // Erases an entity or a constraint. Entities referenced by another
+  // entity or by a constraint are kept.
   bool erase(EntityId);
   std::optional<Entity> entity(EntityId) const;
   const std::map<EntityId, Entity>& entities() const { return entities_; }
@@ -80,10 +78,28 @@ class Sketch {
                                            double height,
                                            bool construction = false);
 
+  std::optional<EntityId> add_constraint(ConstraintKind kind, EntityId first,
+                                         EntityId second = 0);
+  std::optional<EntityId> add_dimension(ConstraintKind kind, EntityId first,
+                                        EntityId second, double value);
+  // Changes a dimension's value without solving.
+  bool set_dimension(EntityId id, double value);
+  std::optional<Constraint> constraint(EntityId) const;
+  const std::map<EntityId, Constraint>& constraints() const {
+    return constraints_;
+  }
+  std::vector<EntityId> constraints_of(EntityId entity) const;
+
+  // Content equality: entities and constraints, not the allocator.
+  bool operator==(const Sketch& other) const;
+
  private:
   bool is_point(EntityId) const;
+  std::optional<EntityId> allocate();
+  bool valid_dimension(const Constraint&, double value) const;
   std::optional<EntityId> insert(Entity);
   std::map<EntityId, Entity> entities_;
+  std::map<EntityId, Constraint> constraints_;
   // Zero denotes exhaustion, not the next usable ID.
   EntityId next_id_ = 1;
 };
