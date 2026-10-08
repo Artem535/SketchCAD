@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SketchCAD · Assembly tablet</title>
+<style>
+:root{--bg:#f4f6f9;--surface:#fff;--surface2:#eef2f6;--canvas:#e9eef3;--ink:#1c2b3a;--muted:#5d7083;--line:#d6dfe8;--primary:#1668c0;--on-primary:#fff;--primary-c:#dbe9fb;--ok:#16745c;--ok-c:#e2f4ee;--warn:#8a5a00;--warn-c:#fdf0d5;--err:#b3261e;--shadow:0 2px 10px #1c2b3a22;--stage:#c9d3dd}
+:root[data-theme=dark]{--bg:#12191f;--surface:#1c262f;--surface2:#26323d;--canvas:#1a232b;--ink:#e6edf4;--muted:#9fb2c4;--line:#364552;--primary:#8ec1ff;--on-primary:#0b2a4a;--primary-c:#1f3b57;--ok:#5fd0ac;--ok-c:#17352c;--warn:#f2c46b;--warn-c:#3d3018;--err:#ffb4ab;--shadow:0 2px 10px #0008;--stage:#0b1015}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--stage);color:var(--ink);font:16px Roboto,"Noto Sans",system-ui,sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;touch-action:manipulation}button:focus-visible,input:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.preview-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 14px;background:#101820;color:#dfe8f0;font-size:13px}.preview-bar button{padding:7px 12px;border-radius:8px;background:#26343f;color:#dfe8f0}.preview-bar button[aria-pressed=true]{background:#8ec1ff;color:#0b2a4a}
+.stage{flex:1;min-height:0;position:relative;overflow:hidden}
+.frame{position:absolute;left:50%;top:50%;transform-origin:center;width:1280px;height:800px;background:var(--bg);border-radius:18px;overflow:hidden;box-shadow:0 10px 50px #0008;display:grid;grid-template-rows:24px 56px 700px 20px;user-select:none;-webkit-user-select:none}
+.sysbar{display:flex;align-items:center;padding:0 16px;font-size:12px;background:var(--surface);color:var(--muted);gap:10px}.sp{flex:1}
+.appbar{display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--surface);border-bottom:1px solid var(--line)}
+.ib{width:48px;height:48px;border-radius:24px;display:grid;place-items:center;flex:none}.ib:active,.tool:active,.chip:active,.trow button:active{background:var(--primary-c)}.ib svg,.tool svg,.chip svg,.trow svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.ib svg{width:26px;height:26px}.ib[disabled]{opacity:.38}
+.title{display:flex;flex-direction:column;padding:0 6px}.title b{font-weight:500;white-space:nowrap}.title small{font-size:12px;color:var(--muted)}
+.modes{display:flex;gap:2px;background:var(--surface2);border-radius:24px;padding:3px;margin-left:8px}.mode{height:42px;padding:0 16px;border-radius:21px;font-size:14px;color:var(--muted);white-space:nowrap}.mode[aria-selected=true]{background:var(--primary-c);color:var(--primary);font-weight:500}
+.status{height:40px;padding:0 14px 0 10px;border-radius:20px;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;background:var(--ok-c);color:var(--ok)}.status.warn{background:var(--warn-c);color:var(--warn)}.status svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.body{position:relative;overflow:hidden;background:var(--canvas)}#gl{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+.rail{position:absolute;left:8px;top:8px;bottom:8px;width:72px;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:2px;overflow:auto;scrollbar-width:none;z-index:3}
+.tool{width:64px;min-height:56px;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--muted);flex:none}.tool svg{width:26px;height:26px}.tool[aria-pressed=true]{background:var(--primary-c);color:var(--primary);font-weight:500}.rsep{width:40px;height:1px;background:var(--line);margin:4px 0;flex:none}
+.pill{position:absolute;left:calc(50% - 170px);top:10px;transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:4px;background:var(--surface);border-radius:28px;box-shadow:var(--shadow);z-index:3;transition:left .22s}
+.seg{display:flex;border-radius:22px;background:var(--surface2);padding:2px}.seg button{height:44px;padding:0 14px;border-radius:22px;font-size:14px;color:var(--muted);white-space:nowrap}.seg button[aria-pressed=true]{background:var(--primary-c);color:var(--primary);font-weight:500}.pill .vs{width:1px;align-self:stretch;background:var(--line);margin:6px 4px}.pb{height:48px;padding:0 14px;border-radius:24px;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:6px}.pb[aria-pressed=true]{background:var(--primary-c);color:var(--primary)}
+.exw{display:flex;align-items:center;gap:8px;padding:0 10px;font-size:14px;color:var(--muted)}.exw input{width:150px;height:48px;accent-color:var(--primary)}.exw output{width:40px;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+.crumb{position:absolute;left:96px;top:74px;font-size:13px;color:var(--muted);z-index:2;line-height:1.5}.crumb b{color:var(--ink);font-weight:500}
+.stat{position:absolute;left:96px;top:112px;display:flex;flex-direction:column;gap:6px;z-index:2}.stat div{background:var(--surface);box-shadow:var(--shadow);border-radius:14px;padding:6px 12px;font-size:12px;color:var(--muted);width:max-content}.stat b{color:var(--ink);font-weight:500}
+.nav{position:absolute;right:364px;top:10px;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:3;transition:right .22s}.nav.wide{right:16px}#gz{width:132px;height:132px;touch-action:none}.nav .ib{background:var(--surface);box-shadow:var(--shadow);width:56px;height:56px;border-radius:28px;touch-action:none}.nav .ib svg{width:28px;height:28px}.navrow{display:flex;gap:10px}
+.ctx{position:absolute;left:calc(50% - 170px);bottom:14px;transform:translateX(-50%);display:flex;gap:4px;padding:6px;background:var(--surface);border-radius:28px;box-shadow:var(--shadow);z-index:3;transition:opacity .2s,transform .2s,left .22s}.ctx[hidden]{display:flex;opacity:0;pointer-events:none;transform:translate(-50%,16px)}.chip{height:52px;min-width:56px;padding:0 14px;border-radius:26px;display:flex;align-items:center;gap:8px;font-size:14px;white-space:nowrap}.chip svg{width:22px;height:22px}.chip.pri{background:var(--primary);color:var(--on-primary)}.chip.on{background:var(--primary-c);color:var(--primary)}.csep{width:1px;background:var(--line);margin:8px 2px}
+.hint{position:absolute;left:calc(50% - 170px);top:132px;transform:translateX(-50%);padding:10px 16px;border-radius:20px;background:var(--primary);color:var(--on-primary);font-size:14px;z-index:3;box-shadow:var(--shadow)}.hint[hidden]{display:none}
+.drawer{position:absolute;right:8px;top:8px;bottom:8px;width:340px;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform .22s ease-out;overflow:hidden;z-index:4}.drawer.closed{transform:translateX(360px)}
+.tabs{display:flex;padding:8px 8px 0;gap:4px;align-items:center}.tabs .seg{flex:1}.tabs .seg button{flex:1;padding:0 8px}.dbody{overflow:auto;padding:6px 14px 14px;flex:1}.drawer h3{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:14px 0 4px}
+.trow{display:flex;align-items:center;border-radius:14px}.trow.act{background:var(--primary-c)}.trow .tsel{flex:1;display:flex;align-items:center;gap:10px;min-height:52px;text-align:left;padding:0 6px;min-width:0}.trow .tsel svg{width:24px;height:24px;flex:none;stroke:var(--primary)}.tn{display:flex;flex-direction:column;min-width:0}.tn span{font-size:15px}.tn small{color:var(--muted);font-size:12px}.tn small.ok{color:var(--ok)}.tn small.warn{color:var(--warn);font-weight:500}.trow .te{width:48px;height:48px;border-radius:24px;color:var(--muted);display:grid;place-items:center}.trow .te svg{width:22px;height:22px}.trow.hid .tn{opacity:.45}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}th{font-weight:500;color:var(--muted);text-align:left;padding:8px 4px;border-bottom:1px solid var(--line);font-size:12px}td{padding:10px 4px;border-bottom:1px solid var(--line);vertical-align:top}td.n{text-align:right;font-variant-numeric:tabular-nums}tr.sec td{color:var(--muted);font-size:12px;text-align:center;padding:12px 4px 6px;border-bottom:0}
+.btn{width:100%;height:52px;border-radius:26px;background:var(--surface2);margin:12px 0 0;font-size:15px}.note{font-size:12px;color:var(--muted);margin:8px 0}
+.dtab{position:absolute;right:0;top:50%;transform:translateY(-50%);width:28px;height:96px;border-radius:14px 0 0 14px;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center;color:var(--muted);z-index:3}.dtab[hidden]{display:none}
+.toast{position:absolute;top:70px;left:50%;transform:translateX(-50%);max-width:680px;padding:14px 20px;border-radius:14px;background:#1c2b3a;color:#fff;font-size:14px;box-shadow:var(--shadow);z-index:9;opacity:0;pointer-events:none;transition:opacity .2s}.toast.show{opacity:1}
+.navbar{display:grid;place-items:center;background:var(--surface)}.navbar i{width:120px;height:4px;border-radius:2px;background:var(--muted);opacity:.5}
+.fail{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:40px;color:var(--muted)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+<div class="preview-bar"><b>SketchCAD · Сборка (Android tablet, 1.0)</b><button id="pTheme" aria-pressed="false">Тёмная тема</button><span class="sp"></span><span>Выберите висящий Винт:4 → «Соосность с отверстием» или тяните его стрелками к отверстию · ползунок «Разнести»</span></div>
+<div class="stage" id="stage"><div class="frame" id="frame">
+<div class="sysbar"><span>9:41</span><span class="sp"></span><span>Wi-Fi</span><span>87%</span></div>
+<header class="appbar">
+ <button class="ib" aria-label="Проекты и меню" id="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+ <div class="title"><b>Узел крепления</b><small>Сохранено на устройстве</small></div>
+ <div class="modes" role="tablist"><button class="mode" role="tab" data-mode="sketch" aria-selected="false">Эскиз</button><button class="mode" role="tab" data-mode="part" aria-selected="false">Деталь</button><button class="mode" role="tab" data-mode="assembly" aria-selected="true">Сборка</button><button class="mode" role="tab" data-mode="drawing" aria-selected="false">Чертёж</button></div>
+ <span class="sp"></span>
+ <button class="status" id="status"></button>
+ <button class="ib" id="undo" aria-label="Отменить"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+ <button class="ib" id="redo" aria-label="Повторить"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+ <button class="ib" id="more" aria-label="Ещё"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+</header>
+<main class="body" id="body">
+ <canvas id="gl" aria-label="3D-вид сборки"></canvas><div class="fail" id="fail">WebGL или three.js недоступны. Макет загружает three.js с cdnjs.</div>
+ <nav class="rail" id="rail" aria-label="Инструменты"></nav>
+ <div class="pill" id="pill">
+  <div class="seg" role="group" aria-label="Проекция"><button id="bPersp" aria-pressed="true">Перспектива</button><button id="bOrtho" aria-pressed="false">Орто</button></div><div class="vs"></div>
+  <label class="exw">Разнести<input type="range" id="ex" min="0" max="100" value="0" aria-label="Разнесённый вид"><output id="exo">0%</output></label><div class="vs"></div>
+  <button class="pb" id="bIso" aria-pressed="false">Изолировать</button>
+ </div>
+ <div class="crumb" id="crumb"></div>
+ <div class="hint" id="hint" hidden></div>
+ <div class="nav" id="nav"><canvas id="gz" width="264" height="264" aria-label="Гизмо осей"></canvas>
+  <div class="navrow"><button class="ib" id="nPan" aria-label="Сдвиг: удерживайте и ведите"><svg viewBox="0 0 24 24"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5m0-1V4a1.5 1.5 0 0 1 3 0v6m0-3a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-3l-3-5a1.5 1.5 0 0 1 2.5-1.6L9 15"/></svg></button><button class="ib" id="nZoom" aria-label="Масштаб: удерживайте и ведите"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7.5 10h5"/></svg></button></div>
+  <div class="navrow"><button class="ib" id="nHome" aria-label="Изометрия"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v10h14V10"/></svg></button><button class="ib" id="nFit" aria-label="Вписать"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
+ </div>
+ <div class="stat"><div id="sum"></div><div>1 палец — вращение · 2 пальца — сдвиг и масштаб · касание — выбор</div></div>
+ <div class="ctx" id="ctx" hidden></div>
+ <button class="dtab" id="dtab" aria-label="Открыть панель" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 5-7 7 7 7"/></svg></button>
+ <aside class="drawer" id="drawer" aria-label="Состав, связи и спецификация"></aside>
+ <div class="toast" id="toast" role="status"></div>
+</main>
+<div class="navbar"><i></i></div>
+</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const MODES={sketch:'sketchcad-tablet.html',part:'sketchcad-tablet-3d.html',assembly:'sketchcad-tablet-assembly.html',drawing:'sketchcad-tablet-drawing.html'};
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{if(b.getAttribute('aria-selected')!=='true')location.href=MODES[b.dataset.mode]});
+const $=id=>document.getElementById(id);
+const IC={sel:'<path d="m6 3 12 9-6 1-3 7Z"/>',insert:'<path d="m3 8 9-5 9 5v8l-9 5-9-5Z M12 9v6M9 12h6"/>',move:'<path d="M12 2v20M2 12h20m-13-7 3-3 3 3m-6 14 3 3 3-3M5 9l-3 3 3 3m14-6 3 3-3 3"/>',rot:'<path d="M20 12a8 8 0 1 1-3-6.2M20 4v5h-5"/>',mate:'<circle cx="8" cy="12" r="5"/><circle cx="16" cy="12" r="5"/>',explode:'<path d="M12 2v6m0 8v6M5 12H2m20 0h-3M9 9l-3-3m12 0-3 3m0 6 3 3M6 18l3-3"/><rect x="10" y="10" width="4" height="4"/>',interf:'<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',bom:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',box:'<path d="m3 8 9-5 9 5v8l-9 5-9-5Z M3 8l9 5 9-5M12 13v8"/>',plate:'<path d="m3 12 9-5 9 5-9 5Z M3 12v3l9 5 9-5v-3"/>',cyl:'<ellipse cx="12" cy="6" rx="6" ry="2.5"/><path d="M6 6v12c0 3.3 12 3.3 12 0V6"/>',screw:'<path d="M8 3h8v5H8zM10 8v13l2 1 2-1V8M10 12h4M10 15h4M10 18h4"/>',eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',eyeoff:'<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 22 12s-1 1.8-3 3.6M6.6 6.6C3.7 8.5 2 12 2 12s4 7 10 7c1.7 0 3.2-.5 4.5-1.2"/>',anchor:'<circle cx="12" cy="5" r="2"/><path d="M12 7v14M5 13a7 7 0 0 0 14 0M8 11h8"/>',conc:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',coin:'<path d="M3 9h18M3 15h18"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',open:'<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',check:'<path d="m5 12 5 5 9-10"/>',warn:'<path d="M12 3 2 20h20Z M12 10v5M12 18v.5"/>',iso:'<circle cx="12" cy="12" r="4"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3" stroke-dasharray="2 2"/>'};
+const svg=k=>`<svg viewBox="0 0 24 24">${IC[k]}</svg>`;
+function toast(m){const e=$('toast');e.textContent=m;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),3000)}
+const HP=[[-30,-15],[30,-15],[30,15],[-30,15]],LOOSE=[78,44,72],SEAT=[30,15,28];
+const LIST=[{id:'base',name:'Основание:1',kind:'box',part:'СК-001',fixed:true,exp:0},{id:'plate',name:'Пластина:1',kind:'plate',part:'СК-002',exp:36}];
+HP.forEach((_,i)=>LIST.push({id:'sp'+(i+1),name:'Проставка:'+(i+1),kind:'cyl',part:'СК-003',exp:18}));
+HP.forEach((_,i)=>LIST.push({id:'s'+(i+1),name:'Винт M6×30:'+(i+1),kind:'screw',part:'ISO 4762',exp:62}));
+const S={drawer:true,tab:'comp',sel:null,hl:[],iso:false,ex:0,k:1,mated:false,vis:{}};
+let hist=[{mated:false,pos:LOOSE.slice()}],hi=0;
+let R3=null;
+try{if(typeof THREE==='undefined')throw 0;
+const cv=$('gl'),renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true});const scene=new THREE.Scene(),VW=1280,VH=700,asp=VW/VH;
+const pc=new THREE.PerspectiveCamera(35,asp,1,5000),oc=new THREE.OrthographicCamera(-1,1,1,-1,-5000,5000);
+scene.add(new THREE.HemisphereLight(0xffffff,0x6a7a8a,.75));const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(140,-180,260);scene.add(dl);const dl2=new THREE.DirectionalLight(0xffffff,.25);dl2.position.set(-150,140,80);scene.add(dl2);
+const edgeMat=new THREE.LineBasicMaterial({color:0x1d3b5a,transparent:true});
+const grid=new THREE.GridHelper(320,32,0x8aa0b5,0xb9c8d6);grid.rotation.x=Math.PI/2;grid.position.z=-10.05;grid.material.transparent=true;grid.material.opacity=.5;scene.add(grid);
+const C={},meshes=[];
+const mat=c=>new THREE.MeshStandardMaterial({color:c,metalness:.3,roughness:.5});
+function plateShape(){const x=40,y=25,r=3,s=new THREE.Shape();s.moveTo(-x+r,-y);s.lineTo(x-r,-y);s.absarc(x-r,-y+r,r,-Math.PI/2,0,false);s.lineTo(x,y-r);s.absarc(x-r,y-r,r,0,Math.PI/2,false);s.lineTo(-x+r,y);s.absarc(-x+r,y-r,r,Math.PI/2,Math.PI,false);s.lineTo(-x,-y+r);s.absarc(-x+r,-y+r,r,Math.PI,1.5*Math.PI,false);HP.forEach(([cx,cy])=>{const h=new THREE.Path();h.absarc(cx,cy,3,0,Math.PI*2,true);s.holes.push(h)});return s}
+const cylZ=(r,h,z0,seg=32)=>new THREE.CylinderGeometry(r,r,h,seg).rotateX(Math.PI/2).translate(0,0,z0+h/2);
+function geomsFor(kind){if(kind==='box'){const g=new THREE.BoxGeometry(140,90,10).translate(0,0,-5);return[[g,0x7f8e9c]].concat(HP.map(([x,y])=>[new THREE.CircleGeometry(2.6,24).translate(x,y,.05),0x2c3b48]))}
+ if(kind==='plate')return[[new THREE.ExtrudeGeometry(plateShape(),{depth:8,bevelEnabled:false,curveSegments:24}),0xa7bacb]];
+ if(kind==='cyl')return[[cylZ(6,20,0),0xc9a063],[new THREE.CircleGeometry(3.2,24).translate(0,0,20.05),0x6d5430]];
+ return[[cylZ(5,6,0),0x56606a],[new THREE.CylinderGeometry(2.6,2.6,.3,6).rotateX(Math.PI/2).translate(0,0,6.1),0x1b2229],[cylZ(3,30,-30,20),0x6b7580]]}
+function basePos(c,i){if(c.kind==='box')return[0,0,0];if(c.kind==='plate')return[0,0,20];const [x,y]=HP[i];if(c.kind==='cyl')return[x,y,0];if(c.id==='s4'&&!S.mated)return hist[hi].pos.slice();return[x,y,28]}
+LIST.forEach((c,ii)=>{const g=new THREE.Group(),i=ii<2?0:(ii-2)%4;c.mats=[];geomsFor(c.kind).forEach(([geo,col])=>{const m=new THREE.Mesh(geo,mat(col));m.userData.comp=c.id;c.mats.push(m.material);g.add(m);meshes.push(m);if(geo.type!=='CircleGeometry'&&!(geo.parameters&&geo.parameters.radialSegments===6)){g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo,30),edgeMat))}});c.g=g;c.i=i;c.base=new THREE.Vector3(...basePos(c,i));scene.add(g);C[c.id]=c;S.vis[c.id]=true});
+/* translate gizmo (Blender-like arrows) */
+const gizmo=new THREE.Group(),gzHits=[];
+[[new THREE.Vector3(1,0,0),0xe0524a,g=>g.rotation.y=Math.PI/2],[new THREE.Vector3(0,1,0),0x58b368,g=>g.rotation.x=-Math.PI/2],[new THREE.Vector3(0,0,1),0x4a8fe0,()=>{}]].forEach(([ax,col,rot])=>{const g=new THREE.Group(),m=new THREE.MeshBasicMaterial({color:col,depthTest:false});const a=new THREE.Mesh(new THREE.CylinderGeometry(1,1,14,12).rotateX(Math.PI/2).translate(0,0,7),m),b=new THREE.Mesh(new THREE.ConeGeometry(3,7,16).rotateX(Math.PI/2).translate(0,0,17.5),m),h=new THREE.Mesh(new THREE.CylinderGeometry(6,6,22,8).rotateX(Math.PI/2).translate(0,0,11),new THREE.MeshBasicMaterial({visible:false}));a.renderOrder=b.renderOrder=10;h.userData.axis=ax;gzHits.push(h);g.add(a,b,h);rot(g);gizmo.add(g)});gizmo.visible=false;scene.add(gizmo);
+const cam={az:-1.0,el:.45,r:330,tx:0,ty:0,tz:18,ortho:false,cur:pc};
+function applyCam(){const c=cam,t=new THREE.Vector3(c.tx,c.ty,c.tz),d=new THREE.Vector3(Math.cos(c.el)*Math.cos(c.az),Math.cos(c.el)*Math.sin(c.az),Math.sin(c.el)),cm=c.ortho?oc:pc;cm.up.set(0,0,1);cm.position.copy(t).addScaledVector(d,c.r);cm.lookAt(t);if(c.ortho){const hh=c.r*Math.tan(THREE.MathUtils.degToRad(17.5));oc.top=hh;oc.bottom=-hh;oc.left=-hh*asp;oc.right=hh*asp;oc.updateProjectionMatrix()}cm.updateMatrixWorld();c.cur=cm;return cm}
+const clampEl=e=>Math.max(-1.5698,Math.min(1.5698,e));
+function orbit(dx,dy){cam.az-=dx*.005;cam.el=clampEl(cam.el+dy*.005)}
+function pan(dx,dy){const cm=applyCam(),mm=2*cam.r*Math.tan(THREE.MathUtils.degToRad(17.5))/VH,r=new THREE.Vector3().setFromMatrixColumn(cm.matrixWorld,0),u=new THREE.Vector3().setFromMatrixColumn(cm.matrixWorld,1);cam.tx+=(-dx*r.x+dy*u.x)*mm;cam.ty+=(-dx*r.y+dy*u.y)*mm;cam.tz+=(-dx*r.z+dy*u.z)*mm}
+function zoomBy(f){cam.r=Math.max(60,Math.min(900,cam.r*f))}
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;let anims=[];
+function tween(dur,fn,done){if(reduce){fn(1);done&&done();draw();return}const t0=performance.now();anims.push(()=>{const k=Math.min(1,(performance.now()-t0)/dur),e=1-Math.pow(1-k,3);fn(e);if(k>=1){done&&done();return false}return true});draw()}
+function goTo(az,el){let da=az-cam.az;da=Math.atan2(Math.sin(da),Math.cos(da));const f={az:cam.az,el:cam.el,tx:cam.tx,ty:cam.ty,tz:cam.tz};tween(260,e=>{cam.az=f.az+da*e;cam.el=f.el+(el-f.el)*e;cam.tx=f.tx*(1-e);cam.ty=f.ty*(1-e);cam.tz=f.tz+(18-f.tz)*e})}
+let pend=false;function draw(){if(!pend){pend=true;requestAnimationFrame(()=>{pend=false;anims=anims.filter(a=>a());frame();if(anims.length)draw()})}}
+const gzc=$('gz').getContext('2d'),AX=[['X',[1,0,0],'#e0524a'],['Y',[0,1,0],'#58b368'],['Z',[0,0,1],'#4a8fe0']];let gzItems=[];
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function place(){LIST.forEach(c=>{c.g.position.set(c.base.x,c.base.y,c.base.z+(c.id==='s4'&&!S.mated?0:S.ex*c.exp));c.g.visible=S.vis[c.id]})}
+function frame(){place();const cm=applyCam();const free=S.sel==='s4'&&!S.mated&&S.vis.s4;gizmo.visible=free;if(free){gizmo.position.copy(C.s4.g.position).add(new THREE.Vector3(0,0,7));gizmo.scale.setScalar(cam.r/300)}
+ LIST.forEach(c=>{const on=S.sel===c.id||S.hl.includes(c.id),ghost=S.iso&&S.sel&&S.sel!==c.id;c.mats.forEach(m=>{m.emissive.set(on?0x1d5fa8:0x000000);m.emissiveIntensity=on?.6:0;m.transparent=ghost;m.opacity=ghost?.12:1;m.depthWrite=!ghost})});
+ renderer.render(scene,cm);
+ const c=gzc,w=264,m=w/2;c.clearRect(0,0,w,w);c.fillStyle=css('--surface');c.globalAlpha=.7;c.beginPath();c.arc(m,m,m-4,0,7);c.fill();c.globalAlpha=1;const items=[];for(const[n,d,col]of AX)for(const sg of[1,-1]){const v=new THREE.Vector3(d[0]*sg,d[1]*sg,d[2]*sg).transformDirection(cm.matrixWorldInverse);items.push({n,sg,col,x:m+v.x*84,y:m-v.y*84,z:v.z})}items.sort((a,b)=>a.z-b.z);for(const it of items){c.beginPath();if(it.sg>0){c.strokeStyle=it.col;c.lineWidth=5;c.moveTo(m,m);c.lineTo(it.x,it.y);c.stroke();c.fillStyle=it.col;c.arc(it.x,it.y,24,0,7);c.fill();c.fillStyle='#fff';c.font='500 26px Roboto,sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(it.n,it.x,it.y+1)}else{c.fillStyle=it.col;c.globalAlpha=.45;c.arc(it.x,it.y,17,0,7);c.fill();c.globalAlpha=1}}gzItems=items}
+$('gz').addEventListener('pointerdown',e=>{const r=$('gz').getBoundingClientRect(),k=264/r.width,x=(e.clientX-r.left)*k,y=(e.clientY-r.top)*k;let best=null,bd=1e9;for(const it of gzItems){const d=Math.hypot(it.x-x,it.y-y);if(d<(it.sg>0?30:22)&&d<bd){bd=d;best=it}}if(!best)return;const map={X:[0,0],Y:[Math.PI/2,0],Z:[cam.az,1.5698]};let[a,el]=map[best.n];if(best.sg<0){if(best.n==='Z')el=-1.5698;else a+=Math.PI}goTo(a,el)});
+const ray=new THREE.Raycaster(),ndc=e=>{const r=cv.getBoundingClientRect();return new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1)};
+function pick(e){ray.setFromCamera(ndc(e),cam.cur);const vis=meshes.filter(m=>S.vis[m.userData.comp]&&!(S.iso&&S.sel&&S.sel!==m.userData.comp));const h=ray.intersectObjects(vis,false)[0];select(h?h.object.userData.comp:null)}
+function axisPx(o,ax){const cm=cam.cur,f=p=>{const v=p.clone().project(cm);return[(v.x+1)/2*VW,(1-v.y)/2*VH]},a=f(o),b=f(o.clone().add(ax));return{x:b[0]-a[0],y:b[1]-a[1]}}
+function nearSeat(p){return Math.hypot(p.x-SEAT[0],p.y-SEAT[1])<4&&p.z>24&&p.z<50}
+const ptr=new Map();let dragG=null,moved=0,prev2=null;
+cv.addEventListener('contextmenu',e=>e.preventDefault());cv.addEventListener('wheel',e=>{e.preventDefault();zoomBy(Math.exp(e.deltaY*.0015));draw()},{passive:false});
+cv.addEventListener('pointerdown',e=>{try{cv.setPointerCapture(e.pointerId)}catch(_){}ptr.set(e.pointerId,{x:e.clientX,y:e.clientY,b:e.button});moved=0;prev2=null;
+ if(ptr.size===1&&e.button===0&&gizmo.visible){ray.setFromCamera(ndc(e),cam.cur);const h=ray.intersectObjects(gzHits,false)[0];if(h){const ax=h.object.userData.axis;dragG={ax,x:e.clientX,y:e.clientY,p0:C.s4.base.clone(),d:axisPx(C.s4.g.position.clone(),ax)}}}});
+cv.addEventListener('pointermove',e=>{const p=ptr.get(e.pointerId);if(!p)return;const dx=(e.clientX-p.x)/S.k,dy=(e.clientY-p.y)/S.k;
+ if(dragG){const tx=(e.clientX-dragG.x)/S.k,ty=(e.clientY-dragG.y)/S.k,d=dragG.d,mm=Math.round((tx*d.x+ty*d.y)/(d.x*d.x+d.y*d.y));C.s4.base.copy(dragG.p0).addScaledVector(dragG.ax,mm);const n=nearSeat(C.s4.base);$('hint').hidden=!n;$('hint').textContent='Отпустите: соосность с отверстием Пластины:1 + совпадение головки';draw();return}
+ moved+=Math.abs(dx)+Math.abs(dy);p.x=e.clientX;p.y=e.clientY;
+ if(ptr.size===1){if(p.b===1||p.b===2||e.shiftKey)pan(dx,dy);else orbit(dx,dy)}else if(ptr.size===2){const[a,b]=[...ptr.values()],cx=(a.x+b.x)/2/S.k,cy=(a.y+b.y)/2/S.k,d=Math.hypot(a.x-b.x,a.y-b.y)/S.k;if(prev2){pan(cx-prev2.cx,cy-prev2.cy);if(d>0)zoomBy(prev2.d/d)}prev2={cx,cy,d}}draw()});
+function up(e){const p=ptr.get(e.pointerId);if(!p)return;const n=ptr.size;ptr.delete(e.pointerId);prev2=null;
+ if(dragG){const b=C.s4.base;dragG=null;$('hint').hidden=true;if(nearSeat(b))mate();else{push({mated:false,pos:[b.x,b.y,b.z]});toast(`Винт:4 перемещён свободно (X ${b.x}, Y ${b.y}, Z ${b.z} мм). Связей нет — 6 DOF.`)}return}
+ if(n===1&&moved<8&&p.b===0)pick(e)}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+function holdBtn(id,fn){const b=$(id);let last=null;b.addEventListener('pointerdown',e=>{try{b.setPointerCapture(e.pointerId)}catch(_){}last={x:e.clientX,y:e.clientY}});b.addEventListener('pointermove',e=>{if(!last)return;fn((e.clientX-last.x)/S.k,(e.clientY-last.y)/S.k);last={x:e.clientX,y:e.clientY};draw()});const end=()=>last=null;b.addEventListener('pointerup',end);b.addEventListener('pointercancel',end)}
+holdBtn('nPan',pan);holdBtn('nZoom',(dx,dy)=>zoomBy(Math.exp(dy*.006)));$('nHome').onclick=()=>goTo(-1.0,.45);$('nFit').onclick=()=>{cam.r=330;goTo(cam.az,cam.el)};
+function setOrtho(o){cam.ortho=o;$('bPersp').setAttribute('aria-pressed',!o);$('bOrtho').setAttribute('aria-pressed',o);draw()}$('bPersp').onclick=()=>setOrtho(false);$('bOrtho').onclick=()=>setOrtho(true);
+window.addEventListener('themechange',()=>{const d=document.documentElement.dataset.theme==='dark';renderer.setClearColor(new THREE.Color(css('--canvas')));edgeMat.color.set(d?0xcfe3f7:0x1d3b5a);grid.material.color.set(d?0x34465a:0xb9c8d6);draw()});
+function animateSeat(to,done){const from=C.s4.base.clone(),t=new THREE.Vector3(...to);tween(380,e=>C.s4.base.lerpVectors(from,t,e),done)}
+R3={draw,animateSeat,resize(){renderer.setPixelRatio(Math.min(2,(window.devicePixelRatio||1)*S.k));renderer.setSize(VW,VH,false);draw()},C};
+}catch(err){console.error(err);$('fail').style.display='grid'}
+/* ---------- assembly logic ---------- */
+function push(st){hist=hist.slice(0,hi+1);hist.push(st);hi=hist.length-1;ui()}
+function mate(){if(S.mated)return;S.mated=true;R3&&R3.animateSeat([SEAT[0],SEAT[1],SEAT[2]]);push({mated:true,pos:SEAT.slice()});toast('Связи добавлены: Соосность (Винт:4 ↔ отв. Пластины:1) и Совпадение (головка ↔ Пластина:1). DOF 0.')}
+function restore(){const st=hist[hi];S.mated=st.mated;if(R3){R3.animateSeat(st.pos)}ui()}
+$('undo').onclick=()=>{if(hi>0){hi--;restore()}};$('redo').onclick=()=>{if(hi<hist.length-1){hi++;restore()}};
+function select(id){S.sel=id;S.hl=[];if(id&&!S.drawer)toggleDrawer();if(id)S.tab='comp';ui()}
+function status(c){if(c.fixed)return['Закреплён','ok'];if(c.id==='s4'&&!S.mated)return['Не определён · 6 DOF','warn'];return['Определён · 0 DOF','ok']}
+const KI={box:'box',plate:'plate',cyl:'cyl',screw:'screw'};
+function mates(){const n=S.mated?4:3,r=n===4?'1–4':'1–3';return[['anchor','Фиксация','Основание:1',['base']],['coin','Совпадение ×4','Проставки 1–4 ↔ Основание:1',['base','sp1','sp2','sp3','sp4']],['conc','Соосность ×4','Проставки 1–4 ↔ резьбовые отв. Основания',['base','sp1','sp2','sp3','sp4']],['coin','Совпадение','Пластина:1 ↔ торцы проставок',['plate','sp1','sp2','sp3','sp4']],['conc','Соосность ×2','Пластина:1 ↔ Проставка:1, :3',['plate','sp1','sp3']],['conc','Соосность ×'+n,'Винты '+r+' ↔ отв. Пластины:1',['plate','s1','s2','s3'].concat(S.mated?['s4']:[])],['coin','Совпадение ×'+n,'Головки винтов '+r+' ↔ Пластина:1',['plate','s1','s2','s3'].concat(S.mated?['s4']:[])]]}
+function drawer(){const d=$('drawer');let h=`<div class="tabs"><div class="seg" role="tablist"><button data-tab="comp" aria-pressed="${S.tab==='comp'}">Состав</button><button data-tab="mates" aria-pressed="${S.tab==='mates'}">Связи</button><button data-tab="bom" aria-pressed="${S.tab==='bom'}">Спецификация</button></div><button class="ib" id="dclose" aria-label="Закрыть панель">${svg('close')}</button></div><div class="dbody">`;
+ if(S.tab==='comp'){h+=`<h3>Компоненты · ${LIST.length}</h3>`+LIST.map(c=>{const[st,cl]=status(c);return`<div class="trow ${S.sel===c.id?'act':''} ${S.vis[c.id]?'':'hid'}"><button class="tsel" data-c="${c.id}">${svg(KI[c.kind])}<div class="tn"><span>${c.name}</span><small class="${cl}">${c.fixed?svg('anchor').replace('<svg','<svg width="12" height="12" style="vertical-align:-1px"')+' ':''}${st}</small></div></button><button class="te" data-v="${c.id}" aria-label="${S.vis[c.id]?'Скрыть':'Показать'} ${c.name}">${svg(S.vis[c.id]?'eye':'eyeoff')}</button></div>`}).join('')}
+ else if(S.tab==='mates'){h+='<h3>Связи сборки</h3>'+mates().map((m,i)=>`<div class="trow ${S.hl.join()===m[3].join()?'act':''}"><button class="tsel" data-m="${i}">${svg(m[0])}<div class="tn"><span>${m[1]}</span><small>${m[2]}</small></div></button></div>`).join('')+'<p class="note">Касание связи подсвечивает участвующие компоненты. Связи решаются отдельным решателем сборки; кинематика и физика не входят в 1.0.</p>'}
+ else{h+=`<h3>Спецификация · ЕСКД</h3><table><thead><tr><th>Поз.</th><th>Обозначение</th><th>Наименование</th><th>Кол.</th></tr></thead><tbody><tr class="sec"><td colspan="4">Детали</td></tr><tr><td>1</td><td>СК-001</td><td>Основание</td><td class="n">1</td></tr><tr><td>2</td><td>СК-002</td><td>Пластина крепёжная</td><td class="n">1</td></tr><tr><td>3</td><td>СК-003</td><td>Проставка</td><td class="n">4</td></tr><tr class="sec"><td colspan="4">Стандартные изделия</td></tr><tr><td>4</td><td></td><td>Винт M6×30 ISO 4762</td><td class="n">4</td></tr></tbody></table><button class="btn" id="bomx">Экспорт спецификации (PDF / CSV)</button><p class="note">Состав считается из дерева сборки. Позиции переносятся на сборочный чертёж выносками.</p>`}
+ d.innerHTML=h+'</div>';d.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;drawer()});$('dclose').onclick=toggleDrawer;
+ d.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>select(b.dataset.c));d.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{S.vis[b.dataset.v]=!S.vis[b.dataset.v];if(!S.vis[S.sel])S.sel=null;ui()});
+ d.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{const m=mates()[+b.dataset.m];S.sel=null;S.hl=S.hl.join()===m[3].join()?[]:m[3];ui()});const bx=$('bomx');if(bx)bx.onclick=()=>toast('Экспорт спецификации — только в макете')}
+function ctx(){const c=$('ctx'),id=S.sel;if(!id){c.hidden=true;return}c.hidden=false;const comp=LIST.find(x=>x.id===id),b=(i,l,a,cls)=>`<button class="chip ${cls||''}" data-a="${a}">${svg(i)}<span>${l}</span></button>`;
+ let h=id==='s4'&&!S.mated?b('conc','Соосность с отверстием','mate','pri')+b('move','Переместить','move','on'):b('move','Переместить','move')+b('mate','Связь','mate2');
+ h+=b('iso','Изолировать','iso',S.iso?'on':'')+b('eyeoff','Скрыть','hide');if(comp.kind!=='screw')h+=b('open','Открыть деталь','open');
+ c.innerHTML=h+'<div class="csep"></div>'+b('close','','x');
+ c.querySelectorAll('.chip').forEach(x=>x.onclick=()=>{const a=x.dataset.a;if(a==='x')select(null);else if(a==='mate')mate();else if(a==='move'){if(id==='s4'&&!S.mated)toast('Тяните цветные стрелки: X — красная, Y — зелёная, Z — синяя. У отверстия сработает подсказка связи.');else toast(comp.fixed?'Компонент закреплён. Снимите фиксацию, чтобы перемещать.':'Связи определяют положение (DOF 0). Подавите связь, чтобы перемещать свободно.')}else if(a==='mate2')toast('Связь: выберите две грани, оси или точки. Тип предлагается автоматически, его можно сменить.');else if(a==='iso'){S.iso=!S.iso;$('bIso').setAttribute('aria-pressed',S.iso);ui()}else if(a==='hide'){S.vis[id]=false;select(null)}else if(a==='open')location.href=MODES.part})}
+const TOOLS=[['sel','sel','Выбор'],['insert','insert','Вставить'],['move','move','Перемест.'],['rot','rot','Поворот'],['mate','mate','Связь'],'-',['explode','explode','Разнести'],['interf','interf','Пересеч.'],['bom','bom','Специф.']];
+function buildRail(){$('rail').innerHTML=TOOLS.map(x=>x==='-'?'<div class="rsep"></div>':`<button class="tool" data-t="${x[0]}" aria-pressed="${x[0]==='sel'}">${svg(x[1])}<span>${x[2]}</span></button>`).join('');
+ $('rail').querySelectorAll('.tool').forEach(b=>b.onclick=()=>{const k=b.dataset.t;if(k==='explode'){const to=S.ex>.5?0:1,f=S.ex;if(R3)(function step(){})();setEx(to)}else if(k==='interf')toast(S.mated||!S.vis.s4?'Пересечения: проверено 10 компонентов, пересечений нет.':'Пересечения: проверено 10 компонентов, пересечений нет. Винт:4 не связан.');else if(k==='bom'){S.tab='bom';if(!S.drawer)toggleDrawer();ui()}else if(k==='insert')toast('Вставить: деталь проекта, внешний файл STEP или стандартное изделие из библиотеки');else if(k==='move'){select('s4')}else if(k==='rot')toast('Поворот: дуговые маркеры вокруг осей, шаг 15° или точный ввод');else if(k==='mate')toast('Связь: выберите две грани, оси или точки');})}
+function setEx(v){const f=S.ex,ex=$('ex');if(window.matchMedia('(prefers-reduced-motion:reduce)').matches){S.ex=v}else{const t0=performance.now();(function step(){const k=Math.min(1,(performance.now()-t0)/350),e=1-Math.pow(1-k,3);S.ex=f+(v-f)*e;ex.value=Math.round(S.ex*100);$('exo').textContent=ex.value+'%';R3&&R3.draw();if(k<1)requestAnimationFrame(step)})();return}ex.value=v*100;$('exo').textContent=ex.value+'%';R3&&R3.draw()}
+$('ex').oninput=e=>{S.ex=e.target.value/100;$('exo').textContent=e.target.value+'%';R3&&R3.draw()};
+$('bIso').onclick=()=>{S.iso=!S.iso;$('bIso').setAttribute('aria-pressed',S.iso);if(S.iso&&!S.sel)toast('Изолировать: выберите компонент');ui()};
+function toggleDrawer(){S.drawer=!S.drawer;$('drawer').classList.toggle('closed',!S.drawer);$('dtab').hidden=S.drawer;$('nav').classList.toggle('wide',!S.drawer);for(const id of['ctx','pill','hint'])$(id).style.left=S.drawer?'calc(50% - 170px)':'50%'}
+function ui(){const loose=!S.mated;const st=$('status');st.className='status'+(loose?' warn':'');st.innerHTML=svg(loose?'warn':'check')+(loose?'1 компонент не определён':'Сборка определена');
+ $('sum').innerHTML=`<b>10</b> компонентов · <b>4</b> уникальных · <b>${S.mated?16:14}</b> связей · Масса <b>≈ 0,53 кг</b>`;
+ $('crumb').innerHTML=`Сборки › <b>Узел крепления</b>${S.sel?' › '+LIST.find(c=>c.id===S.sel).name:''}`;
+ $('undo').disabled=hi===0;$('redo').disabled=hi===hist.length-1;drawer();ctx();R3&&R3.draw()}
+$('status').onclick=()=>{if(!S.mated){select('s4');toast('Винт:4 не связан: 6 степеней свободы. Добавьте соосность и совпадение.')}else toast('Все компоненты определены, конфликтов связей нет')};
+$('dtab').onclick=toggleDrawer;$('menu').onclick=()=>toast('Проекты, импорт STEP, экспорт сборки');$('more').onclick=()=>toast('Экспорт STEP · Проверка пересечений · Настройки');
+$('pTheme').onclick=e=>{const d=document.documentElement.dataset.theme==='dark';document.documentElement.dataset.theme=d?'light':'dark';e.target.setAttribute('aria-pressed',!d);window.dispatchEvent(new Event('themechange'))};
+function fit(){const st=$('stage').getBoundingClientRect();S.k=Math.min(st.width/1280,st.height/800,1.15)*.97;$('frame').style.transform=`translate(-50%,-50%) scale(${S.k})`;R3&&R3.resize()}
+window.onresize=fit;buildRail();window.dispatchEvent(new Event('themechange'));ui();fit();
+</script></body></html>

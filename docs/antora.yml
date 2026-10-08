@@ -1,0 +1,5 @@
+name: sketchcad
+version: ~
+title: SketchCAD
+nav:
+  - modules/ROOT/nav.adoc

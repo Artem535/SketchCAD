@@ -16,3 +16,6 @@ CMake builds the Qt-independent core, tests and optional Qt app. GitHub Actions 
 
 == Review focus
 Reject zero/negative and non-finite dimensions. Preserve state on invalid input and conflict. Anchoring disables free translation. Verify QML property updates after successful operations. Do not report a numerical DOF estimate that has not been implemented.
+
+== Dependency management
+Use vcpkg manifest mode with the baseline in vcpkg.json for Ceres, Eigen and GoogleTest. Qt 6 is supplied by the desktop or Android Qt SDK. Configure with the vcpkg CMake toolchain; no FetchContent dependency downloads.

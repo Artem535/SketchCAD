@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SketchCAD · Android tablet</title>
+<style>
+:root{--bg:#f4f6f9;--surface:#fff;--surface2:#eef2f6;--canvas:#f7f9fb;--grid:#e1e8ef;--ink:#1c2b3a;--muted:#5d7083;--line:#d6dfe8;--primary:#1668c0;--on-primary:#fff;--primary-c:#dbe9fb;--geom:#1d3b5a;--ok:#16745c;--ok-c:#e2f4ee;--err:#b3261e;--err-c:#fbe5e3;--warn:#8a5a00;--shadow:0 2px 10px #1c2b3a22;--stage:#c9d3dd}
+:root[data-theme=dark]{--bg:#12191f;--surface:#1c262f;--surface2:#26323d;--canvas:#161e25;--grid:#232f3a;--ink:#e6edf4;--muted:#9fb2c4;--line:#364552;--primary:#8ec1ff;--on-primary:#0b2a4a;--primary-c:#1f3b57;--geom:#cfe3f7;--ok:#5fd0ac;--ok-c:#17352c;--err:#ffb4ab;--err-c:#4a1f1b;--warn:#f2c46b;--shadow:0 2px 10px #0008;--stage:#0b1015}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--stage);color:var(--ink);font:16px Roboto,"Noto Sans",system-ui,sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;touch-action:manipulation}button:focus-visible,input:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.preview-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 14px;background:#101820;color:#dfe8f0;font-size:13px}.preview-bar b{margin-right:6px}.preview-bar button{padding:7px 12px;border-radius:8px;background:#26343f;color:#dfe8f0}.preview-bar button[aria-pressed=true]{background:#8ec1ff;color:#0b2a4a}.preview-bar .sp{flex:1}
+.stage{flex:1;min-height:0;position:relative;display:grid;place-items:center;overflow:hidden}
+.frame{position:absolute;left:50%;top:50%;transform-origin:center;width:1280px;height:800px;background:var(--bg);border-radius:18px;overflow:hidden;box-shadow:0 10px 50px #0008;display:grid;grid-template-rows:24px 56px 1fr 20px;user-select:none;-webkit-user-select:none}
+.frame.portrait{width:800px;height:1280px}
+.sysbar{display:flex;align-items:center;padding:0 16px;font-size:12px;background:var(--surface);color:var(--muted);gap:10px}.sysbar .sp{flex:1}
+.appbar{display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--surface);border-bottom:1px solid var(--line)}
+.ib{width:48px;height:48px;border-radius:24px;display:grid;place-items:center;flex:none;position:relative}.ib:active,.tool:active,.chip:active,.key:active{background:var(--primary-c)}.ib svg,.tool svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.ib[disabled]{opacity:.38}
+.title{display:flex;flex-direction:column;min-width:0;padding:0 6px}.title b{font-weight:500;font-size:16px;white-space:nowrap}.title small{font-size:12px;color:var(--muted)}
+.modes{display:flex;gap:2px;background:var(--surface2);border-radius:24px;padding:3px;margin-left:8px}.mode{height:42px;padding:0 16px;border-radius:21px;font-size:14px;color:var(--muted);white-space:nowrap}.mode[aria-selected=true]{background:var(--primary-c);color:var(--primary);font-weight:500}.mode[aria-disabled=true]{opacity:.5}
+.sp{flex:1}
+.status{height:40px;padding:0 14px 0 10px;border-radius:20px;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;background:var(--ok-c);color:var(--ok)}.status.err{background:var(--err-c);color:var(--err)}.status.free{background:var(--primary-c);color:var(--primary)}.status svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.body{position:relative;min-height:0;overflow:hidden}
+.canvas{position:absolute;inset:0;background:var(--canvas);touch-action:none}.canvas svg{width:100%;height:100%;display:block}
+.rail{position:absolute;left:8px;top:8px;bottom:8px;width:72px;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:2px;overflow:auto;scrollbar-width:none}
+.tool{width:64px;min-height:56px;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--muted);flex:none}.tool[aria-pressed=true]{background:var(--primary-c);color:var(--primary);font-weight:500}.rsep{width:40px;height:1px;background:var(--line);margin:4px 0;flex:none}
+.ctx{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:4px;padding:6px;background:var(--surface);border-radius:28px;box-shadow:var(--shadow);max-width:calc(100% - 120px);transition:transform .2s,opacity .2s}.ctx[hidden]{display:flex;opacity:0;pointer-events:none;transform:translate(-50%,16px)}
+.chip{height:52px;min-width:56px;padding:0 14px;border-radius:26px;display:flex;align-items:center;gap:8px;font-size:14px;white-space:nowrap}.chip svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.chip.danger{color:var(--err)}.chip.on{background:var(--primary-c);color:var(--primary)}.csep{width:1px;background:var(--line);margin:8px 2px}
+.insp{position:absolute;right:8px;top:8px;bottom:8px;width:324px;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform .22s ease-out;overflow:hidden}.insp.closed{transform:translateX(344px)}
+.insp-h{display:flex;align-items:center;padding:12px 8px 8px 18px}.insp-h div{flex:1}.insp-h small{color:var(--muted);font-size:12px}.insp-h h2{margin:0;font-size:18px;font-weight:500}
+.insp-b{overflow:auto;padding:0 18px 18px;flex:1}.insp h3{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:18px 0 6px}
+.row{display:flex;align-items:center;min-height:52px;gap:10px;border-bottom:1px solid var(--line);width:100%;text-align:left}.row span:first-child{flex:1;color:var(--muted);font-size:14px}.row .v{font-size:16px;color:var(--ink);padding:10px 12px;border-radius:10px;background:var(--surface2);min-width:84px;text-align:right}.row .u{color:var(--muted);font-size:13px;width:24px}
+.con{display:flex;align-items:center;gap:12px;min-height:48px;font-size:14px;width:100%;text-align:left}.con i{font-style:normal;width:32px;height:32px;border-radius:8px;border:1px solid var(--line);display:grid;place-items:center;color:var(--primary);flex:none}.con.bad i{border-color:var(--err);color:var(--err);background:var(--err-c)}.con em{margin-left:auto;font-style:normal;color:var(--muted);font-size:12px}
+.tab{position:absolute;right:0;top:50%;transform:translateY(-50%);width:28px;height:96px;border-radius:14px 0 0 14px;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center;color:var(--muted);transition:opacity .2s}.tab[hidden]{display:grid;opacity:0;pointer-events:none}
+.zoomc{position:absolute;right:16px;bottom:14px;display:flex;flex-direction:column;background:var(--surface);border-radius:24px;box-shadow:var(--shadow);transition:right .22s}.zoomc.shift{right:348px}
+.kp{position:absolute;right:12px;bottom:12px;width:372px;background:var(--surface);border-radius:24px;box-shadow:0 6px 30px #1c2b3a44;padding:12px;transition:transform .2s ease-out,opacity .2s;z-index:6}.kp[hidden]{display:block;transform:translateY(30px);opacity:0;pointer-events:none}
+.kp-d{display:flex;align-items:baseline;gap:8px;padding:4px 10px 10px}.kp-d small{color:var(--muted);font-size:13px;flex:1}.kp-d output{font-size:34px;font-weight:500;font-variant-numeric:tabular-nums}.kp-d span{color:var(--muted)}
+.kp-g{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.key{height:56px;border-radius:16px;background:var(--surface2);font-size:22px}.key.ok{background:var(--primary);color:var(--on-primary)}.key.sm{font-size:15px;color:var(--muted)}
+.toast{position:absolute;top:12px;left:50%;transform:translateX(-50%);max-width:640px;padding:14px 20px;border-radius:14px;background:#1c2b3a;color:#fff;font-size:14px;box-shadow:var(--shadow);z-index:9;opacity:0;pointer-events:none;transition:opacity .2s}.toast.show{opacity:1}.toast.err{background:var(--err);color:#fff}
+.pop{position:absolute;right:16px;top:12px;width:340px;background:var(--surface);border-radius:20px;box-shadow:0 6px 30px #1c2b3a44;padding:14px 18px;z-index:7}.pop[hidden]{display:none}.pop h4{margin:0 0 6px;font-weight:500}.pop p{margin:4px 0;font-size:14px;color:var(--muted)}.pop .chip{margin-top:8px;background:var(--surface2);width:100%;justify-content:center}
+.loupe{position:absolute;width:132px;height:132px;border-radius:50%;border:3px solid var(--primary);background:var(--surface);box-shadow:var(--shadow);z-index:5;pointer-events:none;display:none;place-items:center;overflow:hidden}.loupe.show{display:grid}.loupe:before,.loupe:after{content:"";position:absolute;background:var(--primary);opacity:.7}.loupe:before{left:50%;top:14px;bottom:14px;width:1px}.loupe:after{top:50%;left:14px;right:14px;height:1px}.loupe span{position:absolute;bottom:14px;font-size:12px;background:var(--surface);padding:1px 6px;border-radius:8px;z-index:2}
+.navbar{display:grid;place-items:center;background:var(--surface)}.navbar i{width:120px;height:4px;border-radius:2px;background:var(--muted);opacity:.5}
+.bottomstat{position:absolute;left:92px;bottom:14px;font-size:12px;color:var(--muted);background:var(--surface);padding:6px 12px;border-radius:14px;box-shadow:var(--shadow);display:flex;gap:12px}
+.reach{position:absolute;inset:0;pointer-events:none;z-index:4;display:none}.reach.show{display:block}.reach i{position:absolute;bottom:-160px;width:620px;height:620px;border-radius:50%;background:#1d9e6c22;border:2px dashed #1d9e6c}.reach i:first-child{left:-180px}.reach i:last-child{right:-180px}
+/* geometry */
+.hit{fill:none;stroke:transparent;stroke-width:34;cursor:pointer;pointer-events:stroke}.edge{fill:none;stroke:var(--geom);stroke-width:2.5;pointer-events:none}.sel .edge,.edge.sel{stroke:var(--primary);stroke-width:4}.hole{fill:var(--canvas);stroke:var(--geom);stroke-width:2.5}.holeg.sel .hole{stroke:var(--primary);stroke-width:4}.cl{stroke:var(--muted);stroke-dasharray:6 5;fill:none}
+.dim line,.dim path{stroke:var(--muted);fill:none}.dimt rect{fill:var(--surface);stroke:var(--primary);stroke-width:1.5}.dimt text{fill:var(--primary);font-size:17px;font-weight:500;text-anchor:middle;dominant-baseline:central;pointer-events:none}.dimt{cursor:pointer}.dimt.edit rect{fill:var(--primary);}.dimt.edit text{fill:var(--on-primary)}.dimt .hitr{fill:transparent;stroke:none}
+.handle{fill:var(--surface);stroke:var(--primary);stroke-width:3;cursor:grab}.handle.fixed{fill:var(--primary)}.bad .edge{stroke:var(--err);stroke-width:4;stroke-dasharray:10 5}
+.cbadge circle{fill:var(--surface);stroke:var(--muted)}.cbadge text{fill:var(--muted);font-size:12px;text-anchor:middle;dominant-baseline:central}
+/* portrait */
+.portrait .rail{top:auto;left:50%;transform:translateX(-50%);bottom:84px;width:auto;height:72px;max-width:calc(100% - 24px);flex-direction:row;padding:0 6px;overflow-x:auto}.portrait .rsep{width:1px;height:40px;margin:0 4px}.portrait .ctx{bottom:166px;max-width:calc(100% - 24px)}.portrait .insp{top:auto;left:8px;right:8px;width:auto;height:420px;bottom:8px}.portrait .insp.closed{transform:translateY(440px)}.portrait .tab{display:none}.portrait .zoomc{bottom:176px}.portrait .zoomc.shift{right:16px;bottom:446px}.portrait .kp{right:50%;transform:translateX(50%);bottom:12px}.portrait .kp[hidden]{transform:translate(50%,30px)}.portrait .bottomstat{display:none}.portrait .modes .mode{padding:0 10px}.portrait .title small{display:none}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+<div class="preview-bar"><b>SketchCAD · Android tablet mockup</b>
+<button id="pOrient" aria-pressed="false">Ориентация: альбомная</button>
+<button id="pTheme" aria-pressed="false">Тёмная тема</button>
+<button id="pLang" aria-pressed="false">EN</button>
+<button id="pInput" aria-pressed="false">Ввод: стилус</button>
+<button id="pReach" aria-pressed="false">Зоны досягаемости больших пальцев</button>
+<span class="sp"></span><span>Размер кадра: 1280×800 dp (10″ планшет). Не CAD-расчёт: логика прототипа упрощена.</span></div>
+<div class="stage" id="stage"><div class="frame" id="frame">
+<div class="sysbar"><span>9:41</span><span class="sp"></span><span>Wi-Fi</span><span>87%</span></div>
+<header class="appbar">
+ <button class="ib" id="menu" aria-label="Проекты и меню" data-i18n-aria="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+ <div class="title"><b>Крепёжная пластина</b><small data-i18n="saved">Сохранено на устройстве</small></div>
+ <div class="modes" role="tablist"><button class="mode" role="tab" data-mode="sketch" aria-selected="true" data-i18n="m_sketch">Эскиз</button><button class="mode" role="tab" data-mode="part" aria-selected="false"><span data-i18n="m_part">Деталь</span> <small>1.0</small></button><button class="mode" role="tab" data-mode="assembly" aria-selected="false"><span data-i18n="m_asm">Сборка</span> <small>1.0</small></button><button class="mode" role="tab" data-mode="drawing" aria-selected="false"><span data-i18n="m_drw">Чертёж</span> <small>1.0</small></button></div>
+ <span class="sp"></span>
+ <button class="status" id="status" aria-haspopup="dialog"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span id="statusT">DOF 0</span></button>
+ <button class="ib" id="undo" aria-label="Отменить" data-i18n-aria="undo"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+ <button class="ib" id="redo" aria-label="Повторить" data-i18n-aria="redo"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+ <button class="ib" id="more" aria-label="Ещё" data-i18n-aria="more"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+</header>
+<main class="body" id="body">
+ <div class="canvas" id="canvas"><svg id="svg" viewBox="0 0 1208 700" preserveAspectRatio="xMidYMid meet" aria-label="Эскиз"></svg></div>
+ <nav class="rail" id="rail" aria-label="Инструменты"></nav>
+ <div class="bottomstat" id="bstat"><span>мм</span><span id="snapT">Привязки: сетка 1 мм</span><span id="inputT">Стилус рисует · палец двигает вид</span></div>
+ <div class="ctx" id="ctx" hidden></div>
+ <div class="zoomc" id="zoomc"><button class="ib" id="zin" aria-label="Приблизить"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button><button class="ib" id="zout" aria-label="Отдалить"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button><button class="ib" id="zfit" aria-label="Вписать"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
+ <button class="tab" id="tab" aria-label="Открыть свойства" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 5-7 7 7 7"/></svg></button>
+ <aside class="insp closed" id="insp" aria-label="Свойства"></aside>
+ <div class="pop" id="pop" hidden></div>
+ <div class="kp" id="kp" hidden role="group" aria-label="Ввод значения"></div>
+ <div class="loupe" id="loupe"><span id="loupeT"></span></div>
+ <div class="toast" id="toast" role="status"></div>
+ <div class="reach" id="reach"><i></i><i></i></div>
+</main>
+<div class="navbar"><i></i></div>
+</div></div>
+<script>
+const MODES={sketch:'sketchcad-tablet.html',part:'sketchcad-tablet-3d.html',assembly:'sketchcad-tablet-assembly.html',drawing:'sketchcad-tablet-drawing.html'};document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{if(b.getAttribute('aria-selected')!=='true')location.href=MODES[b.dataset.mode]});
+const I={sel:'<path d="m6 3 12 9-6 1-3 7Z"/>',line:'<path d="m5 19 14-14"/><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="5" r="1.6"/>',rect:'<rect x="4" y="6" width="16" height="12" rx="1"/>',circle:'<circle cx="12" cy="12" r="8"/>',arc:'<path d="M4 18A14 14 0 0 1 20 6"/><circle cx="4" cy="18" r="1.4"/>',pt:'<circle cx="12" cy="12" r="2.5"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>',cons:'<path d="M5 19 19 5" stroke-dasharray="3 3"/><circle cx="5" cy="19" r="1.6"/>',trim:'<path d="m4 20 16-16M4 4l6 6M14 14l6 6"/>',dim:'<path d="M4 8v8M20 8v8M4 12h16m-12-3-3 3 3 3m8-6 3 3-3 3"/>',con:'<path d="M5 7h14M5 12h14M5 17h9"/>',v:'<path d="M12 4v16"/>',h:'<path d="M4 12h16"/>',par:'<path d="m7 20 6-16M13 20l6-16"/>',perp:'<path d="M5 19h14M12 19V5"/>',eq:'<path d="M6 9h12M6 15h12"/>',fix:'<path d="M12 3v10m0 0-4-4m4 4 4-4M7 21h10"/>',tan:'<circle cx="9" cy="14" r="5"/><path d="M3 9l18 0"/>',coin:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',del:'<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',check:'<path d="m5 12 5 5 9-10"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',warn:'<path d="M12 3 2 20h20Z M12 10v5M12 18v.5"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',free:'<circle cx="12" cy="12" r="8"/><path d="M12 8v5M12 16v.5"/>'};
+const svgI=(k,s)=>`<svg viewBox="0 0 24 24"${s||''}>${I[k]}</svg>`;
+const T={ru:{menu:'Проекты и меню',saved:'Сохранено на устройстве',m_sketch:'Эскиз',m_part:'Деталь',m_asm:'Сборка',m_drw:'Чертёж',undo:'Отменить',redo:'Повторить',more:'Ещё',sel:'Выбор',line:'Линия',rect:'Прямоуг.',circle:'Окружн.',arc:'Дуга',pt:'Точка',cons:'Вспом.',trim:'Обрезка',dim:'Размер',con:'Связи',props:'Свойства',dof0:'Полностью определён',dofn:'Свободно: DOF',conf:'Конфликт',snap:'Привязки: сетка 1 мм',in_s:'Стилус рисует · палец двигает вид',in_t:'Палец рисует · два пальца двигают вид',len:'Длина',w:'Ширина',h:'Высота',d:'Диаметр',off:'Отступ от края',cons_t:'Ограничения',geo:'Геометрия',unit:'мм',ok:'Применить',hint:'Касание — выбор · два пальца — вид · двойное касание ограничения — удалить',rb:'Откат: ',fit:'Отверстия выходят за контур — значение не принято',invalid:'Значение должно быть конечным числом больше нуля',diag:'Диагностика эскиза',cnt:'Ограничений',dcnt:'Размеров',showc:'Показать конфликт',hidec:'Скрыть подсветку',cdesc:'Левая сторона: «Вертикальна» противоречит углу 3° (демо)',horiz:'Горизонтальна',vert:'Вертикальна',par:'Параллельна',perp:'Перпенд.',eq:'Равны',fix:'Фиксация',coin:'Совпадает',tan:'Касание',cmark:'Вспомог.',delete:'Удалить',hole:'Отверстие',side:'Сторона',origin:'Начало координат',close:'Закрыть'},
+en:{menu:'Projects and menu',saved:'Saved on this device',m_sketch:'Sketch',m_part:'Part',m_asm:'Assembly',m_drw:'Drawing',undo:'Undo',redo:'Redo',more:'More',sel:'Select',line:'Line',rect:'Rectangle',circle:'Circle',arc:'Arc',pt:'Point',cons:'Constr.',trim:'Trim',dim:'Dimension',con:'Constraints',props:'Properties',dof0:'Fully defined',dofn:'Free: DOF',conf:'Conflict',snap:'Snap: 1 mm grid',in_s:'Stylus draws · finger pans',in_t:'Finger draws · two fingers pan',len:'Length',w:'Width',h:'Height',d:'Diameter',off:'Edge offset',cons_t:'Constraints',geo:'Geometry',unit:'mm',ok:'Apply',hint:'Tap to select · two fingers to pan',rb:'Rolled back: ',fit:'Holes leave the outline — value rejected',invalid:'Value must be a finite number above zero',diag:'Sketch diagnostics',cnt:'Constraints',dcnt:'Dimensions',showc:'Show conflict',hidec:'Hide highlight',cdesc:'Left side: “Vertical” contradicts the 3° angle (demo)',horiz:'Horizontal',vert:'Vertical',par:'Parallel',perp:'Perpend.',eq:'Equal',fix:'Fixed',coin:'Coincident',tan:'Tangent',cmark:'Construction',delete:'Delete',hole:'Hole',side:'Side',origin:'Origin',close:'Close'}};
+const S={lang:'ru',theme:'light',portrait:false,stylus:true,tool:'sel',sel:null,insp:false,conflict:false,zoom:1,edit:null,buf:'',v:{W:80,H:50,D:6,off:10}};
+let hist=[{...S.v}],hi=0;
+const $=id=>document.getElementById(id),t=k=>T[S.lang][k]||k;
+const tools=[['sel','sel'],['line','line'],['rect','rect'],['circle','circle'],['arc','arc'],['pt','pt'],'-',['cons','cons'],['trim','trim'],['dim','dim'],'-',['con','con']];
+function buildRail(){$('rail').innerHTML=tools.map(x=>x==='-'?'<div class="rsep"></div>':`<button class="tool" data-tool="${x[0]}" aria-pressed="${S.tool===x[0]}">${svgI(x[1])}<span>${t(x[0])}</span></button>`).join('');
+ $('rail').querySelectorAll('.tool').forEach(b=>b.onclick=()=>{const k=b.dataset.tool;if(k==='con'){toggleInsp();return}S.tool=k;if(k!=='sel'){select(null)}buildRail();toast(b.textContent.trim()+': '+(S.stylus?(S.lang==='ru'?'рисуйте стилусом':'draw with the stylus'):(S.lang==='ru'?'рисуйте пальцем':'draw with a finger')))})}
+function toast(m,err){const e=$('toast');e.textContent=m;e.className='toast show'+(err?' err':'');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),2600)}
+/* geometry */
+const sc=6,ox=0,oy=0;const P=()=>({x:604-S.v.W*sc/2-(S.insp&&!S.portrait?150:0),y:(S.portrait?330:430)+S.v.H*sc/2});
+function draw(){const {W,H,D,off}=S.v,p=P(),w=W*sc,h=H*sc,X=p.x,Y=p.y,r=D/2*sc;const pt=(a,b)=>[X+a*sc,Y-b*sc];
+ const sx=S.zoom;const holes=[[off,off],[W-off,off],[off,H-off],[W-off,H-off]];
+ const c=(k)=>S.sel===k?' sel':'',bad=S.conflict?' bad':'';
+ const [x0,y0]=pt(0,0),[x1,y1]=pt(W,H);
+ const dimT=(k,x,y,txt,w2)=>`<g class="dimt${S.edit===k?' edit':''}" data-dim="${k}" tabindex="0" role="button" aria-label="${txt}"><rect class="hitr" x="${x-w2/2-6}" y="${y-30}" width="${w2+12}" height="60"/><rect x="${x-w2/2}" y="${y-18}" width="${w2}" height="36" rx="18"/><text x="${x}" y="${y}">${txt}</text></g>`;
+ const buf=(k,v)=>S.edit===k&&S.buf!==''?S.buf:v;
+ let g=`<g transform="translate(604 350) scale(${sx}) translate(-604 -350)">
+ <path class="cl" d="M${x0-40} ${y0}H${x1+40}M${x0} ${y0+40}V${y1-40}"/>
+ <g class="${bad}"><path class="edge${c('bottom')}" d="M${x0} ${y0}H${x1}"/><path class="edge${c('right')}" d="M${x1} ${y0}V${y1}"/><path class="edge${c('top')}" d="M${x1} ${y1}H${x0}"/><path class="edge${S.conflict?'':c('left')}" d="M${x0} ${y1}V${y0}"/></g>
+ ${['bottom:M'+x0+' '+y0+'H'+x1,'right:M'+x1+' '+y0+'V'+y1,'top:M'+x1+' '+y1+'H'+x0,'left:M'+x0+' '+y1+'V'+y0].map(s=>{const[k,d]=s.split(':');return`<path class="hit" data-sel="${k}" d="${d}"/>`}).join('')}
+ ${holes.map(([a,b],i)=>{const[cx,cy]=pt(a,b);return`<g class="holeg${c('hole')}" data-sel="hole" style="cursor:pointer"><circle class="hole" cx="${cx}" cy="${cy}" r="${r}"/><circle cx="${cx}" cy="${cy}" r="${r+18}" fill="transparent"/><path class="cl" d="M${cx-r-8} ${cy}h${2*r+16}M${cx} ${cy-r-8}v${2*r+16}"/></g>`}).join('')}
+ <g class="dim"><path d="M${x0} ${y1-30}V${y1-62}M${x1} ${y1-30}V${y1-62}M${x0} ${y1-50}H${x1}"/></g>${dimT('W',(x0+x1)/2,y1-50,buf('W',W),64)}
+ <g class="dim"><path d="M${x1+30} ${y1}H${x1+62}M${x1+30} ${y0}H${x1+62}M${x1+50} ${y0}V${y1}"/></g>${dimT('H',x1+50,(y0+y1)/2,buf('H',H),64)}
+ <g class="dim"><path d="M${x0+off*sc} ${y0+30}V${y0+62}M${x0} ${y0+50}H${x0+off*sc}"/></g>${dimT('off',x0+off*sc/2,y0+52,buf('off',off),64)}
+ ${(()=>{const[cx,cy]=pt(W-off,H-off);return`<path class="dim" d="M${cx+r*.7} ${cy-r*.7}l40 -34h30" fill="none" stroke="var(--muted)"/>`+dimT('D',cx+110,cy-r*.7-34,'4×Ø'+buf('D',D),96)})()}
+ <g class="cbadge"><g transform="translate(${(x0+x1)/2} ${y0+16})"><circle r="11"/><text>—</text></g><g transform="translate(${x1-16} ${(y0+y1)/2})"><circle r="11"/><text>|</text></g></g>
+ <g class="handle fixed" data-fix="1"><circle cx="${x0}" cy="${y0}" r="9" class="handle fixed"/></g>
+ <circle class="handle" id="hc" cx="${x1}" cy="${y1}" r="11"/><circle cx="${x1}" cy="${y1}" r="30" fill="transparent" id="hcHit" style="cursor:grab"/>
+ </g>`;
+ $('svg').innerHTML=`<defs><pattern id="gp" width="${sc*10}" height="${sc*10}" patternUnits="userSpaceOnUse" x="${P().x%(sc*10)}" y="${P().y%(sc*10)}"><path d="M${sc*10} 0H0V${sc*10}" fill="none" stroke="var(--grid)"/></pattern></defs><rect width="1208" height="700" fill="url(#gp)" data-bg="1"/>`+g;
+ $('svg').querySelectorAll('[data-sel]').forEach(e=>e.onclick=ev=>{ev.stopPropagation();select(e.dataset.sel)});
+ $('svg').querySelectorAll('[data-bg]').forEach(e=>e.onclick=()=>select(null));
+ $('svg').querySelectorAll('[data-dim]').forEach(e=>e.onclick=ev=>{ev.stopPropagation();openKp(e.dataset.dim)});
+ bindHandle();}
+function select(k){S.sel=k;if(k){S.edit=null;$('kp').hidden=true}draw();ctxBar();inspR();if(k&&!S.insp&&!S.portrait){}}
+function ctxBar(){const c=$('ctx'),k=S.sel;if(!k){c.hidden=true;return}c.hidden=false;
+ const b=(ic,l,cls)=>`<button class="chip ${cls||''}" data-a="${ic}">${svgI(ic)}<span>${l}</span></button>`;
+ c.innerHTML=(k==='hole'?b('eq',t('eq'))+b('tan',t('tan'))+b('coin',t('coin')):b(k==='left'||k==='right'?'v':'h',k==='left'||k==='right'?t('vert'):t('horiz'))+b('par',t('par'))+b('perp',t('perp'))+b('eq',t('eq')))+'<div class="csep"></div>'+b('fix',t('fix'))+b('cons',t('cmark'))+'<div class="csep"></div>'+b('del',t('delete'),'danger')+b('close','','');
+ c.querySelectorAll('.chip').forEach(x=>x.onclick=()=>{const a=x.dataset.a;if(a==='close'){select(null)}else if(a==='del'){toast((S.lang==='ru'?'Удаление — в макете недоступно (выполнится как команда Undo/Redo)':'Delete is not wired in this mockup (it will be an undoable command)'))}else toast(x.textContent.trim()+': '+(S.lang==='ru'?'ограничение добавлено (демо)':'constraint added (demo)'))})}
+function row(l,v,k,u){return`<button class="row" data-dim="${k}"><span>${l}</span><span class="v">${v}</span><span class="u">${u||t('unit')}</span></button>`}
+function inspR(){const k=S.sel,{W,H,D,off}=S.v;let title,sub,body;
+ if(k==='hole'){title=t('hole')+' ×4';sub=t('geo');body=`<h3>${t('geo')}</h3>${row(t('d'),D,'D')}${row(t('off'),off,'off')}`}
+ else if(k){title=t('side');sub=t('geo');const len=(k==='top'||k==='bottom')?W:H;body=`<h3>${t('geo')}</h3>${row(t('len'),len,(k==='top'||k==='bottom')?'W':'H')}`}
+ else{title=S.lang==='ru'?'Эскиз 01':'Sketch 01';sub=S.lang==='ru'?'Плоскость XY':'XY plane';body=`<h3>${t('geo')}</h3>${row(t('w'),W,'W')}${row(t('h'),H,'H')}${row(t('d'),D,'D')}${row(t('off'),off,'off')}`}
+ body+=`<h3>${t('cons_t')}</h3>`+[['h',t('horiz'),'2'],['v',t('vert'),'2'],['eq',t('eq'),'4'],['fix',t('fix'),'1']].map(([i,l,n])=>`<button class="con"><i>${svgI(i,' width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"')}</i>${l}<em>${n}</em></button>`).join('')+(S.conflict?`<button class="con bad"><i>${svgI('warn',' width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"')}</i>${t('conf')}: ${t('vert')}<em>1</em></button>`:'');
+ $('insp').innerHTML=`<div class="insp-h"><div><small>${sub}</small><h2>${title}</h2></div><button class="ib" id="ic" aria-label="${t('close')}">${svgI('close')}</button></div><div class="insp-b">${body}</div>`;
+ $('ic').onclick=toggleInsp;$('insp').querySelectorAll('[data-dim]').forEach(e=>e.onclick=()=>openKp(e.dataset.dim))}
+function toggleInsp(){S.insp=!S.insp;$('insp').classList.toggle('closed',!S.insp);$('tab').hidden=S.insp||S.portrait;$('zoomc').classList.toggle('shift',S.insp);if(!S.insp&&!S.edit){}draw()}
+/* keypad */
+const lab={W:'w',H:'h',D:'d',off:'off'};
+function openKp(k){S.edit=k;S.buf='';$('kp').hidden=false;kp();draw()}
+function kp(){const k=S.edit,keys=['7','8','9','⌫','4','5','6','.','1','2','3','C','0','–','±','✓'];
+ $('kp').innerHTML=`<div class="kp-d"><small>${t(lab[k])}</small><output>${S.buf!==''?S.buf:S.v[k]}</output><span>${t('unit')}</span></div><div class="kp-g">${keys.map(x=>`<button class="key ${x==='✓'?'ok':''} ${'–C'.includes(x)?'sm':''}" data-k="${x}" aria-label="${x==='✓'?t('ok'):x}">${x}</button>`).join('')}</div>`;
+ $('kp').querySelectorAll('.key').forEach(b=>b.onclick=()=>key(b.dataset.k))}
+function key(x){if(x==='✓'){commit();return}if(x==='C'){S.buf=''}else if(x==='⌫'){S.buf=S.buf.slice(0,-1)}else if(x==='±'){S.buf=S.buf.startsWith('-')?S.buf.slice(1):'-'+(S.buf||S.v[S.edit])}else if(x==='–'){closeKp();return}else if(x==='.'){if(!S.buf.includes('.'))S.buf+=(S.buf?'':'0')+'.'}else S.buf+=x;kp();draw()}
+function closeKp(){S.edit=null;S.buf='';$('kp').hidden=true;draw()}
+function valid(v){const n={...S.v,...v};if(!Object.values(n).every(Number.isFinite)||Object.values(n).some(x=>x<=0))return 'invalid';if(n.off*2+n.D>Math.min(n.W,n.H))return 'fit';return null}
+function apply(v){const err=valid(v);if(err){flashBad();toast(t('rb')+t(err),true);return false}Object.assign(S.v,v);hist=hist.slice(0,hi+1);hist.push({...S.v});hi=hist.length-1;undoState();return true}
+function commit(){const k=S.edit;if(S.buf===''){closeKp();return}const n=Number(S.buf);const ok=apply({[k]:n});closeKp();if(ok){draw();inspR();toast((S.lang==='ru'?'Размер принят, эскиз пересчитан: ':'Dimension applied: ')+S.v[k])}}
+function flashBad(){S.conflict=false;const s=$('svg');s.style.outline='4px solid var(--err)';setTimeout(()=>s.style.outline='',450)}
+function undoState(){$('undo').disabled=hi===0;$('redo').disabled=hi===hist.length-1}
+$('undo').onclick=()=>{if(hi>0){hi--;S.v={...hist[hi]};undoState();draw();inspR()}};$('redo').onclick=()=>{if(hi<hist.length-1){hi++;S.v={...hist[hi]};undoState();draw();inspR()}};
+/* drag corner with offset loupe */
+function bindHandle(){const h=$('hcHit');if(!h)return;let drag=false;
+ h.onpointerdown=e=>{drag=true;h.setPointerCapture(e.pointerId);e.stopPropagation()};
+ h.onpointermove=e=>{if(!drag)return;const sv=$('svg'),pt=sv.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const q=pt.matrixTransform(sv.getScreenCTM().inverse());const p=P(),z=S.zoom;const wx=(q.x-604)/z+604,wy=(q.y-350)/z+350;
+  const W=Math.max(2,Math.round((wx-p.x)/sc)),H=Math.max(2,Math.round((p.y-wy)/sc));S.drag={W,H};
+  const fr=$('frame').getBoundingClientRect(),k=fr.width/(S.portrait?800:1280),bd=$('body').getBoundingClientRect();
+  const l=$('loupe');l.classList.add('show');l.style.left=((e.clientX-bd.left)/k-66-(S.portrait?0:90))+'px';l.style.top=((e.clientY-bd.top)/k-190)+'px';$('loupeT').textContent=W+' × '+H;
+  const prev={...S.v};const err=valid({W,H});if(!err){S.v.W=W;S.v.H=H;draw();bindHandle();$('hcHit').setPointerCapture(e.pointerId);$('hcHit').onpointermove=h.onpointermove;}};
+ const end=e=>{if(!drag)return;drag=false;$('loupe').classList.remove('show');if(S.drag){const d=S.drag;S.drag=null;const cur={...S.v};S.v={...hist[hi]};if(!apply({W:d.W,H:d.H})){S.v={...hist[hi]}}draw();inspR()}};
+ h.onpointerup=end;h.onpointercancel=end}
+/* diagnostics */
+function statusUi(){const s=$('status'),tt=$('statusT');s.className='status'+(S.conflict?' err':'');if(S.conflict){tt.textContent=t('conf');s.firstElementChild.innerHTML=I.warn}else{tt.textContent='DOF 0 · '+t('dof0');s.firstElementChild.innerHTML=I.check}}
+$('status').onclick=()=>{const p=$('pop');if(!p.hidden){p.hidden=true;return}p.hidden=false;p.innerHTML=`<h4>${t('diag')}</h4><p>${t('cnt')}: 9 · ${t('dcnt')}: 4 · DOF 0</p>${S.conflict?`<p style="color:var(--err)">${svgI('warn',' width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px"')} ${t('cdesc')}</p>`:''}<button class="chip" id="showc">${S.conflict?t('hidec'):t('showc')}</button>`;$('showc').onclick=()=>{S.conflict=!S.conflict;p.hidden=true;statusUi();draw();inspR()}};
+/* misc */
+$('tab').onclick=toggleInsp;$('menu').onclick=()=>toast(S.lang==='ru'?'Проекты, импорт, экспорт DXF, настройки':'Projects, import, DXF export, settings');$('more').onclick=()=>toast(S.lang==='ru'?'Экспорт DXF · Настройки ввода · Справка':'DXF export · Input settings · Help');
+$('zin').onclick=()=>{S.zoom=Math.min(2,S.zoom+.2);draw()};$('zout').onclick=()=>{S.zoom=Math.max(.6,S.zoom-.2);draw()};$('zfit').onclick=()=>{S.zoom=1;draw()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeKp();$('pop').hidden=true;select(null)}if(S.edit){if(/\d/.test(e.key))key(e.key);else if(e.key==='.')key('.');else if(e.key==='Backspace')key('⌫');else if(e.key==='Enter')commit()}});
+function fit(){const st=$('stage').getBoundingClientRect(),w=S.portrait?800:1280,h=S.portrait?1280:800,k=Math.min(st.width/w,st.height/h,1.15)*.97;$('frame').style.transform=`translate(-50%,-50%) scale(${k})`}
+function i18n(){document.documentElement.lang=S.lang;document.querySelectorAll('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));document.querySelectorAll('[data-i18n-aria]').forEach(e=>e.setAttribute('aria-label',t(e.dataset.i18nAria)));
+ $('snapT').textContent=t('snap');$('inputT').textContent=t(S.stylus?'in_s':'in_t');buildRail();statusUi();ctxBar();inspR();if(S.edit)kp();draw()}
+$('pOrient').onclick=e=>{S.portrait=!S.portrait;$('frame').classList.toggle('portrait',S.portrait);e.target.setAttribute('aria-pressed',S.portrait);e.target.textContent='Ориентация: '+(S.portrait?'портретная':'альбомная');$('tab').hidden=S.insp||S.portrait;$('svg').setAttribute('viewBox',S.portrait?'0 0 800 1000':'0 0 1208 700');$('zoomc').classList.toggle('shift',S.insp);fit();draw()};
+$('pTheme').onclick=e=>{S.theme=S.theme==='light'?'dark':'light';document.documentElement.dataset.theme=S.theme;e.target.setAttribute('aria-pressed',S.theme==='dark')};
+$('pLang').onclick=e=>{S.lang=S.lang==='ru'?'en':'ru';e.target.textContent=S.lang==='ru'?'EN':'RU';i18n()};
+$('pInput').onclick=e=>{S.stylus=!S.stylus;e.target.setAttribute('aria-pressed',!S.stylus);e.target.textContent='Ввод: '+(S.stylus?'стилус':'только касание');i18n()};
+$('pReach').onclick=e=>{const on=e.target.getAttribute('aria-pressed')!=='true';e.target.setAttribute('aria-pressed',on);$('reach').classList.toggle('show',on)};
+window.onresize=fit;fit();undoState();i18n();
+</script></body></html>

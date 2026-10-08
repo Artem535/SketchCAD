@@ -1,0 +1,31 @@
+= Licensing package
+
+== Software draft
+Проект текста: LICENSE.draft.md в корне репозитория.
+Выбрана собственная source-available модель; AGPL/GPL с дополнительным запретом продаж не используется.
+Текст явно не вступает в силу до adoption праводержателями после юридического ревью (L01).
+Идентификатор LicenseRef-SketchCAD-Source-Available-1.0 зарезервирован для будущего утверждённого текста, не обозначает одобрение SPDX/OSI.
+
+== Проверяемая политика
+* Коммерческое использование CAD и закрытые модели/чертежи разрешены.
+* Независимые macro API clients без копирования application code могут быть закрытыми и отдельно лицензированными.
+* Paid copies/access/bundles запрещены без отдельного разрешения; internal commercial use не считается paid access.
+* Free redistribution требует corresponding source exact version, attribution, same terms и маркировки modified/unofficial builds.
+* Полностью добровольные donations разрешены без feature/access paywall.
+* Платные design/training/support разрешены при независимой бесплатной доступности приложения.
+* Third-party rights/обязательства не переписываются собственной лицензией.
+
+== Документация
+Согласованная лицензия документации: https://creativecommons.org/licenses/by/4.0/[CC BY 4.0].
+Канонический https://creativecommons.org/licenses/by/4.0/legalcode.en[юридический текст] применяется без собственных дополнительных запретов.
+До adoption package проверить attribution/copyright всех материалов, исключения для embedded code и third-party content; оформить notices и копию текста.
+Коммерческое распространение документации допускается CC BY и не является продажей application build.
+
+== Contribution agreement
+Право relicensing не возникает просто из открытия PR. До внешних вкладов подготовить и подписывать отдельное соглашение, сохраняющее авторство и дающее согласованные copyright/patent permissions.
+
+== Adoption gate L01
+Праводержатели/контакт, patent grant, применимое право, termination/enforceability,
+Qt modules/linking и OCCT/dependency compatibility, shops и mixed-license binary distribution,
+source fulfillment, docs scope и contribution agreement требуют review.
+Пока это проект текста, не юридическое заключение и не заявление о возможности распространять любой Qt/GPL binary под ограничительной лицензией.

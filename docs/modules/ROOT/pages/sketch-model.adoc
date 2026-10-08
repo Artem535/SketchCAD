@@ -1,0 +1,82 @@
+= C01: Qt-free Sketch model
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/4[#4]. Requirement: S01-GEO.
+Core only; the existing Rectangle demo remains unchanged until its UI migration task.
+No solver, constraints, Undo stack or persistence are added here.
+
+== Contract
+Namespace sketchcad; include/sketchcad/sketch.h; src/sketch.cpp.
+EntityId is uint64_t, 0 is invalid; IDs belong to one Sketch document, not a global namespace.
+One ordered entity map stores a variant of SketchPoint, SketchLine, SketchCircle and SketchArc.
+Positions are finite x/y in mm. All primitives have an ID and construction flag.
+Lines reference two distinct existing point IDs. Coincident coordinates on distinct points are permitted (solver handles degeneracy later).
+Circles and arcs reference an existing center point; radius must be finite and strictly positive.
+Arcs use finite start_angle and signed sweep_angle in radians, 0 < abs(sweep_angle) < 2*pi.
+Endpoints are derived from center/radius/angles; they are not additional referenced points in this increment.
+
+Queries return optional value copies; entities() exposes a const ordered map for iteration.
+create_* methods return optional ID; invalid requests return nullopt. update_*, set_construction and erase return bool.
+Unknown IDs and wrong entity types fail without changing geometry, flags or allocation state.
+update_* preserves ID and construction flag; set_construction changes only the flag.
+Finite point edits propagate through shared references, without rewriting other entities.
+Referenced points cannot be erased; delete their dependent primitives first. No cascade or orphan garbage collection is implicit.
+
+== Allocation and snapshots
+Successful creations use a monotonic per-document allocator; erase never reuses IDs.
+Copy construction makes independent value state (including allocator position); IDs may coincide between independent documents.
+Copy/move assignment replaces geometry while keeping the higher allocation watermark of destination/source,
+so restoring an old snapshot cannot recycle IDs already issued by the active document.
+At uint64_t exhaustion creation fails instead of wrapping into 0/reusing IDs.
+No thread-safety guarantee is made; future Document commands serialize access.
+
+== Compound primitives
+create_polyline(span<const Position>, closed=false, construction=false) creates shared points and lines.
+Open input requires >=2 positions; closed requires >=3. Closed form joins last point to first without duplicating it.
+Repeated coordinates are allowed on distinct point IDs. All positions must be finite.
+Result Polyline lists point IDs and line IDs in input/traversal order.
+create_rectangle(origin,width,height,construction=false) delegates to a four-point closed polyline.
+Positive finite dimensions, finite arithmetic and representably noncollapsed sides are required.
+Both helpers are atomic: invalid input leaves map and allocator unchanged.
+Construction flag is applied to all entities created by the helper.
+
+== Planned public API
+[source,cpp]
+----
+using EntityId = std::uint64_t;
+struct Position { double x; double y; };
+struct Polyline { std::vector<EntityId> points; std::vector<EntityId> lines; };
+std::optional<EntityId> Sketch::create_point(Position, bool construction = false);
+std::optional<EntityId> Sketch::create_line(EntityId start, EntityId end, bool construction = false);
+std::optional<EntityId> Sketch::create_circle(EntityId center, double radius, bool construction = false);
+std::optional<EntityId> Sketch::create_arc(EntityId center, double radius, double start_angle, double sweep_angle, bool construction = false);
+bool Sketch::update_point(EntityId, Position);
+bool Sketch::update_line(EntityId, EntityId start, EntityId end);
+bool Sketch::update_circle(EntityId, EntityId center, double radius);
+bool Sketch::update_arc(EntityId, EntityId center, double radius, double start_angle, double sweep_angle);
+bool Sketch::set_construction(EntityId, bool);
+bool Sketch::erase(EntityId);
+std::optional<Entity> Sketch::entity(EntityId) const;
+const std::map<EntityId, Entity>& Sketch::entities() const;
+std::optional<Polyline> Sketch::create_polyline(std::span<const Position>, bool closed = false, bool construction = false);
+std::optional<Polyline> Sketch::create_rectangle(Position origin, double width, double height, bool construction = false);
+----
+
+== Acceptance / test cases
+* CRUD for each primitive, wrong-type edits and unknown references.
+* NaN/infinity, invalid radius and zero/full-turn sweep rejected atomically.
+* Delete center/endpoint rejected while referenced; delete primitive then point succeeds.
+* Changing a shared point preserves dependent entity IDs/references.
+* IDs are not reused after erase or snapshot assignment; value copies edit independently.
+* Polyline open/closed counts and endpoint connectivity; rectangle width/height and shared corners.
+* Invalid compound input and floating-point overflow/collapse leave geometry/allocation unchanged.
+* All existing Rectangle/controller/QML tests remain green; new core remains Qt-free.
+
+== Execution record
+Baseline: 8/8 CTest checks passed before changes. RED/GREEN evidence recorded in issue #4 on completion.
+Ruling: stay in the requested shared checkout on a dedicated feature branch; preserve the pre-existing dirty handoff file and keep scoped commits.
+
+RED: 11/11 new GoogleTest checks failed against the unimplemented API (CTest exit 8); log build/issue4-red.log.
+GREEN: Release build and 19/19 full CTest checks passed, including existing QML interactions/smoke; log build/issue4-green.log.
+Fresh-context scoped review found no actionable defects. Allocation exhaustion and a mid-compound exhaustion are guarded but not reached by public-API tests; input-validation rollback is covered.
+No Android/device validation and no UI migration are claimed by this core increment.
