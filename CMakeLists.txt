@@ -30,7 +30,7 @@ if(SKETCHCAD_BUILD_APP)
  find_package(Qt6 6.5 REQUIRED COMPONENTS Quick QuickControls2 QuickTest Test)
  set(CMAKE_AUTOMOC ON)
  set(SKETCHCAD_QML app/Main.qml app/SketchViewport.qml app/DimensionEditor.qml
-  app/ConstraintPanel.qml)
+  app/Inspector.qml app/Theme.qml)
  file(GLOB SKETCHCAD_ICONS CONFIGURE_DEPENDS app/icons/*.svg)
  add_library(sketchcad_controller app/sketch_controller.cpp
   app/sketch_controller.h)

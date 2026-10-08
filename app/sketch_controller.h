@@ -39,6 +39,8 @@ class SketchController : public QObject {
   Q_PROPERTY(bool in_progress READ in_progress NOTIFY changed)
   Q_PROPERTY(QString message READ message NOTIFY changed)
   Q_PROPERTY(double scale READ scale NOTIFY changed)
+  // Current snap grid step in mm (depends on zoom).
+  Q_PROPERTY(double grid_step READ grid_step NOTIFY changed)
   // {id, kind, value}; lengths in mm, angles in degrees.
   Q_PROPERTY(QVariantList dimensions READ dimensions NOTIFY changed)
   // Constraint and dimension keys valid for the current selection.
@@ -55,6 +57,12 @@ class SketchController : public QObject {
   Q_PROPERTY(QString diagnosis_reason READ diagnosis_reason NOTIFY changed)
   // {id, x, y, text} in viewport pixels.
   Q_PROPERTY(QVariantList dimension_labels READ dimension_labels NOTIFY changed)
+  // U05 inspector: {label, value, unit} rows and title for the selection.
+  Q_PROPERTY(QVariantList selection_properties READ selection_properties
+                 NOTIFY changed)
+  Q_PROPERTY(QString selection_title READ selection_title NOTIFY changed)
+  // Points with a fix constraint, drawn as filled handles.
+  Q_PROPERTY(QString fixed_path READ fixed_path NOTIFY changed)
 
  public:
   explicit SketchController(QObject* parent = nullptr);
@@ -86,6 +94,7 @@ class SketchController : public QObject {
   // Translation key of the last rejected action, empty when none.
   QString message() const { return message_; }
   double scale() const { return view_.scale(); }
+  double grid_step() const { return session_.snap_settings().grid_step_mm; }
   QVariantList dimensions() const;
   QStringList applicable() const;
   QVariantList constraints() const;
@@ -97,6 +106,9 @@ class SketchController : public QObject {
   int dof() const;
   QString diagnosis_reason() const;
   QVariantList dimension_labels() const;
+  QVariantList selection_properties() const;
+  QString selection_title() const;
+  QString fixed_path() const { return fixed_path_; }
 
   Q_INVOKABLE void set_viewport_size(double width, double height);
   Q_INVOKABLE void hover(double x, double y);
@@ -165,6 +177,7 @@ class SketchController : public QObject {
   QString axes_path_;
   QString constraint_path_;
   QString conflict_path_;
+  QString fixed_path_;
   qulonglong selected_constraint_ = 0;
   std::vector<sketchcad::EntityId> conflict_entities_;
   sketchcad::Diagnosis diagnosis_;

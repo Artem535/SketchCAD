@@ -313,6 +313,10 @@ void SketchController::refresh_scene() {
   if (const auto c = sketch.constraint(selected_constraint_))
     for (EntityId id : {c->first, c->second})
       constraint_path_ += entity_path(sketch, id, kSelectedMarkerPx);
+  fixed_path_.clear();
+  for (const auto& [id, c] : sketch.constraints())
+    if (c.kind == sketchcad::ConstraintKind::kFix)
+      fixed_path_ += entity_path(sketch, c.first, kSelectedMarkerPx);
   conflict_path_.clear();
   for (EntityId id : conflict_entities_)
     conflict_path_ += entity_path(sketch, id, kSelectedMarkerPx);
@@ -696,4 +700,66 @@ void SketchController::highlight_dependent() {
         if (e) conflict_entities_.push_back(e);
   refresh_scene();
   emit changed();
+}
+
+QVariantList SketchController::selection_properties() const {
+  const Sketch& sketch = document_.sketch();
+  QVariantList rows;
+  const auto row = [&](const QString& label, const QString& value,
+                       const QString& unit = {}) {
+    rows.push_back(QVariantMap{{"label", label}, {"value", value},
+                               {"unit", unit}});
+  };
+  const QString mm = QStringLiteral("мм"), deg = QStringLiteral("°");
+  const auto& selected = session_.selected();
+  if (selected.empty()) {
+    row(QStringLiteral("Объектов"), QString::number(entity_count()));
+    row(QStringLiteral("Ограничений"),
+        QString::number(sketch.constraints().size()));
+    row(QStringLiteral("DOF"), dof() < 0 ? QStringLiteral("—")
+                                         : QString::number(dof()));
+    return rows;
+  }
+  if (selected.size() != 1) return rows;
+  const auto entity = sketch.entity(selected.front());
+  if (!entity) return rows;
+  const auto at = [&](EntityId id) {
+    return std::get<SketchPoint>(*sketch.entity(id)).position;
+  };
+  if (const auto* p = std::get_if<SketchPoint>(&*entity)) {
+    row(QStringLiteral("X"), format_value(p->position.x), mm);
+    row(QStringLiteral("Y"), format_value(p->position.y), mm);
+  } else if (const auto* l = std::get_if<sketchcad::SketchLine>(&*entity)) {
+    const Position a = at(l->start), b = at(l->end);
+    double angle = std::atan2(b.y - a.y, b.x - a.x) / kDegree;
+    angle = std::fmod(angle + 360, 180);
+    if (std::abs(angle - 180) < 5e-4) angle = 0;
+    row(QStringLiteral("Длина"), format_value(std::hypot(b.x - a.x, b.y - a.y)),
+        mm);
+    row(QStringLiteral("Угол"), format_value(angle), deg);
+  } else if (const auto* c = std::get_if<sketchcad::SketchCircle>(&*entity)) {
+    row(QStringLiteral("Радиус"), format_value(c->radius), mm);
+    row(QStringLiteral("Диаметр"), format_value(2 * c->radius), mm);
+  } else if (const auto* r = std::get_if<sketchcad::SketchArc>(&*entity)) {
+    row(QStringLiteral("Радиус"), format_value(r->radius), mm);
+    row(QStringLiteral("Угол дуги"), format_value(r->sweep_angle / kDegree),
+        deg);
+  }
+  return rows;
+}
+
+QString SketchController::selection_title() const {
+  const auto& selected = session_.selected();
+  if (selected.empty()) return QStringLiteral("Эскиз");
+  if (selected.size() > 1)
+    return QStringLiteral("%1 объекта").arg(selected.size());
+  const auto entity = document_.sketch().entity(selected.front());
+  if (!entity) return {};
+  if (std::holds_alternative<SketchPoint>(*entity))
+    return QStringLiteral("Точка");
+  if (std::holds_alternative<sketchcad::SketchLine>(*entity))
+    return QStringLiteral("Линия");
+  if (std::holds_alternative<sketchcad::SketchCircle>(*entity))
+    return QStringLiteral("Окружность");
+  return QStringLiteral("Дуга");
 }

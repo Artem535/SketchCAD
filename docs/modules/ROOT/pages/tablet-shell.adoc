@@ -1,0 +1,143 @@
+= U05: Tablet shell and theme from the mockup
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/33[#33]. Requirement: S01-UI. Depends on U01 (xref:sketch-viewport.adoc[]), U02 (xref:constraint-ui.adoc[]), U03
+(xref:constrained-drag.adoc[]). Reference: `design/sketchcad-tablet.html` (1280×800 dp landscape) and
+xref:adr-0002-tablet-ui.adoc[ADR-0002].
+
+Addresses user remarks 2 ("UI is far from the mockup") and 3 ("colours": purple Material header on a dark canvas) from
+U02 testing; the user chose "mockup layout + nanoCAD style". The nanoCAD/ESKD dimension drawing style (remark 6) is U06
+and is not part of this increment: dimensions keep their U02 labels, recoloured with the theme tokens.
+
+Not in this increment: projects menu and file state (F01/F02), portrait layout, loupe, RU/EN switch (R01), tools that do
+not exist yet (point, construction, trim, dimension tool: U04), constraint glyphs on the canvas, persistence of the theme
+choice (no settings storage before F01), device checks (P01).
+
+== Theme
+* `app/Theme.qml` holds the mockup colour tokens for both themes, verbatim from the mockup CSS; one instance lives in
+  `Main.qml`, is passed to the panels and is exposed as the window property `darkTheme`:
++
+[cols="1,1,1"]
+|===
+|Token |Light |Dark
+|`bg` |`#f4f6f9` |`#12191f`
+|`surface` |`#ffffff` |`#1c262f`
+|`surface2` |`#eef2f6` |`#26323d`
+|`canvas` |`#f7f9fb` |`#161e25`
+|`grid` |`#e1e8ef` |`#232f3a`
+|`ink` |`#1c2b3a` |`#e6edf4`
+|`muted` |`#5d7083` |`#9fb2c4`
+|`line` |`#d6dfe8` |`#364552`
+|`primary` |`#1668c0` |`#8ec1ff`
+|`onPrimary` |`#ffffff` |`#0b2a4a`
+|`primaryContainer` |`#dbe9fb` |`#1f3b57`
+|`geom` |`#1d3b5a` |`#cfe3f7`
+|`ok` |`#16745c` |`#5fd0ac`
+|`okContainer` |`#e2f4ee` |`#17352c`
+|`err` |`#b3261e` |`#ffb4ab`
+|`errContainer` |`#fbe5e3` |`#4a1f1b`
+|`warn` |`#8a5a00` |`#f2c46b`
+|===
+* `Theme.dark` starts from the platform colour scheme (`Qt.styleHints.colorScheme`; unknown → light) and is toggled from
+  the overflow menu ("Тёмная тема"). It is not persisted.
+* Every surface sets its colour from the tokens explicitly; nothing relies on Material defaults. Material is kept for
+  controls and ripples with `Material.theme` following `Theme.dark`, `Material.accent` = `primary`,
+  `Material.background` = `bg`, `Material.foreground` = `ink`. No purple Material primary remains.
+* Typography: system Roboto / Noto Sans, 16 px body, 14 px chips and rows, 12 px captions, 11 px rail labels.
+  No fonts are bundled (licensing, L01).
+
+== Layout (landscape)
+* *App bar* (56 dp, `surface`, bottom border `line`), left to right:
+  title "Эскиз 01" with caption "Не сохранено · объектов: N"; a segmented mode switch with "Эскиз" selected and
+  "Деталь 1.0", "Сборка 1.0", "Чертёж 1.0" disabled (shown, not clickable: they are 1.0 scope);
+  spacer; DOF status pill; Undo and Redo icon buttons (48 dp); overflow menu button.
+* *DOF pill* (`dofStatus`, 40 dp, radius 20) with an icon and the U02 text. Colours by state:
+  fully defined → `ok` on `okContainer` (check icon); free DOF → `primary` on `primaryContainer`;
+  redundant → `warn` on `surface2`; conflicting or unknown → `err` on `errContainer`. Tap keeps the U02 behaviour.
+* *Overflow menu* (`moreMenu`): "Тёмная тема" (checkable), "Палец рисует" (checkable, same setting as the rail toggle).
+* *Canvas* fills the body with `canvas`; minor grid `grid`, major grid `line`; geometry `geom` 2.5 px; selection
+  `primary` 4 px; conflict highlight `err` 4 px dashed; constraint highlight `primary`; preview `primary` dashed;
+  points drawn as handles: `surface` fill with `geom` outline, selected with `primary` outline.
+* *Tool rail* floating at left 8, top 8, bottom 8: 72 dp wide, radius 20, `surface`, shadow. Tool buttons 64×56 dp,
+  radius 16, 26 px icon over an 11 px label; the active tool uses `primaryContainer`/`primary`. Separators 40×1 `line`.
+  Contents: the U01 tools; separator; snap and finger toggles; separator; "Связи" opens the inspector.
+* *Status strip* (`bottomStatus`) floating at left 92, bottom 14, `surface`, radius 14, 12 px `muted`:
+  "мм" · "Привязки: сетка N мм" or "Привязки выкл." · "Палец рисует" or "Палец двигает вид"; while drawing, the
+  U01 drawing hint replaces the last part.
+* *Context bar* floating at bottom centre: radius 28 pill, `surface`, shadow; chips 52 dp high, radius 26, 14 px, icon
+  plus label; Delete in `err`; Close as an icon chip; separators between groups (constraints | dimensions | delete/close).
+* *Zoom control* floating at right 16, bottom 14: vertical pill of three 48 dp icon buttons; shifts left by the inspector
+  width while the inspector is open.
+* *Inspector* (`inspector`, replaces `ConstraintPanel`) floating at right 8, top 8, bottom 8: 324 dp, radius 20,
+  `surface`, slides in/out. Header: caption "Свойства", title of the selection ("Линия", "Окружность", "Точка", "Дуга",
+  "2 объекта", or "Эскиз" when nothing is selected), close button.
+  Section "Геометрия" (uppercase 12 px `muted`): read-only rows (52 dp, value in a `surface2` box, unit "мм" or "°")
+  from `selection_properties`.
+  Section "Ограничения": the U02 constraint list (`constraint_<index>`, `deleteConstraint_<index>`), dependent and
+  violated entries marked with `err`; tap selects (highlight), as in U02.
+* *Dimension editor* keypad card anchored bottom right (right 12, bottom 12, 372 dp, radius 24): value 34 px,
+  4-column key grid, keys 56 dp radius 16 on `surface2`, Apply key `primary`/`onPrimary`. Object names from U02 kept.
+* *Toast* (`toast`) at top centre: messages (U02 keys, all of them errors) appear as a toast for 2.6 s on the `err`
+  background; text is white in the light theme and `errContainer` in the dark one (white on the pale dark `err` is
+  unreadable; the mockup has that defect). The status line of U01/U02 is removed.
+
+== Controller additions
+* `selection_properties`: list of `{label, value, unit}` for the selection, values formatted like dimension labels:
+  point → X, Y; line → Длина, Угол (degrees from +X, 0–180); circle → Радиус, Диаметр; arc → Радиус, Угол дуги;
+  two entities → empty list. Empty selection → Объектов, Ограничений, DOF.
+* `selection_title`: the inspector title above.
+* `fixed_path`: points with a `kFix` constraint, drawn as filled `primary` handles (fixed handle in the mockup).
+* `grid_step`: the current snap grid step in mm for the status strip.
+
+== Acceptance / test cases
+Qt (`sketch_controller_test`): `selection_properties` and `selection_title` for empty, point, line (length and angle),
+circle, arc and two-entity selections; `fixed_path` set after `fix` and cleared by Undo.
+
+QML (`qml_test`, offscreen, real clicks):
+
+* With the theme forced to light through the window's `darkTheme` property (the start theme follows the platform,
+  which differs between hosts): window background, canvas, app bar, rail, zoom control, status strip and the selected
+  mode segment equal the light tokens;
+  no item uses Material's purple default (the app bar colour is `surface`).
+* Overflow menu → "Тёмная тема": the same items switch to the dark tokens; toggling back restores light.
+* Mode switch: "Эскиз" selected, the three 1.0 modes disabled.
+* DOF pill: free state uses `primaryContainer`; after fixing a fully constrained line, `okContainer`; after a
+  conflicting value, the toast shows the conflict message with the `err` background.
+* Inspector: "Связи" opens it; selecting a 50 mm line shows "Длина" 50 мм; the constraint list deletes a constraint
+  (U02 behaviour kept); close hides it; the zoom control moves left while it is open.
+* Status strip shows snap state and toggles with the snap button.
+* Existing U01/U02/U03 QML scenarios keep passing with the renamed panel.
+* Screenshots `sketch_u05_light.png` and `sketch_u05_dark.png` (line with constraints, inspector open) are saved and
+  compared manually with the mockup; differences are listed in the execution record.
+
+Runtime on Android, RU/EN layout and portrait are not claimed.
+
+== Implementation notes
+* No QML singleton: a `qmldir` would be needed in both resource bundles (app and `qml_test`); a single `Theme` instance
+  passed as a required property is simpler and keeps the panels testable.
+* The context bar is centred in the free space between the rail and the zoom control, so it never covers the zoom
+  control while the inspector is open; the status strip hides when the context bar would overlap it.
+* `ConstraintPanel.qml` is removed; its list moved into `Inspector.qml` with the same object names. The U02 QML test
+  now waits for the inspector to be `inspector` and fully slid in before clicking.
+* Light theme in the mockup uses shadows; the panels use a 1 px `line` border in light and no border in dark instead
+  (Qt Quick has no cheap box shadow without Qt5Compat/MultiEffect).
+
+== Execution record
+Environment: Ubuntu 26.04 (Wayland host, dark system scheme), GCC 15.2, Qt 6.10.2; build directory `build/ubuntu`.
+Baseline: 119/119 CTest checks on `main` after U03.
+
+RED (`build/issue33-red.log`): `sketch_controller_test` (inspector rows/title and fixed handles were stubs) and
+`qml_test` (no theme tokens, mode switch or inspector) failed; 117/119 passed.
+During GREEN, test defects fixed in the test without changing expectations:
+the offscreen platform reported the host's dark scheme, so "light by default offscreen" was wrong and the test now forces
+the start theme through `darkTheme` (spec updated); the second `fix` tapped a point while the first was still selected
+(two points selected, `fix` not offered) — Escape added between; the toast step called `controller.apply("length")`,
+which does not open the QML editor — the editor step was removed; one click landed during the inspector slide-in.
+The first object-count expectation (8) in the controller test was a counting mistake (arcs have no endpoint points: 7),
+fixed before RED was recorded.
+GREEN: Release 119/119 (`build/issue33-green.log`); Debug `-Wall -Wextra -Werror -fsanitize=address,undefined` 119/119.
+Screenshots `sketch_u05_light.png` and `sketch_u05_dark.png` inspected against the mockup. Remaining differences:
+no shadows (borders instead), tools of U04 absent from the rail, no hamburger/projects menu (F01), constraint glyphs in
+the inspector are the first letter of the kind instead of icons, dimension labels are mockup pills without
+extension lines (U06).
+Not claimed: Android, RU/EN, portrait.

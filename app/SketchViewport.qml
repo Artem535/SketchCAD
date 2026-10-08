@@ -8,6 +8,7 @@ Item {
     id: root
     objectName: "sketchCanvas"
     required property var controller
+    required property var theme
     // A dimension label was tapped.
     signal dimensionClicked(var id)
     clip: true
@@ -16,32 +17,32 @@ Item {
     onHeightChanged: controller.set_viewport_size(width, height)
     Component.onCompleted: controller.set_viewport_size(width, height)
 
-    readonly property bool dark: Material.theme === Material.Dark
-    readonly property color geometryColor: dark ? "#cfe3f7" : "#1d3b5a"
-    readonly property color accent: Material.accentColor
+    readonly property color geometryColor: theme.geom
+    readonly property color accent: theme.primary
 
     Rectangle {
+        objectName: "canvasBackground"
         anchors.fill: parent
-        color: root.dark ? "#161e25" : "#f7f9fb"
+        color: root.theme.canvas
     }
 
     Shape {
         anchors.fill: parent
         preferredRendererType: Shape.CurveRenderer
         ShapePath {
-            strokeColor: root.dark ? "#232f3a" : "#e1e8ef"
+            strokeColor: root.theme.grid
             strokeWidth: 1
             fillColor: "transparent"
             PathSvg { path: root.controller.grid_minor_path }
         }
         ShapePath {
-            strokeColor: root.dark ? "#2f3e4b" : "#cdd8e2"
+            strokeColor: root.theme.line
             strokeWidth: 1
             fillColor: "transparent"
             PathSvg { path: root.controller.grid_major_path }
         }
         ShapePath {
-            strokeColor: root.dark ? "#5d7083" : "#9fb0c0"
+            strokeColor: root.theme.muted
             strokeWidth: 1.5
             fillColor: "transparent"
             PathSvg { path: root.controller.axes_path }
@@ -65,8 +66,14 @@ Item {
         ShapePath {
             strokeColor: root.geometryColor
             strokeWidth: 1.5
-            fillColor: root.dark ? "#161e25" : "#ffffff"
+            fillColor: root.theme.surface
             PathSvg { path: root.controller.points_path }
+        }
+        ShapePath {
+            strokeColor: root.accent
+            strokeWidth: 1.5
+            fillColor: root.accent
+            PathSvg { path: root.controller.fixed_path }
         }
         ShapePath {
             strokeColor: root.accent
@@ -84,10 +91,11 @@ Item {
             PathSvg { path: root.controller.constraint_path }
         }
         ShapePath {
-            strokeColor: Material.color(Material.Red)
+            strokeColor: root.theme.err
             strokeWidth: 4
+            strokeStyle: ShapePath.DashLine
+            dashPattern: [2.5, 1.25]
             fillColor: "transparent"
-            capStyle: ShapePath.RoundCap
             PathSvg { path: root.controller.conflict_path }
         }
     }
@@ -106,18 +114,20 @@ Item {
             y: modelData.y - height / 2
             Rectangle {
                 anchors.centerIn: parent
-                width: text.implicitWidth + 12
-                height: text.implicitHeight + 6
-                radius: 6
-                color: root.dark ? "#1f2a33" : "#ffffff"
+                width: Math.max(text.implicitWidth + 24, 48)
+                height: 32
+                radius: 16
+                color: root.theme.surface
                 border.color: root.accent
+                border.width: 1.5
             }
             Label {
                 id: text
                 anchors.centerIn: parent
                 text: label.modelData.text
                 color: root.accent
-                font.pixelSize: 13
+                font.pixelSize: 15
+                font.weight: Font.Medium
             }
             TapHandler {
                 onTapped: root.dimensionClicked(label.modelData.id)

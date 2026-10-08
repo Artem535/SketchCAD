@@ -23,3 +23,4 @@
 ** xref:diagnostics.adoc[DOF and conflict diagnostics]
 ** xref:constraint-ui.adoc[Constraints and dimensions UI]
 ** xref:constrained-drag.adoc[Constrained dragging]
+** xref:tablet-shell.adoc[Tablet shell and theme]

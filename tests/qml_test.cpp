@@ -1,3 +1,4 @@
+#include <QColor>
 #include <QCoreApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -74,12 +75,106 @@ class QmlTest : public QObject {
     QQuickItem* i = item(name);
     return i && i->isVisible();
   }
+  QColor color_of(const char* name) {
+    QQuickItem* i = item(name);
+    return i ? i->property("color").value<QColor>() : QColor();
+  }
+  // Light and dark tokens of tablet-shell.adoc.
+  struct Palette {
+    const char* bg;
+    const char* surface;
+    const char* canvas;
+    const char* primary_container;
+  };
+  void expect_palette(const Palette& p) {
+    QCOMPARE(window_->color(), QColor(p.bg));
+    QCOMPARE(color_of("appBar"), QColor(p.surface));
+    QCOMPARE(color_of("toolRail"), QColor(p.surface));
+    QCOMPARE(color_of("canvasBackground"), QColor(p.canvas));
+    QCOMPARE(color_of("zoomControl"), QColor(p.surface));
+    QCOMPARE(color_of("bottomStatus"), QColor(p.surface));
+    QCOMPARE(color_of("mode_sketch_background"), QColor(p.primary_container));
+  }
   QString text_of(const char* name) {
     QQuickItem* i = item(name);
     return i ? i->property("text").toString() : QString();
   }
 
  private slots:
+  void shell_follows_mockup_theme() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    const Palette light{"#f4f6f9", "#ffffff", "#f7f9fb", "#dbe9fb"};
+    const Palette dark{"#12191f", "#1c262f", "#161e25", "#1f3b57"};
+    // The start theme follows the platform; force a known one.
+    window_->setProperty("darkTheme", false);
+    expect_palette(light);
+
+    for (const char* mode : {"mode_part", "mode_assembly", "mode_drawing"}) {
+      QVERIFY2(item(mode), mode);
+      QVERIFY2(!item(mode)->isEnabled(), mode);
+    }
+    QVERIFY(item("mode_sketch")->property("checked").toBool());
+
+    QVERIFY(text_of("bottomStatus").contains("мм"));
+    QVERIFY(text_of("bottomStatus").contains("сетка"));
+    click(item("snapToggle"));
+    QTRY_VERIFY(text_of("bottomStatus").contains("выкл"));
+
+    // Free DOF uses the primary container; a fully fixed line is ok.
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    click(item("tool_select"));
+    QCOMPARE(color_of("dofStatus_background"), QColor("#dbe9fb"));
+    tap(controller, 10, 60);
+    click(item("action_fix"));
+    QTest::keyClick(window_, Qt::Key_Escape);
+    tap(controller, 60, 60);
+    click(item("action_fix"));
+    QTRY_COMPARE(controller.dof(), 0);
+    QCOMPARE(color_of("dofStatus_background"), QColor("#e2f4ee"));
+
+    // Inspector: properties of the selected line, zoom control moves left.
+    QQuickItem* zoom = item("zoomControl");
+    const double zoom_x = zoom->mapToScene({0, 0}).x();
+    QTest::keyClick(window_, Qt::Key_Escape);
+    tap(controller, 35, 60);
+    click(item("constraintsToggle"));
+    QTRY_VERIFY(shown("inspector"));
+    QTRY_COMPARE(item("inspector")->x() + item("inspector")->width(),
+                 window_->width() - 8.0);  // Slide-in finished.
+    QCOMPARE(color_of("inspector"), QColor("#ffffff"));
+    QTRY_COMPARE(text_of("inspectorTitle"), QString("Линия"));
+    QCOMPARE(text_of("property_0"), QString("Длина"));
+    QCOMPARE(text_of("propertyValue_0"), QString("50"));
+    QTRY_VERIFY(zoom->mapToScene({0, 0}).x() < zoom_x - 300);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u05_light.png"));
+
+    // A rejected command shows an error toast.
+    QCOMPARE(controller.apply("vertical"), 0ull);  // Both ends are fixed.
+    QCOMPARE(controller.message(), QString("conflict"));
+    QTRY_VERIFY(shown("toast"));
+    QVERIFY(!text_of("toast").isEmpty());
+    QCOMPARE(color_of("toast"), QColor("#b3261e"));
+
+    // Dark theme from the overflow menu, and back.
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("darkThemeToggle"));
+    click(item("darkThemeToggle"));
+    QTRY_COMPARE(window_->color(), QColor(dark.bg));
+    expect_palette(dark);
+    QCOMPARE(color_of("inspector"), QColor(dark.surface));
+    QTest::qWait(400);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u05_dark.png"));
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("darkThemeToggle"));
+    click(item("darkThemeToggle"));
+    QTRY_COMPARE(window_->color(), QColor(light.bg));
+  }
   void drag_keeps_horizontal_line() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -226,7 +321,9 @@ class QmlTest : public QObject {
     QCOMPARE(controller.constraints().size(), 2);
 
     click(item("constraintsToggle"));
-    QTRY_VERIFY(shown("constraintPanel"));
+    QTRY_VERIFY(shown("inspector"));
+    QTRY_COMPARE(item("inspector")->x() + item("inspector")->width(),
+                 window_->width() - 8.0);  // Slide-in finished.
     click(item("deleteConstraint_0"));
     QCOMPARE(controller.constraints().size(), 1);
 

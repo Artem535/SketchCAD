@@ -6,6 +6,7 @@ import QtQuick.Layouts
 Popup {
     id: editor
     required property var controller
+    required property var theme
     // Turns a controller message key into visible text.
     required property var describe
 
@@ -17,16 +18,20 @@ Popup {
 
     modal: true
     focus: true
-    anchors.centerIn: Overlay.overlay
-    padding: 16
+    // Keypad card anchored bottom right, as in the mockup.
+    parent: Overlay.overlay
+    x: parent ? parent.width - width - 12 : 0
+    y: parent ? parent.height - height - 12 : 0
+    width: 372
+    padding: 12
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     // Explicit backgrounds: the Material defaults render transparent here.
     background: Rectangle {
-        color: editor.Material.dialogColor
-        radius: 16
-        border.color: editor.Material.dividerColor
+        color: editor.theme.surface
+        radius: 24
+        border.color: editor.theme.line
     }
-    Overlay.modal: Rectangle { color: "#66000000" }
+    Overlay.modal: Rectangle { color: "#33000000" }
 
     function format(value) {
         return String(Number(value.toFixed(3)))
@@ -68,7 +73,7 @@ Popup {
 
     contentItem: ColumnLayout {
         objectName: "dimensionEditor"
-        spacing: 12
+        spacing: 8
         focus: true
 
         Keys.onPressed: (event) => {
@@ -90,77 +95,105 @@ Popup {
                 }
                 return qsTr("Размер")
             }
-            font.pixelSize: 16
-            font.weight: Font.Medium
+            font.pixelSize: 13
+            color: editor.theme.muted
+            Layout.leftMargin: 10
+            Layout.topMargin: 4
         }
         RowLayout {
             Layout.fillWidth: true
+            Layout.leftMargin: 10
+            Layout.rightMargin: 10
             Label {
                 objectName: "dimensionValue"
                 text: editor.buffer
-                font.pixelSize: 28
+                font.pixelSize: 34
+                font.weight: Font.Medium
+                font.features: { "tnum": 1 }
+                color: editor.theme.ink
                 horizontalAlignment: Text.AlignRight
                 Layout.fillWidth: true
-                Layout.minimumWidth: 200
             }
             Label {
                 text: editor.kind === "angle" ? "°" : qsTr("мм")
                 font.pixelSize: 18
-                opacity: 0.7
+                color: editor.theme.muted
             }
         }
         Label {
             objectName: "dimensionError"
             text: editor.error
             visible: text !== ""
-            color: Material.color(Material.Red)
+            color: editor.theme.err
+            font.pixelSize: 14
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
-            Layout.maximumWidth: 280
+            Layout.leftMargin: 10
+            Layout.rightMargin: 10
         }
         GridLayout {
-            columns: 3
-            rowSpacing: 4
-            columnSpacing: 4
+            columns: 4
+            rowSpacing: 6
+            columnSpacing: 6
+            Layout.fillWidth: true
             Repeater {
-                model: ["7", "8", "9", "4", "5", "6", "1", "2", "3", ".", "0", "back"]
+                model: ["7", "8", "9", "back", "4", "5", "6", ".", "1", "2", "3", "0"]
                 delegate: Button {
+                    id: key
                     required property string modelData
                     objectName: modelData === "." ? "key_dot" : "key_" + modelData
                     text: modelData === "back" ? "⌫" : modelData
-                    font.pixelSize: 20
-                    Layout.preferredWidth: 72
+                    font.pixelSize: 22
+                    Material.foreground: editor.theme.ink
+                    Layout.fillWidth: true
                     Layout.preferredHeight: 56
+                    topInset: 0
+                    bottomInset: 0
                     focusPolicy: Qt.NoFocus
                     onClicked: editor.press(modelData)
                     background: Rectangle {
-                        radius: 10
-                        color: parent.down ? editor.Material.dividerColor
-                                           : editor.Material.backgroundColor
-                        border.color: editor.Material.dividerColor
+                        radius: 16
+                        color: key.down ? editor.theme.primaryContainer
+                                        : editor.theme.surface2
                     }
                 }
             }
-        }
-        RowLayout {
-            Layout.alignment: Qt.AlignRight
             Button {
+                id: cancelKey
                 objectName: "cancelDimension"
                 text: qsTr("Отмена")
-                flat: true
+                font.pixelSize: 15
+                Material.foreground: editor.theme.muted
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                Layout.preferredHeight: 56
+                topInset: 0
+                bottomInset: 0
                 focusPolicy: Qt.NoFocus
                 onClicked: editor.close()
+                background: Rectangle {
+                    radius: 16
+                    color: cancelKey.down ? editor.theme.primaryContainer
+                                          : editor.theme.surface2
+                }
             }
             Button {
+                id: applyKey
                 objectName: "applyDimension"
                 text: qsTr("Применить")
+                font.pixelSize: 15
+                Material.foreground: editor.theme.onPrimary
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                Layout.preferredHeight: 56
+                topInset: 0
+                bottomInset: 0
                 focusPolicy: Qt.NoFocus
                 onClicked: editor.accept()
-                Material.foreground: "white"
                 background: Rectangle {
-                    radius: 10
-                    color: editor.Material.accentColor
-                    opacity: parent.down ? 0.8 : 1
+                    radius: 16
+                    color: editor.theme.primary
+                    opacity: applyKey.down ? 0.8 : 1
                 }
             }
         }
