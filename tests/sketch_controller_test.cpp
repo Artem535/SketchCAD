@@ -223,6 +223,123 @@ class SketchControllerTest : public QObject {
     QCOMPARE(c->message(), QString("invalid_dimension"));
     QVERIFY(c->document().sketch() == before);
   }
+  // Line A (10,10)-(60,10), line B (10,30)-(40,60), circle at (80,40) r 10.
+  void scene(SketchController* c) {
+    line(c);
+    c->set_tool("line");
+    tap(c, 10, 30);
+    tap(c, 40, 60);
+    c->set_tool("circle");
+    tap(c, 80, 40);
+    tap(c, 90, 40);
+    c->set_tool("select");
+  }
+  QStringList pick(SketchController* c,
+                   std::initializer_list<std::pair<double, double>> taps) {
+    c->clear_selection();
+    for (const auto& [x, y] : taps) tap(c, x, y);
+    return c->applicable();
+  }
+  void applicable_actions_follow_selection() {
+    auto* c = make();
+    scene(c);
+    using L = QStringList;
+    QCOMPARE(pick(c, {}), L{});
+    QCOMPARE(pick(c, {{35, 10}}), (L{"horizontal", "vertical", "length"}));
+    QCOMPARE(pick(c, {{35, 10}, {25, 45}}),
+             (L{"parallel", "perpendicular", "equal", "angle"}));
+    QCOMPARE(pick(c, {{10, 10}}), L{"fix"});
+    QCOMPARE(pick(c, {{10, 10}, {60, 10}}),
+             (L{"coincident", "horizontal", "vertical", "distance"}));
+    QCOMPARE(pick(c, {{10, 30}, {35, 10}}), L{"distance"});
+    QCOMPARE(pick(c, {{90, 40}}), L{"radius"});
+    QCOMPARE(pick(c, {{90, 40}, {35, 10}}), L{"tangent"});
+  }
+  void apply_adds_constraint_and_updates_diagnosis() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    QCOMPARE(c->dof(), 4);
+    QCOMPARE(c->diagnosis(), QString("consistent"));
+    tap(c, 35, 10);
+    const qulonglong id = c->apply("horizontal");
+    QVERIFY(id != 0);
+    QCOMPARE(c->constraints().size(), 1);
+    const auto entry = c->constraints().front().toMap();
+    QCOMPARE(entry["kind"].toString(), QString("horizontal"));
+    QCOMPARE(entry["id"].toULongLong(), id);
+    QCOMPARE(c->dof(), 3);
+    c->set_selected_constraint(id);
+    QVERIFY(!c->constraint_path().isEmpty());
+    QVERIFY(c->undo());
+    QVERIFY(c->constraints().isEmpty());
+    QCOMPARE(c->dof(), 4);
+    QVERIFY(c->constraint_path().isEmpty());
+  }
+  void non_applicable_actions_are_not_sent() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    tap(c, 35, 10);
+    const auto revision = c->document().revision();
+    QCOMPARE(c->apply("radius"), 0ull);
+    QCOMPARE(c->message(), QString("invalid_action"));
+    QCOMPARE(c->apply("teapot"), 0ull);
+    QCOMPARE(c->document().revision(), revision);
+    QVERIFY(!c->document().can_redo());
+  }
+  void conflict_is_highlighted_and_rolled_back() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    tap(c, 35, 10);
+    const qulonglong first = c->apply("length");
+    QVERIFY(first != 0);
+    QVERIFY(c->apply("length") != 0);
+    QCOMPARE(c->diagnosis(), QString("redundant"));
+    c->highlight_dependent();
+    QVERIFY(!c->conflict_path().isEmpty());
+    c->clear_selection();
+    QVERIFY(c->conflict_path().isEmpty());
+
+    const auto before = c->document().sketch();
+    QVERIFY(!c->set_dimension(first, 80));
+    QCOMPARE(c->message(), QString("conflict"));
+    QVERIFY(!c->conflict_path().isEmpty());
+    QVERIFY(c->document().sketch() == before);
+    c->clear_selection();
+    QVERIFY(c->conflict_path().isEmpty());
+  }
+  void remove_constraint_is_undoable() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    tap(c, 35, 10);
+    const qulonglong id = c->apply("vertical");
+    QVERIFY(id != 0);
+    QVERIFY(c->remove_constraint(id));
+    QVERIFY(c->constraints().isEmpty());
+    QVERIFY(!c->remove_constraint(id));
+    QVERIFY(c->undo());
+    QCOMPARE(c->constraints().size(), 1);
+  }
+  void dimension_labels_follow_geometry() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    tap(c, 35, 10);
+    const qulonglong id = c->apply("length");
+    QCOMPARE(c->dimension_labels().size(), 1);
+    auto label = c->dimension_labels().front().toMap();
+    QCOMPARE(label["id"].toULongLong(), id);
+    QCOMPARE(label["text"].toString(), QString("50"));
+    const QPointF mid = c->screen_of(35, 10);
+    QVERIFY(std::abs(label["x"].toDouble() - mid.x()) < 1);
+    QVERIFY(std::abs(label["y"].toDouble() - mid.y()) < 40);
+    QVERIFY(c->set_dimension(id, 12.5));
+    label = c->dimension_labels().front().toMap();
+    QCOMPARE(label["text"].toString(), QString("12.5"));
+  }
   void unknown_tool_name_is_ignored() {
     auto* c = make();
     c->set_tool("rectangle");

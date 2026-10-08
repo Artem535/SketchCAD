@@ -2,8 +2,10 @@
 #include <QObject>
 #include <QPointF>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 
+#include "sketchcad/diagnostics.h"
 #include "sketchcad/document.h"
 #include "sketchcad/sketch_tool.h"
 #include "sketchcad/sketch_view.h"
@@ -39,6 +41,20 @@ class SketchController : public QObject {
   Q_PROPERTY(double scale READ scale NOTIFY changed)
   // {id, kind, value}; lengths in mm, angles in degrees.
   Q_PROPERTY(QVariantList dimensions READ dimensions NOTIFY changed)
+  // Constraint and dimension keys valid for the current selection.
+  Q_PROPERTY(QStringList applicable READ applicable NOTIFY changed)
+  // {id, kind, value, entities, dependent, violated}.
+  Q_PROPERTY(QVariantList constraints READ constraints NOTIFY changed)
+  Q_PROPERTY(qulonglong selected_constraint READ selected_constraint WRITE
+                 set_selected_constraint NOTIFY changed)
+  Q_PROPERTY(QString constraint_path READ constraint_path NOTIFY changed)
+  Q_PROPERTY(QString conflict_path READ conflict_path NOTIFY changed)
+  // consistent, redundant, conflicting or unknown.
+  Q_PROPERTY(QString diagnosis READ diagnosis NOTIFY changed)
+  Q_PROPERTY(int dof READ dof NOTIFY changed)  // -1 when unknown.
+  Q_PROPERTY(QString diagnosis_reason READ diagnosis_reason NOTIFY changed)
+  // {id, x, y, text} in viewport pixels.
+  Q_PROPERTY(QVariantList dimension_labels READ dimension_labels NOTIFY changed)
 
  public:
   explicit SketchController(QObject* parent = nullptr);
@@ -71,6 +87,16 @@ class SketchController : public QObject {
   QString message() const { return message_; }
   double scale() const { return view_.scale(); }
   QVariantList dimensions() const;
+  QStringList applicable() const;
+  QVariantList constraints() const;
+  qulonglong selected_constraint() const { return selected_constraint_; }
+  void set_selected_constraint(qulonglong id);
+  QString constraint_path() const { return constraint_path_; }
+  QString conflict_path() const { return conflict_path_; }
+  QString diagnosis() const;
+  int dof() const;
+  QString diagnosis_reason() const;
+  QVariantList dimension_labels() const;
 
   Q_INVOKABLE void set_viewport_size(double width, double height);
   Q_INVOKABLE void hover(double x, double y);
@@ -91,6 +117,12 @@ class SketchController : public QObject {
                                        qulonglong second = 0);
   // Angles in degrees. False with a message key when rejected.
   Q_INVOKABLE bool set_dimension(qulonglong id, double value);
+  // Creates the constraint or dimension `key` on the selection; 0 when it is
+  // not applicable (message invalid_action) or rejected.
+  Q_INVOKABLE qulonglong apply(const QString& key);
+  Q_INVOKABLE bool remove_constraint(qulonglong id);
+  // Highlights the constraints the diagnosis lists as dependent.
+  Q_INVOKABLE void highlight_dependent();
   Q_INVOKABLE QPointF screen_of(double x_mm, double y_mm) const;
   Q_INVOKABLE QPointF world_of(double x, double y) const;
 
@@ -105,6 +137,14 @@ class SketchController : public QObject {
   QString curve_path(const sketchcad::Sketch& sketch,
                      const sketchcad::Entity& entity) const;
   QString marker_path(sketchcad::Position p, double radius_px) const;
+  QString entity_path(const sketchcad::Sketch& sketch, sketchcad::EntityId id,
+                      double marker_px) const;
+  std::optional<sketchcad::EntityId> add_action(sketchcad::Sketch& sketch,
+                                                const QString& key) const;
+  // Diagnosis and applicable actions, recomputed only when needed.
+  void refresh_analysis();
+  // After a rejected command, highlights the conflict of `candidate`.
+  void highlight_rejected(bool ok, const sketchcad::Sketch& candidate);
 
   sketchcad::Document document_;
   sketchcad::ToolSession session_{document_};
@@ -123,4 +163,13 @@ class SketchController : public QObject {
   QString grid_minor_path_;
   QString grid_major_path_;
   QString axes_path_;
+  QString constraint_path_;
+  QString conflict_path_;
+  qulonglong selected_constraint_ = 0;
+  std::vector<sketchcad::EntityId> conflict_entities_;
+  sketchcad::Diagnosis diagnosis_;
+  std::uint64_t analysed_revision_ = 0;
+  bool analysed_ = false;
+  QStringList applicable_;
+  std::optional<std::vector<sketchcad::EntityId>> applicable_selection_;
 };

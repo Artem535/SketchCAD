@@ -1,0 +1,102 @@
+= U02: Constraints, dimensions and diagnostics in the UI
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/10[#10]. Requirements: S01-CON, S01-DIM, S01-DIAG.
+Depends on U01 (xref:sketch-viewport.adoc[]), S01 (xref:constraint-solver.adoc[]), S02 (xref:dimensions.adoc[]),
+S03 (xref:diagnostics.adoc[]). Shell: xref:adr-0002-tablet-ui.adoc[ADR-0002], mockup `design/sketchcad-tablet.html`.
+
+Not in this increment: constraint glyphs on the canvas, constrained drag (U03), constraint-creating snaps (U04),
+translations and the EN layout check (R01; all strings already use `qsTr`), device checks (P01).
+
+== Selection (core, `ToolSession`)
+U01 single selection becomes an ordered selection of up to two entities.
+
+* In the select tool a tap on an entity adds it to the selection; a third entity drops the oldest one.
+  Tapping an already selected entity makes it the most recent without removing it (so a point can still be dragged).
+  A tap on empty space clears the selection.
+* `selected()` returns the entities in tap order; `selection()` stays the most recent one (point drag uses it).
+* `delete_selection()` deletes all selected entities in one command with the S02 constraint cascade;
+  if any of them cannot be erased the command fails as a whole (`kPointInUse`).
+
+== Applicable actions (Qt bridge, `SketchController`)
+* `applicable`: keys of constraints and dimensions valid for the current selection, in a fixed order:
+  `coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, fix, length, distance, angle, radius`.
+  A key is applicable when the core accepts it on a copy of the sketch (dimensions at the measured value).
+  Order of the selected entities follows the core rules (line first for tangency, point first for point–line distance).
+* `apply(key)` creates the constraint or dimension as one undoable command and returns its ID; dimensions are created
+  at the measured value. A key that is not applicable is not sent to the document: it returns 0 with `invalid_action`.
+* `remove_constraint(id)` removes one constraint or dimension as one command.
+* `constraints`: list of `{id, kind, value, entities, dependent, violated}` (angles in degrees, `value` only for dimensions).
+* `selected_constraint` (read/write): highlights the entities of one constraint in `constraint_path`.
+
+== Diagnostics display
+* After every document change the controller runs `diagnose` and publishes `diagnosis` (`consistent`, `redundant`,
+  `conflicting`, `unknown`), `dof` (−1 when unknown) and `diagnosis_reason` (`invalid_geometry`, `numerical_failure`,
+  `ill_conditioned`, `too_large`, empty otherwise).
+* The header shows a status chip: "Полностью определён" (DOF 0), "Свободно: DOF n", "Избыточно · DOF n",
+  "Конфликт", "Диагностика недоступна". Tapping it highlights the dependent constraints' entities.
+* Constraint list entries mark dependent and violated constraints.
+
+== Rejected commands (rollback visible)
+* When a constraint, dimension or value change is rejected with `conflict`, the controller diagnoses the rejected
+  candidate and highlights the entities of its dependent and violated constraints in `conflict_path` (error colour);
+  geometry and Undo history stay unchanged. The highlight clears on the next successful command or on clearing the selection.
+* Message keys shown in the status line: `conflict` → "Конфликт ограничений — изменение отменено",
+  `invalid_value` → "Значение должно быть конечным числом в допустимых пределах",
+  `invalid_geometry` → "Геометрия вырождена — ограничение не определено",
+  `numerical_failure` → "Решатель не сошёлся — изменение отменено; попробуйте меньшее изменение значения",
+  `invalid_action` → "Ограничение не подходит к выбранным объектам".
+
+== Numeric input
+* After `apply` of a dimension and after a tap on a dimension label, a dimension editor opens with the current value
+  (mm, or degrees for angles), an on-screen keypad (digits, decimal point, backspace) and Apply/Cancel.
+  Physical keyboard: digits, `.`/`,`, Backspace, Enter applies, Escape cancels.
+* Apply calls `set_dimension`; on rejection the editor stays open and shows the message; geometry is unchanged.
+* Dimension labels (`dimension_labels`: `{id, x, y, text}` in viewport px) are drawn on the canvas next to their geometry
+  and are at least 48 dp touch targets.
+
+== Shell additions
+* Context bar: one chip per applicable action, plus Delete and Close; touch targets ≥ 48 dp.
+* Constraints panel: toggled from the rail; lists constraints, tap selects (highlight), a delete button removes one.
+* Keyboard: Delete removes the selected constraint when the panel has one selected, otherwise the selected geometry.
+
+== Acceptance / test cases
+Core (`sketch_tool_test`): additive selection up to two, oldest dropped, reselect keeps, empty tap clears;
+deleting two selected lines is one command; a failing member fails the whole delete.
+
+Qt (`sketch_controller_test`): applicable keys for point, two points, line, two lines, point+line, circle, circle+line
+and empty selection; `apply` adds a constraint as one undo step and updates `constraints` and `diagnosis`/`dof`;
+non-applicable keys are rejected with `invalid_action` without touching the document; a conflicting dimension value
+reports `conflict`, sets `conflict_path` and keeps the document; `remove_constraint` and Undo;
+a redundant diagnosis is published (an unknown diagnosis cannot be produced by UI commands, since the tools never create
+degenerate geometry; its mapping is covered by the core diagnostics tests).
+
+QML (`qml_test`, real clicks offscreen): select a line, click the `horizontal` chip → constraint added and the DOF chip
+changes; add a length → editor opens, type via the keypad, Apply → line length changes; a conflicting value shows the
+message and conflict highlight and leaves geometry unchanged; Undo button restores; the constraints panel deletes a
+constraint; the label of a dimension reopens the editor; a populated screenshot is saved.
+
+Runtime on Android and RU/EN layout are not claimed by these tests.
+
+== Implementation notes
+* The controller caches the diagnosis per document revision and the applicable actions per (revision, selection),
+  because `refresh_scene` also runs on hover.
+* A rejected command is diagnosed on the candidate sketch (with the new constraint or value applied), so the highlight
+  includes the constraint that was not committed.
+* Material `Pane`/`Popup` backgrounds render transparent in this shell, so the editor and panels set explicit backgrounds
+  (as U01 did for its panes).
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2, Ceres 2.2, Eigen 5.0.1; build directory `build/ubuntu`.
+Baseline: 98/98 CTest checks passed on `main` before U02.
+
+RED, observed in the test output (not saved to log files):
+3/3 new `ToolSession` selection tests, 6/6 new `sketch_controller_test` cases and the new `qml_test` scenario
+(no DOF chip) failed against stubs and the U01 shell.
+Two `qml_test` failures during GREEN were test defects, fixed in the test: helper functions placed under `private slots`
+and dereferencing a closed popup (closed popups leave the scene); expectations were not changed.
+GREEN: Release build and 101/101 full CTest checks passed (`build/issue10-green.log`); the Debug
+`-Wall -Wextra -Werror -fsanitize=address,undefined` build also passes 101/101.
+`qml_test` saves `sketch_u02.png` and `sketch_u02_conflict.png` (editor with the conflict message, red highlight,
+"Избыточно · DOF 2" chip), inspected manually.
+Not claimed: RU/EN layout (R01), device input (P01), an unknown diagnosis through UI commands.

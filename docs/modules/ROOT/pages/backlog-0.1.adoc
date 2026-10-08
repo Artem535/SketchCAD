@@ -200,6 +200,8 @@ Qt Test real controls/pointer interactions; populated screenshot; runtime на A
 === Verification
 Actual click/edit tests, conflict rollback, undo from UI, singular failure display и RU/EN layout.
 
+Контракт: xref:constraint-ui.adoc[] (RU/EN layout переносится в R01, строки уже через `qsTr`).
+
 [[u03]]
 == U03: Implement constrained interactive dragging
 

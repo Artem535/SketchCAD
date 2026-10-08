@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// Tablet shell from design/sketchcad-tablet.html, reduced to U01 scope.
+// Tablet shell from design/sketchcad-tablet.html, reduced to U01/U02 scope.
 ApplicationWindow {
     id: window
     visible: true
@@ -23,9 +23,49 @@ ApplicationWindow {
         { name: "arc", label: qsTr("Дуга") }
     ]
 
+    readonly property var actionLabels: ({
+        coincident: qsTr("Совпадение"), horizontal: qsTr("Горизонтально"),
+        vertical: qsTr("Вертикально"), parallel: qsTr("Параллельно"),
+        perpendicular: qsTr("Перпендикулярно"), tangent: qsTr("Касание"),
+        equal: qsTr("Равенство"), fix: qsTr("Фиксация"), length: qsTr("Длина"),
+        distance: qsTr("Расстояние"), angle: qsTr("Угол"), radius: qsTr("Радиус")
+    })
+    readonly property var dimensionKeys: ["length", "distance", "angle", "radius"]
+
+    function labelOf(key) { return actionLabels[key] || key }
+
+    // Visible text for a controller message key.
+    function describe(key) {
+        switch (key) {
+        case "point_in_use": return qsTr("Точка используется другой геометрией")
+        case "conflict": return qsTr("Конфликт ограничений — изменение отменено")
+        case "invalid_value": return qsTr("Значение должно быть конечным числом в допустимых пределах")
+        case "invalid_geometry": return qsTr("Геометрия вырождена — ограничение не определено")
+        case "numerical_failure": return qsTr("Решатель не сошёлся — изменение отменено; попробуйте меньшее изменение значения")
+        case "invalid_action": return qsTr("Ограничение не подходит к выбранным объектам")
+        case "invalid_dimension": return qsTr("Размер не подходит к выбранным объектам")
+        }
+        return ""
+    }
+
+    function diagnosisText() {
+        switch (sketch.diagnosis) {
+        case "conflicting": return qsTr("Конфликт")
+        case "unknown": return qsTr("Диагностика недоступна")
+        case "redundant": return qsTr("Избыточно · DOF %1").arg(sketch.dof)
+        }
+        return sketch.dof === 0 ? qsTr("Полностью определён · DOF 0")
+                                : qsTr("Свободно: DOF %1").arg(sketch.dof)
+    }
+
+    function applyAction(key) {
+        const id = sketch.apply(key)
+        if (id !== 0 && dimensionKeys.indexOf(key) >= 0) editor.edit(id)
+    }
+
     function statusText() {
-        if (sketch.message === "point_in_use")
-            return qsTr("Точка используется другой геометрией")
+        if (sketch.message !== "")
+            return describe(sketch.message)
         if (sketch.in_progress) {
             if (sketch.tool === "polyline")
                 return qsTr("Касание — вершина; первая точка замыкает, «Готово» — завершить")
@@ -53,6 +93,17 @@ ApplicationWindow {
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
+            Button {
+                objectName: "dofStatus"
+                flat: true
+                text: window.diagnosisText()
+                Material.foreground: sketch.diagnosis === "conflicting" ? Material.Red
+                                   : sketch.diagnosis === "redundant" ? Material.Orange
+                                   : sketch.dof === 0 ? Material.Green : undefined
+                onClicked: sketch.highlight_dependent()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Показать избыточные и конфликтующие ограничения")
+            }
             ToolButton {
                 objectName: "undoButton"
                 icon.source: "qrc:/icons/undo.svg"
@@ -76,6 +127,7 @@ ApplicationWindow {
         id: viewport
         anchors.fill: parent
         controller: sketch
+        onDimensionClicked: (id) => editor.edit(id)
     }
 
     // Left tool rail.
@@ -136,8 +188,38 @@ ApplicationWindow {
                 checked: sketch.finger_draws
                 onToggled: sketch.finger_draws = checked
             }
+            ToolButton {
+                objectName: "constraintsToggle"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 60
+                display: AbstractButton.TextUnderIcon
+                icon.source: "qrc:/icons/constraints.svg"
+                text: qsTr("Связи")
+                font.pixelSize: 11
+                checkable: true
+                checked: constraintPanel.visible
+                onToggled: constraintPanel.visible = checked
+            }
             Item { Layout.fillHeight: true }
         }
+    }
+
+    ConstraintPanel {
+        id: constraintPanel
+        visible: false
+        controller: sketch
+        labelOf: window.labelOf
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: zoomPane.top
+        anchors.margins: 8
+        width: 300
+    }
+
+    DimensionEditor {
+        id: editor
+        controller: sketch
+        describe: window.describe
     }
 
     // Context bar: selection actions or the shape in progress.
@@ -156,6 +238,18 @@ ApplicationWindow {
         }
         RowLayout {
             spacing: 4
+            Repeater {
+                model: sketch.in_progress ? [] : sketch.applicable
+                delegate: Button {
+                    required property string modelData
+                    objectName: "action_" + modelData
+                    flat: true
+                    text: window.labelOf(modelData)
+                    Layout.preferredHeight: 48
+                    onClicked: window.applyAction(modelData)
+                }
+            }
+            ToolSeparator { visible: sketch.applicable.length > 0 && !sketch.in_progress }
             Button {
                 objectName: "deleteSelection"
                 visible: sketch.has_selection
@@ -186,6 +280,7 @@ ApplicationWindow {
 
     // Zoom controls.
     Pane {
+        id: zoomPane
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: 14
@@ -219,15 +314,24 @@ ApplicationWindow {
 
     Shortcut { sequences: [StandardKey.Undo]; onActivated: sketch.undo() }
     Shortcut { sequences: [StandardKey.Redo]; onActivated: sketch.redo() }
+    // Disabled while the dimension editor owns the keyboard.
     Shortcut {
+        enabled: !editor.opened
         sequences: ["Escape"]
         onActivated: sketch.cancel() || sketch.clear_selection()
     }
     Shortcut {
+        enabled: !editor.opened
         sequences: [StandardKey.Delete, "Backspace"]
-        onActivated: sketch.delete_selection()
+        onActivated: {
+            if (constraintPanel.visible && sketch.selected_constraint !== 0)
+                sketch.remove_constraint(sketch.selected_constraint)
+            else
+                sketch.delete_selection()
+        }
     }
     Shortcut {
+        enabled: !editor.opened
         sequences: ["Return", "Enter"]
         onActivated: sketch.finish()
     }

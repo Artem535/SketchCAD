@@ -21,3 +21,4 @@
 ** xref:constraint-solver.adoc[Constraints and solver]
 ** xref:dimensions.adoc[Driving dimensions]
 ** xref:diagnostics.adoc[DOF and conflict diagnostics]
+** xref:constraint-ui.adoc[Constraints and dimensions UI]

@@ -1,11 +1,13 @@
 #include "sketch_controller.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
 #include <utility>
 
 using sketchcad::Entity;
+using sketchcad::EntityId;
 using sketchcad::Position;
 using sketchcad::ScreenPoint;
 using sketchcad::Sketch;
@@ -193,6 +195,7 @@ bool SketchController::cancel() {
 
 void SketchController::clear_selection() {
   session_.clear_selection();
+  conflict_entities_.clear();
   message_.clear();
   refresh_scene();
   emit changed();
@@ -301,14 +304,18 @@ void SketchController::refresh_scene() {
       geometry_path_ += curve_path(sketch, entity);
   }
   selected_path_.clear();
-  if (const auto id = session_.selection()) {
-    if (const auto entity = sketch.entity(*id)) {
-      if (const auto* p = std::get_if<SketchPoint>(&*entity))
-        selected_path_ = marker_path(p->position, kSelectedMarkerPx);
-      else
-        selected_path_ = curve_path(sketch, *entity);
-    }
-  }
+  for (EntityId id : session_.selected())
+    selected_path_ += entity_path(sketch, id, kSelectedMarkerPx);
+  refresh_analysis();
+  if (selected_constraint_ && !sketch.constraint(selected_constraint_))
+    selected_constraint_ = 0;
+  constraint_path_.clear();
+  if (const auto c = sketch.constraint(selected_constraint_))
+    for (EntityId id : {c->first, c->second})
+      constraint_path_ += entity_path(sketch, id, kSelectedMarkerPx);
+  conflict_path_.clear();
+  for (EntityId id : conflict_entities_)
+    conflict_path_ += entity_path(sketch, id, kSelectedMarkerPx);
   preview_path_.clear();
   const Sketch& preview = session_.preview();
   for (const auto& [id, entity] : preview.entities())
@@ -401,6 +408,7 @@ qulonglong SketchController::add_dimension(const QString& name,
       return id.has_value();
     });
     message_ = ok ? QString() : status_message(last_status_);
+    highlight_rejected(ok, probe);
   }
   refresh_scene();
   emit changed();
@@ -421,9 +429,265 @@ bool SketchController::set_dimension(qulonglong id, double value) {
       ok = document_.execute(
           "Dimension", [&](Sketch& s) { return s.set_dimension(id, value); });
       message_ = ok ? QString() : status_message(last_status_);
+      highlight_rejected(ok, probe);
     }
   }
   refresh_scene();
   emit changed();
   return ok;
+}
+
+namespace {
+struct Action {
+  const char* key;
+  sketchcad::ConstraintKind kind;
+};
+constexpr std::array<Action, 12> kActions{{
+    {"coincident", sketchcad::ConstraintKind::kCoincident},
+    {"horizontal", sketchcad::ConstraintKind::kHorizontal},
+    {"vertical", sketchcad::ConstraintKind::kVertical},
+    {"parallel", sketchcad::ConstraintKind::kParallel},
+    {"perpendicular", sketchcad::ConstraintKind::kPerpendicular},
+    {"tangent", sketchcad::ConstraintKind::kTangent},
+    {"equal", sketchcad::ConstraintKind::kEqual},
+    {"fix", sketchcad::ConstraintKind::kFix},
+    {"length", sketchcad::ConstraintKind::kLength},
+    {"distance", sketchcad::ConstraintKind::kDistance},
+    {"angle", sketchcad::ConstraintKind::kAngle},
+    {"radius", sketchcad::ConstraintKind::kRadius},
+}};
+QString key_of(sketchcad::ConstraintKind kind) {
+  for (const auto& a : kActions)
+    if (a.kind == kind) return a.key;
+  return {};
+}
+// Value text: up to three decimals without trailing zeros.
+QString format_value(double v) {
+  QString text = QString::number(v, 'f', 3);
+  while (text.endsWith('0')) text.chop(1);
+  if (text.endsWith('.')) text.chop(1);
+  return text;
+}
+}  // namespace
+
+// Adds `action` on the current selection to `sketch`; the new ID or nullopt.
+std::optional<EntityId> SketchController::add_action(Sketch& sketch,
+                                                     const QString& key) const {
+  const auto& sel = session_.selected();
+  if (sel.empty()) return std::nullopt;
+  const EntityId first = sel[0], second = sel.size() > 1 ? sel[1] : 0;
+  for (const auto& a : kActions) {
+    if (key != a.key) continue;
+    if (!sketchcad::is_dimension(a.kind))
+      return sketch.add_constraint(a.kind, first, second);
+    const auto value = sketchcad::measure(sketch, a.kind, first, second);
+    if (!value) return std::nullopt;
+    return sketch.add_dimension(a.kind, first, second, *value);
+  }
+  return std::nullopt;
+}
+
+void SketchController::refresh_analysis() {
+  const auto& sketch = document_.sketch();
+  if (document_.revision() != analysed_revision_ || !analysed_) {
+    diagnosis_ = sketchcad::diagnose(sketch);
+    analysed_revision_ = document_.revision();
+    analysed_ = true;
+    applicable_selection_.reset();
+  }
+  if (applicable_selection_ != session_.selected()) {
+    applicable_.clear();
+    for (const auto& a : kActions) {
+      Sketch probe = sketch;
+      if (add_action(probe, a.key)) applicable_.append(a.key);
+    }
+    applicable_selection_ = session_.selected();
+  }
+}
+
+void SketchController::highlight_rejected(bool ok, const Sketch& candidate) {
+  conflict_entities_.clear();
+  if (ok || last_status_ != sketchcad::SolveStatus::kUnsatisfied) return;
+  const auto d = sketchcad::diagnose(candidate);
+  std::vector<EntityId> ids = d.dependent;
+  ids.insert(ids.end(), d.violated.begin(), d.violated.end());
+  for (EntityId id : ids)
+    if (const auto c = candidate.constraint(id))
+      for (EntityId e : {c->first, c->second})
+        if (e) conflict_entities_.push_back(e);
+}
+
+QString SketchController::entity_path(const Sketch& sketch, EntityId id,
+                                      double marker_px) const {
+  const auto entity = sketch.entity(id);
+  if (!entity) return {};
+  if (const auto* p = std::get_if<SketchPoint>(&*entity))
+    return marker_path(p->position, marker_px);
+  return curve_path(sketch, *entity);
+}
+
+QStringList SketchController::applicable() const { return applicable_; }
+
+QVariantList SketchController::constraints() const {
+  QVariantList list;
+  const auto& d = diagnosis_;
+  const auto has = [](const std::vector<EntityId>& ids, EntityId id) {
+    return std::find(ids.begin(), ids.end(), id) != ids.end();
+  };
+  for (const auto& [id, c] : document_.sketch().constraints()) {
+    QVariantMap entry{
+        {"id", QVariant::fromValue<qulonglong>(id)},
+        {"kind", key_of(c.kind)},
+        {"entities", QVariantList{QVariant::fromValue<qulonglong>(c.first),
+                                  QVariant::fromValue<qulonglong>(c.second)}},
+        {"dependent", has(d.dependent, id)},
+        {"violated", has(d.violated, id)},
+    };
+    if (sketchcad::is_dimension(c.kind))
+      entry["value"] = c.kind == sketchcad::ConstraintKind::kAngle
+                           ? c.value / kDegree
+                           : c.value;
+    list.append(entry);
+  }
+  return list;
+}
+
+void SketchController::set_selected_constraint(qulonglong id) {
+  selected_constraint_ = document_.sketch().constraint(id) ? id : 0;
+  refresh_scene();
+  emit changed();
+}
+
+QString SketchController::diagnosis() const {
+  switch (diagnosis_.status) {
+    case sketchcad::DiagnosisStatus::kConsistent:
+      return QStringLiteral("consistent");
+    case sketchcad::DiagnosisStatus::kRedundant:
+      return QStringLiteral("redundant");
+    case sketchcad::DiagnosisStatus::kConflicting:
+      return QStringLiteral("conflicting");
+    case sketchcad::DiagnosisStatus::kUnknown:
+      break;
+  }
+  return QStringLiteral("unknown");
+}
+
+int SketchController::dof() const { return diagnosis_.dof.value_or(-1); }
+
+QString SketchController::diagnosis_reason() const {
+  switch (diagnosis_.reason) {
+    case sketchcad::UnknownReason::kInvalidGeometry:
+      return QStringLiteral("invalid_geometry");
+    case sketchcad::UnknownReason::kNumericalFailure:
+      return QStringLiteral("numerical_failure");
+    case sketchcad::UnknownReason::kIllConditioned:
+      return QStringLiteral("ill_conditioned");
+    case sketchcad::UnknownReason::kTooLarge:
+      return QStringLiteral("too_large");
+    case sketchcad::UnknownReason::kNone:
+      break;
+  }
+  return {};
+}
+
+QVariantList SketchController::dimension_labels() const {
+  QVariantList list;
+  const Sketch& s = document_.sketch();
+  const auto at = [&](EntityId id) {
+    return std::get<SketchPoint>(*s.entity(id)).position;
+  };
+  const auto mid = [](Position a, Position b) {
+    return Position{(a.x + b.x) / 2, (a.y + b.y) / 2};
+  };
+  const auto line_mid = [&](EntityId id) {
+    const auto l = std::get<SketchLine>(*s.entity(id));
+    return mid(at(l.start), at(l.end));
+  };
+  // Labels sit 18 px above their anchor so they do not cover the geometry.
+  constexpr double kLift = 18;
+  for (const auto& [id, c] : s.constraints()) {
+    if (!sketchcad::is_dimension(c.kind)) continue;
+    Position anchor{0, 0};
+    QString text = format_value(c.value);
+    switch (c.kind) {
+      case sketchcad::ConstraintKind::kLength:
+        anchor = line_mid(c.first);
+        break;
+      case sketchcad::ConstraintKind::kDistance:
+        anchor = std::holds_alternative<SketchLine>(*s.entity(c.second))
+                     ? mid(at(c.first), line_mid(c.second))
+                     : mid(at(c.first), at(c.second));
+        break;
+      case sketchcad::ConstraintKind::kAngle:
+        anchor = mid(line_mid(c.first), line_mid(c.second));
+        text = format_value(c.value / kDegree) + QStringLiteral("°");
+        break;
+      case sketchcad::ConstraintKind::kRadius: {
+        const Entity e = *s.entity(c.first);
+        const auto* circle = std::get_if<SketchCircle>(&e);
+        const EntityId center =
+            circle ? circle->center : std::get<SketchArc>(e).center;
+        const double r = circle ? circle->radius : std::get<SketchArc>(e).radius;
+        const Position p = at(center);
+        anchor = {p.x + r * std::numbers::sqrt2 / 2,
+                  p.y + r * std::numbers::sqrt2 / 2};
+        text = QStringLiteral("R") + text;
+        break;
+      }
+      default:
+        break;
+    }
+    const ScreenPoint p = view_.to_screen(anchor);
+    list.append(QVariantMap{{"id", QVariant::fromValue<qulonglong>(id)},
+                            {"x", p.x},
+                            {"y", p.y - kLift},
+                            {"text", text}});
+  }
+  return list;
+}
+
+qulonglong SketchController::apply(const QString& key) {
+  qulonglong result = 0;
+  if (!applicable_.contains(key)) {
+    message_ = QStringLiteral("invalid_action");
+  } else {
+    Sketch probe = document_.sketch();
+    add_action(probe, key);
+    std::optional<EntityId> id;
+    const bool ok = document_.execute(key.toStdString(), [&](Sketch& s) {
+      id = add_action(s, key);
+      return id.has_value();
+    });
+    message_ = ok ? QString() : status_message(last_status_);
+    highlight_rejected(ok, probe);
+    if (ok) result = *id;
+  }
+  refresh_scene();
+  emit changed();
+  return result;
+}
+
+bool SketchController::remove_constraint(qulonglong id) {
+  const bool ok =
+      document_.sketch().constraint(id) &&
+      document_.execute("Remove constraint",
+                        [&](Sketch& s) { return s.erase(id); });
+  message_.clear();
+  if (ok) conflict_entities_.clear();
+  refresh_scene();
+  emit changed();
+  return ok;
+}
+
+void SketchController::highlight_dependent() {
+  conflict_entities_.clear();
+  std::vector<EntityId> ids = diagnosis_.dependent;
+  ids.insert(ids.end(), diagnosis_.violated.begin(), diagnosis_.violated.end());
+  const Sketch& s = document_.sketch();
+  for (EntityId id : ids)
+    if (const auto c = s.constraint(id))
+      for (EntityId e : {c->first, c->second})
+        if (e) conflict_entities_.push_back(e);
+  refresh_scene();
+  emit changed();
 }
