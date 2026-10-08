@@ -1,7 +1,7 @@
 = U07: Explanations of terms in the UI
 :toc:
 
-Requirement: S01-UI. Depends on U02 (xref:constraint-ui.adoc[]), U05 (xref:tablet-shell.adoc[]),
+Issue: https://github.com/Artem535/SketchCAD/issues/37[#37]. Requirement: S01-UI. Depends on U02 (xref:constraint-ui.adoc[]), U05 (xref:tablet-shell.adoc[]),
 U06 (xref:dimension-style.adoc[]).
 
 Origin: after U06 the user said they do not understand "DOF", "ограничение" and similar terms, and asked for buttons and

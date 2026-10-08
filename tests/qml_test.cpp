@@ -101,6 +101,99 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void term_help() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    const QStringList actions{"coincident", "horizontal", "vertical",
+                              "parallel", "perpendicular", "tangent",
+                              "equal", "fix", "length", "distance",
+                              "angle", "radius"};
+    const QStringList keys = window_->property("helpKeys").toStringList();
+    QCOMPARE(keys.size(), 21);
+    for (const QString& key : actions + QStringList{"constraint", "dimension",
+                                                     "dof", "defined",
+                                                     "redundant", "conflict",
+                                                     "snap", "finger", "modes"}) {
+      QVERIFY2(keys.contains(key), qPrintable(key));
+      QVariant hint;
+      QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",
+                                        Q_RETURN_ARG(QVariant, hint),
+                                        Q_ARG(QVariant, key)));
+      QVERIFY2(!hint.toString().isEmpty(), qPrintable(key));
+    }
+
+    // DOF: entry plus the current state in words.
+    click(item("help_dof"));
+    QTRY_VERIFY(shown("helpPopup"));
+    QCOMPARE(text_of("helpTitle"), QString("Степени свободы (DOF)"));
+    QVERIFY(!text_of("helpText").isEmpty());
+    QVERIFY(text_of("helpState").contains("Сейчас"));
+    click(item("closeHelp"));
+    QTRY_VERIFY(!shown("helpPopup"));
+
+    // Glossary lists every term.
+    click(item("help_glossary"));
+    QTRY_VERIFY(shown("helpPopup"));
+    for (const QString& key : keys)
+      QVERIFY2(item(("helpEntry_" + key).toLatin1().constData()),
+               qPrintable(key));
+    click(item("closeHelp"));
+    QTRY_VERIFY(!shown("helpPopup"));
+
+    // Context bar help lists exactly the applicable actions.
+    click(item("snapToggle"));
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    click(item("tool_select"));
+    tap(controller, 35, 60);
+    click(item("help_actions"));
+    QTRY_VERIFY(shown("helpPopup"));
+    for (const QString& key : actions) {
+      const bool listed =
+          item(("helpEntry_" + key).toLatin1().constData()) != nullptr;
+      QCOMPARE(listed, controller.applicable().contains(key));
+    }
+    click(item("closeHelp"));
+    QTRY_VERIFY(!shown("helpPopup"));
+
+    // Inspector: section help, row hints, badges.
+    click(item("action_horizontal"));
+    click(item("constraintsToggle"));
+    QTRY_VERIFY(shown("inspector"));
+    QTRY_COMPARE(item("inspector")->x() + item("inspector")->width(),
+                 window_->width() - 8.0);
+    QVERIFY(!text_of("constraintHint_0").isEmpty());
+    click(item("help_constraints"));
+    QTRY_VERIFY(shown("helpPopup"));
+    QVERIFY(item("helpEntry_constraint"));
+    QVERIFY(item("helpEntry_dimension"));
+    click(item("closeHelp"));
+    QTRY_VERIFY(!shown("helpPopup"));
+    click(item("action_length"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("help_dimension"));
+    QTRY_VERIFY(shown("helpPopup"));
+    QCOMPARE(text_of("helpTitle"), window_->property("helpTitles")
+                                       .toMap()["length"].toString());
+    click(item("closeHelp"));
+    QTRY_VERIFY(!shown("helpPopup"));
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    click(item("action_length"));  // Redundant second length.
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QTRY_VERIFY(item("constraintBadge_1"));
+    click(item("constraintBadge_1"));
+    QTRY_VERIFY(shown("helpPopup"));
+    QCOMPARE(text_of("helpTitle"), window_->property("helpTitles")
+                                       .toMap()["redundant"].toString());
+    QTest::qWait(300);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u07_help.png"));
+  }
   void dimensions_in_eskd_style() {
     SketchController controller;
     QQmlApplicationEngine engine;
