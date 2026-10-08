@@ -26,5 +26,6 @@
 ** xref:constrained-drag.adoc[Constrained dragging]
 ** xref:tablet-shell.adoc[Tablet shell and theme]
 ** xref:dimension-style.adoc[Dimension style]
+** xref:dimension-placement.adoc[Moving dimensions]
 ** xref:ui-help.adoc[Term help]
 ** xref:default-dimensions.adoc[Default dimensions]

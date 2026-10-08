@@ -1,0 +1,69 @@
+= U09: Moving dimensions
+:toc:
+
+Requirements: S01-DIM, S01-UI. Depends on S02 (xref:dimensions.adoc[]), U06 (xref:dimension-style.adoc[],
+xref:adr-0004-dimension-style.adoc[ADR-0004]) and the side fix of issue #41.
+
+Origin: after U08 the user compared the automatic placement with LibreCAD and asked to be able to move dimensions.
+In LibreCAD (and nanoCAD) the third click of a dimension sets where its dimension line goes, and a placed dimension is
+moved by its grips. Here dimensions are created by actions and placed automatically (ADR-0004); this increment lets the
+user move them afterwards.
+
+Comparison: the user's pentagon was exported to DXF with aligned dimensions at the automatic positions and rendered
+with LibreCAD 2.2.1 (`librecad dxf2png`, on the host). LibreCAD draws the same structure (perpendicular extension lines
+past the dimension line, filled arrows) and the same crossings at the vertices; it differs by a gap between the contour
+and the extension lines (ISO-style `DIMEXO`), which ESKD does not use. The crossings are resolved there by placing
+dimensions by hand, which motivates this increment.
+
+Not in this increment: moving point–line distances (they stay automatic), automatic de-cluttering, grips other than the
+text, persistence (the placement is part of the sketch and is saved once F01 exists).
+
+== Model (core)
+* `Constraint` gains `std::optional<DimensionPlacement> placement` with
+  `DimensionPlacement { double offset; double along = 0.5; double angle = 0; }` (millimetres and radians, world).
+  Without a placement a dimension is laid out automatically as in U06.
+* Meaning per kind:
+[cols="1,3"]
+|===
+|`kLength`, point–point `kDistance` |`offset`: signed distance of the dimension line from the measured segment along
+its left normal (the normal of first → second rotated +90°, world); `along`: text position on the dimension line,
+0 at the first end, 1 at the second, within [0, 1].
+|`kRadius` |`angle`: leader direction from the centre (world, CCW); `offset`: distance of the text from the centre
+(> 0). If `offset` ≤ r the leader runs from the centre to the curve; otherwise from the curve outward to `offset`, the
+arrow pointing inward.
+|`kAngle` |`offset`: radius of the dimension arc (> 0).
+|===
+* `Sketch::set_dimension_placement(id, placement)` validates finiteness and ranges (`along` in [0, 1], `offset` > 0
+  for radius and angle) and the kind (not point–line distance, not a non-dimension); it is atomic and part of sketch
+  equality, so moves are undoable `Document` changes. Values never affect the solver.
+
+== Layout (core)
+`layout_dimensions` uses a placement when present; screen sizes (arrows, overshoot, gap) stay screen-constant
+(ADR-0004), positions scale with the view. A linear dimension's extension lines run from the measured points to
+`offset + overshoot` on the placement side; arrows go outside when the dimension line is short, as before.
+
+== Interaction (controller, QML)
+* With the select tool, dragging a dimension text (`dimensionLabel_<index>`) moves the dimension as one gesture
+  ("Move dimension"): the pointer's world position P gives
+  linear → `offset = (P − A) · n`, `along = clamp((P − A) · (B − A) / |B − A|², 0, 1)`;
+  radius → `angle = atan2(P − C)`, `offset = max(|P − C|, 0.5 mm)`;
+  angle → `offset = max(|P − V|, 1 mm)`.
+  A tap (no drag) still opens the dimension editor. Escape during the drag restores the previous placement.
+  Presses on a dimension text do not reach the geometry tools under it.
+* Controller API: `begin_dimension_drag(id)`, `drag_dimension(x, y)` (viewport px), `end_dimension_drag()`,
+  `cancel_dimension_drag()`; `dimensions` entries gain `placed` (bool).
+* Help (U07) `dimension` entry mentions that a dimension can be moved by dragging its number.
+
+== Acceptance / test cases
+Core (`dimension_test`): placement accepted for length, point–point distance, radius, angle; rejected for point–line
+distance, unknown IDs, non-dimensions, NaN, `along` outside [0, 1], non-positive radius/angle offsets — atomically;
+placement changes sketch equality and survives solving.
+Core (`dimension_layout_test`): a placed horizontal length with negative offset draws below the line at
+|offset|·scale px; `along` 0.25 puts the text at a quarter; a placed radius outside the circle draws the leader from
+the curve outward; a placed angle uses the arc radius offset·scale.
+Qt (`sketch_controller_test`): a drag of a length dimension across its line flips the side (offset sign), is one undo
+step, and `cancel_dimension_drag` restores the previous placement.
+QML (`qml_test`): drag `dimensionLabel_0` with the mouse below the line → the dimension is placed below; a plain click
+still opens the editor; screenshot `sketch_u09_moved.png`.
+
+Desktop only.
