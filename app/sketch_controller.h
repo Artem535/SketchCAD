@@ -57,6 +57,10 @@ class SketchController : public QObject {
   Q_PROPERTY(QString diagnosis_reason READ diagnosis_reason NOTIFY changed)
   // {id, x, y, text} in viewport pixels.
   Q_PROPERTY(QVariantList dimension_labels READ dimension_labels NOTIFY changed)
+  // ESKD dimension graphics (dimension-style.adoc): lines/arcs and arrows.
+  Q_PROPERTY(QString dimension_path READ dimension_path NOTIFY changed)
+  Q_PROPERTY(QString dimension_arrows_path READ dimension_arrows_path
+                 NOTIFY changed)
   // U05 inspector: {label, value, unit} rows and title for the selection.
   Q_PROPERTY(QVariantList selection_properties READ selection_properties
                  NOTIFY changed)
@@ -109,6 +113,8 @@ class SketchController : public QObject {
   QVariantList selection_properties() const;
   QString selection_title() const;
   QString fixed_path() const { return fixed_path_; }
+  QString dimension_path() const { return dimension_path_; }
+  QString dimension_arrows_path() const { return dimension_arrows_path_; }
 
   Q_INVOKABLE void set_viewport_size(double width, double height);
   Q_INVOKABLE void hover(double x, double y);
@@ -178,6 +184,8 @@ class SketchController : public QObject {
   QString constraint_path_;
   QString conflict_path_;
   QString fixed_path_;
+  QString dimension_path_;
+  QString dimension_arrows_path_;
   qulonglong selected_constraint_ = 0;
   std::vector<sketchcad::EntityId> conflict_entities_;
   sketchcad::Diagnosis diagnosis_;

@@ -40,9 +40,10 @@ diameter dimensions, paper-space units (1.0 drawings).
   away from the arc's middle; if a ray's farther endpoint is closer to V than R, an extension line along the ray from
   that endpoint to R + overshoot. Parallel lines (no vertex) fall back to text only at the midpoint between the lines'
   midpoints.
-* *Text*: placed at the middle of the dimension line (or arc), moved by `text_gap` along the side opposite to the
-  geometry (above the line in the text's own frame); `text_angle` is the dimension line direction reduced to
-  [−π/2, π/2), so a vertical dimension reads bottom to top (ESKD).
+* *Text*: `text_angle` is the dimension line direction reduced to [−π/2, π/2), so a vertical dimension reads bottom to
+  top (ESKD). The text is placed above the middle of the dimension line (or the arc) in its own frame: `text_position` =
+  middle + `text_gap` · (the text's up direction). As ESKD requires, this does not depend on the side of the geometry,
+  so the text of a dimension below or right of a part sits between the dimension line and the part.
 
 == Controller and QML
 * New layers `dimension_path` (SVG: extension and dimension lines, arcs) and `dimension_arrows_path` (closed

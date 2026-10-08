@@ -436,6 +436,22 @@ class SketchControllerTest : public QObject {
     QVERIFY(c->undo());
     QVERIFY(c->fixed_path().isEmpty());
   }
+  void dimensions_are_drawn_with_lines_and_arrows() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    tap(c, 35, 10);
+    QVERIFY(c->dimension_path().isEmpty());
+    QVERIFY(c->apply("length") != 0);
+    QVERIFY(!c->dimension_path().isEmpty());
+    QVERIFY(!c->dimension_arrows_path().isEmpty());
+    const auto label = c->dimension_labels().front().toMap();
+    QVERIFY(label.contains("angle"));
+    QCOMPARE(label["angle"].toDouble(), 0.0);
+    QVERIFY(c->undo());
+    QVERIFY(c->dimension_path().isEmpty());
+    QVERIFY(c->dimension_arrows_path().isEmpty());
+  }
   void unknown_tool_name_is_ignored() {
     auto* c = make();
     c->set_tool("rectangle");
