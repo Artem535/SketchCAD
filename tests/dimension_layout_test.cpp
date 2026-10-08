@@ -178,3 +178,39 @@ TEST(DimensionLayout, OnlyDimensionsAndStableAngles) {
     EXPECT_EQ(first[i].segments.size(), second[i].segments.size());
   }
 }
+
+// Issue #41: the side is chosen from the dimension's own contour, so other
+// geometry nearby cannot push a dimension inside it.
+TEST(DimensionLayout, ClosedContourDimensionsStayOutsideWithGeometryNearby) {
+  Sketch s;
+  // The user's pentagon, in screen px at 4 px/mm (Y flipped).
+  std::vector<Position> pts{{128, 67}, {290, 67}, {333, 170}, {143, 242}, {98, 140}};
+  for (auto& p : pts) p = {p.x / 4, -p.y / 4};
+  const Polyline r = *s.create_polyline(pts, true);
+  for (EntityId l : r.lines) {
+    const auto line = std::get<SketchLine>(*s.entity(l));
+    const auto a = std::get<SketchPoint>(*s.entity(line.start)).position;
+    const auto b = std::get<SketchPoint>(*s.entity(line.end)).position;
+    ASSERT_TRUE(s.add_dimension(K::kLength, l, 0, std::hypot(b.x - a.x, b.y - a.y)));
+  }
+  line(s, {900 / 4.0, 0}, {1000 / 4.0, -300 / 4.0});  // Unrelated, to the right.
+  ScreenPoint centre{0, 0};
+  for (const auto& p : pts) {
+    centre.x += p.x * 4 / pts.size();
+    centre.y += -p.y * 4 / pts.size();
+  }
+  const auto all = layout_dimensions(s, ViewTransform{});
+  ASSERT_EQ(all.size(), 5u);
+  for (std::size_t i = 0; i < all.size(); ++i) {
+    const auto& dim = all[i].segments.back();  // The dimension line.
+    const ScreenPoint mid{(dim.first.x + dim.second.x) / 2,
+                          (dim.first.y + dim.second.y) / 2};
+    const auto line = std::get<SketchLine>(*s.entity(r.lines[i]));
+    const auto a = ViewTransform{}.to_screen(
+        std::get<SketchPoint>(*s.entity(line.start)).position);
+    const auto b = ViewTransform{}.to_screen(
+        std::get<SketchPoint>(*s.entity(line.end)).position);
+    const ScreenPoint edge{(a.x + b.x) / 2, (a.y + b.y) / 2};
+    EXPECT_GT(distance(mid, centre), distance(edge, centre)) << "side " << i;
+  }
+}
