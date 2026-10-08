@@ -288,6 +288,28 @@ Qt Test с реальными кликами offscreen, снимки обеих 
 === Verification
 GoogleTest на раскладку, Qt Test и снимки.
 
+[[u07]]
+== U07: Explain terms in the UI
+
+* Requirements: S01-UI.
+* Dependencies: U02, U05, U06.
+* Initial status: ready.
+* Specification: xref:ui-help.adoc[].
+
+=== Deliverable
+Кнопки «?» и подсказки рядом с терминами (ограничение, размер, DOF, избыточно, конфликт, привязка, все действия),
+окно справки и полный глоссарий.
+
+=== Scope
+Добавлено по запросу пользователя после U06: термины параметрического эскиза непонятны без объяснений.
+Без иллюстраций, обучающего сценария и переводов.
+
+=== Acceptance
+Каждый термин интерфейса доступен по касанию; подсказки простым языком с примером; состояние DOF объясняется словами.
+
+=== Verification
+Qt Test с реальными кликами offscreen, снимок окна справки.
+
 [[f01]]
 == F01: Define a versioned project format and implement save/open
 
