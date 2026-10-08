@@ -78,6 +78,10 @@ length tolerance in a parallel, perpendicular, equal-length or tangent constrain
 contradict each other (locally). `violated` lists those constraint IDs.
 |`kNumericalFailure` |Ceres failed, hit its iteration limit with residuals out of tolerance, or produced non-finite values.
 Distinct from `kUnsatisfied`: it does not claim a conflict.
+|`kDegenerate` |The constraints are satisfied only by collapsing geometry: a line that was longer than the length
+tolerance becomes no longer than it, or a circle/arc radius becomes no larger than it (for example horizontal plus vertical
+on one line). Nothing is written back. Geometry already degenerate before solving is `kInvalidInput` instead.
+`violated` is empty; the collapsed entities are not constraints.
 |===
 
 `SolveResult { status, violated, max_length_residual, max_angle_residual }`.
@@ -125,3 +129,10 @@ A Debug build with `-Wall -Wextra -Werror -fsanitize=address,undefined` passes 8
 Residual margins observed: solved scenarios ≤ 4e-15 mm and ≤ 4e-17 angular; conflict scenarios ≥ 0.045 mm or ≥ 0.47 angular.
 No numerical-failure scenario is forced by a test; the status is reachable only when Ceres does not converge.
 Not wired into the app; desktop core only.
+
+== Degenerate solutions (issue #29)
+Added after user testing of U02: horizontal followed by vertical on one line was accepted and collapsed the line to a point.
+`kDegenerate` rejects such solutions. Diagnostics report a degenerate candidate as `kUnknown` with `kInvalidGeometry`.
+Acceptance: horizontal + vertical on one line, coincident on both endpoints of one line, and a radius dimension driven to
+the lower bound through an equal constraint are each `kDegenerate` and leave the sketch unchanged; with `solver_step()`
+the command is rolled back; points made coincident on purpose (two free points) still solve.

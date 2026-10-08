@@ -23,6 +23,9 @@ U01 single selection becomes an ordered selection of up to two entities.
   `coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, fix, length, distance, angle, radius`.
   A key is applicable when the core accepts it on a copy of the sketch (dimensions at the measured value).
   Order of the selected entities follows the core rules (line first for tangency, point first for point–line distance).
+* An action whose result would be `kDegenerate` (issue #29) is not offered: the controller solves the probe sketch and drops
+  such keys from `applicable`. Conflicting actions stay offered, so their conflict can be shown.
+  A rejected `kDegenerate` command reports `degenerate` → "Ограничение схлопывает геометрию — изменение отменено".
 * `apply(key)` creates the constraint or dimension as one undoable command and returns its ID; dimensions are created
   at the measured value. A key that is not applicable is not sent to the document: it returns 0 with `invalid_action`.
 * `remove_constraint(id)` removes one constraint or dimension as one command.
