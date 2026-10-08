@@ -156,6 +156,8 @@ Free/fixed reference sketches дают ожидаемый DOF; redundant и conf
 === Verification
 Analytical DOF fixtures, redundant duplicates, contradictory dimensions, singular geometry, reproducibility; отдельно измерить diagnostics cost.
 
+Контракт: xref:diagnostics.adoc[]; решение по рангу и порогам: xref:adr-0003-dof-diagnostics.adoc[ADR-0003].
+
 [[u01]]
 == U01: Build the sketch viewport and primitive drawing tools
 
