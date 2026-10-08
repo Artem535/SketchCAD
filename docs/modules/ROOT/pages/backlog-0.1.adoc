@@ -227,7 +227,8 @@ Free/constrained/fixed/singular fixtures; actual touch/mouse drag; latency measu
 
 * Requirements: S01-EDIT.
 * Dependencies: U01, S01.
-* Initial status: planned.
+* Initial status: ready (part 1); part 2 (trim/extend) to be specified.
+* Specification: xref:sketch-editing.adoc[].
 * Suggested files: `src/sketch_edit.cpp; app/SnapOverlay.qml; tests/sketch_edit_test.cpp`.
 
 === Deliverable

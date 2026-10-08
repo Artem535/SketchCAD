@@ -1,0 +1,77 @@
+= U04: Constraint-creating snaps, construction geometry, trim/extend
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/12[#12]. Requirement: S01-EDIT.
+Depends on U01 (xref:sketch-viewport.adoc[]), S01 (xref:constraint-solver.adoc[]), U08 (xref:default-dimensions.adoc[]).
+
+Delivered in two parts. Part 1 (this section set) covers the point-on-curve constraint, constraint-creating snaps and
+construction geometry. Part 2, trim/extend, is specified in <<part2>> before it is implemented.
+
+Not in this increment: midpoint, tangent-point and perpendicular-foot snaps; snapping to arc end positions (arcs have no
+endpoint points in the C01 model); creating constraints while dragging (U03 drags keep the U01 snap behaviour);
+"construction excluded from the working profile" beyond drawing and data, since no profile consumer exists before 1.0.
+
+== Point-on-curve constraint (core)
+* New kind `kOnCurve` (UI key `on_curve`, "На кривой"): `add_constraint(kOnCurve, point, curve)` where `curve` is a
+  line, circle or arc. Rejected (atomically) when the point is an endpoint of that line or the centre of that curve,
+  for other entity types, or with the arguments reversed.
+* Residuals (hard, mm): line → signed distance of the point from the infinite line, `cross(b − a, p − a) / |b − a|`;
+  circle or arc → `|p − c| − r` (an arc is treated as its full circle, as for tangency). A line no longer than the
+  length tolerance makes it `kInvalidInput`, as for the other line constraints.
+* Diagnostics count it as one row; the independent residual oracle in the tests covers it.
+
+== Snaps (core, `snap`)
+* Priority within the snap tolerance: existing point (`kPoint`) → intersection of two curves (`kIntersection`) →
+  nearest point on a curve (`kOnCurve`) → grid (`kGrid`). Construction curves take part like normal ones.
+* `SnapResult` gains `curves` (the IDs of the one or two curves a `kIntersection`/`kOnCurve` result lies on).
+* Intersections: line–line (segments, including endpoints), line–circle/arc, circle/arc–circle/arc; for arcs only
+  points within the arc's sweep count; for lines only points on the segment. Tangent or coincident configurations
+  without a unique point are ignored.
+* On-curve: the nearest point of a line segment, a circle, or an arc within its sweep.
+
+== Snaps that create constraints (core, `ToolSession`)
+* A drawing vertex taken from a `kIntersection` or `kOnCurve` snap becomes a new point with one `kOnCurve` per curve,
+  added in the same command as the shape (before the automatic dimensions of U08, so redundancy is judged with them).
+  A `kPoint` snap keeps reusing the existing point (U01), which already makes the shapes share it.
+* Circle and arc centres and arc start points behave the same (the centre may sit on a curve).
+* Constraints that the solver rejects make the whole command fail as before; nothing partial is committed.
+
+== Construction geometry
+* Context action `construction` ("Вспомогательная") for selected lines, circles and arcs: toggles their construction
+  flag in one undoable command (all selected curves get the new state: on if any was off).
+* Construction curves are drawn dashed in `muted` (`construction_path`), not in `geometry_path`; they can be selected,
+  constrained, dimensioned and snapped to. Automatic dimensions (U08) are not added to construction shapes; a drawing
+  toggle for construction mode is out of scope (toggle after drawing).
+* Help (U07) gains `on_curve` and `construction` entries; the snap help mentions intersections and curves.
+
+== Controller and QML
+* `snap_kind` adds `intersection` (an × marker) and `curve` (a small ring on the curve).
+* `applicable` includes `on_curve` (point + line/circle/arc, after `coincident`) and `construction` (any selection
+  containing a curve, last before Delete); `apply("construction")` toggles.
+* `construction_path` layer, dashed `muted`, 2 px.
+
+== Acceptance / test cases (part 1)
+Core:
+
+* `constraint_test`: `kOnCurve` accepts point + line/circle/arc; rejects endpoints/centres, swapped arguments, wrong
+  types; erasing the curve is blocked while referenced.
+* `constraint_solver_test`: a point moves onto a line, onto a circle and onto an arc's circle; conflict with `kFix` →
+  `kUnsatisfied` and unchanged; oracle checks the residuals.
+* `constraint_diagnostics_test`: a fixed line with a free point on it has DOF 1.
+* `sketch_view_test`: priority point > intersection > on-curve > grid; line–line, line–circle, circle–circle
+  intersections; arc sweep limits; segment limits.
+* `sketch_tool_test`: a line from a free spot to a circle's rim gets one `kOnCurve` on the circle; a line ending on
+  the intersection of two lines gets two; a point snap still reuses the point; with automatic dimensions both kinds
+  are in one command and one undo step; construction toggle is one command and Undo restores.
+
+Qt (`sketch_controller_test`): `snap_kind` reports `intersection` and `curve`; `on_curve` and `construction` appear in
+`applicable`; `construction_path` holds the toggled curve and `geometry_path` no longer does.
+QML (`qml_test`): draw two crossing lines, draw a third line ending on the crossing (snap marker shown), check two
+`kOnCurve`; select a line, click `action_construction`, the line moves to the construction layer; screenshot
+`sketch_u04_snaps.png`.
+
+[[part2]]
+== Part 2: trim/extend
+To be specified before implementation (cases: line/line, line/arc, circle split into an arc, extend a line to the next
+curve; constraints on trimmed geometry kept, moved or removed with stable IDs, no dangling references; invalid
+edits rolled back).
