@@ -271,7 +271,8 @@ Qt Test с реальными кликами offscreen, снимки обеих 
 
 * Requirements: S01-DIM, S01-UI.
 * Dependencies: S02, U02, U05.
-* Initial status: planned.
+* Initial status: ready.
+* Specification: xref:dimension-style.adoc[]; decision xref:adr-0004-dimension-style.adoc[ADR-0004].
 
 === Deliverable
 Размеры на холсте как в nanoCAD (ЕСКД): выносные линии, размерная линия со стрелками, текст над размерной линией,

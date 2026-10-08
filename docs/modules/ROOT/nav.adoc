@@ -10,6 +10,7 @@
 ** xref:adr-0001-3d-viewer.adoc[ADR-0001: 3D viewer]
 ** xref:adr-0002-tablet-ui.adoc[ADR-0002: Tablet UI shell]
 ** xref:adr-0003-dof-diagnostics.adoc[ADR-0003: DOF diagnostics]
+** xref:adr-0004-dimension-style.adoc[ADR-0004: Dimension style]
 * Prototype and development
 ** xref:prototype.adoc[Prototype specification]
 ** xref:implementation-plan.adoc[Implementation plan]
@@ -24,3 +25,4 @@
 ** xref:constraint-ui.adoc[Constraints and dimensions UI]
 ** xref:constrained-drag.adoc[Constrained dragging]
 ** xref:tablet-shell.adoc[Tablet shell and theme]
+** xref:dimension-style.adoc[Dimension style]
