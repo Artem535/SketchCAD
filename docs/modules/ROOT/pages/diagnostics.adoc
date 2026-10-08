@@ -1,0 +1,79 @@
+= S03: Local DOF and conflict diagnostics
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/8[#8]. Requirement: S01-DIAG.
+Decision record: xref:adr-0003-dof-diagnostics.adoc[ADR-0003] (rank threshold, normalization, singular handling).
+Depends on S01 (xref:constraint-solver.adoc[]) and S02 (xref:dimensions.adoc[]).
+
+Core only and Qt-free; Eigen and Ceres stay private. Not in this increment: DOF and conflict display in QML (U02),
+drag (U03), minimal conflict sets, sparse linear algebra.
+
+== API
+`Diagnosis diagnose(const Sketch&)` in `include/sketchcad/diagnostics.h`, `src/constraint_diagnostics.cpp`.
+It never changes the sketch.
+
+[source,cpp]
+----
+enum class DiagnosisStatus { kConsistent, kRedundant, kConflicting, kUnknown };
+enum class UnknownReason { kNone, kInvalidGeometry, kNumericalFailure, kIllConditioned, kTooLarge };
+struct Diagnosis {
+  DiagnosisStatus status;
+  UnknownReason reason;
+  std::optional<int> dof;            // nullopt when kUnknown
+  int parameters;                    // sketch parameters counted for DOF
+  std::optional<int> rank;           // nullopt when kUnknown
+  std::vector<EntityId> dependent;   // constraints in a linear dependency (not minimal)
+  std::vector<EntityId> violated;    // out of tolerance after the solve attempt
+};
+----
+
+* `kConsistent`: constraints solve and are independent; `dof` is 0 for a fully constrained sketch.
+* `kRedundant`: constraints solve, but some are linearly dependent; `dependent` lists all participants. `dof` is still reported.
+* `kConflicting`: the solver returns `kUnsatisfied`; `violated` comes from the solver, `dependent` from the rank analysis at the
+  input geometry. Candidates are `dependent ∪ violated`, not a minimal set. `dof` is reported from that analysis.
+* `kUnknown`: no DOF, rank or dependent set is claimed. Reasons: `kInvalidGeometry` (solver `kInvalidInput`, or a zero or
+  non-finite Jacobian row), `kNumericalFailure` (solver), `kIllConditioned` (singular values in the ADR-0003 gray zone),
+  `kTooLarge` (more than 2000 rows or columns).
+* A sketch without constraints is `kConsistent` with `dof == parameters`.
+* Parameters: 2 per point, 1 per circle, 3 per arc (radius, start, sweep). Lines add none.
+* Results are deterministic: equal sketches give equal diagnoses; ID lists are ascending.
+
+== Acceptance / test cases
+`constraint_diagnostics_test` (GoogleTest):
+
+* Analytical DOF: free point 2, free line 4, circle 3, arc 5; line + horizontal 3, + fixed start 1, + length 0;
+  rectangle with H/V sides 4, + fixed corner 2, + width and height 0 (`kConsistent`, dof 0);
+  circle with fixed center and radius 0.
+* Redundant: duplicate horizontal on one line; parallel added to a rectangle's horizontal sides —
+  `kRedundant`, the duplicates/parallel and the related horizontals listed, DOF unchanged by the redundant constraint.
+* Conflicting: a fixed 50 mm rectangle width plus a contradictory 60 mm length on the opposite side — `kConflicting`,
+  both lengths among the candidates, non-empty `violated`.
+* Singular/undefined: zero-length line in a parallel constraint — `kUnknown`/`kInvalidGeometry`, no DOF.
+* Independent constraints are never listed as dependent; the sketch is unchanged by `diagnose`.
+* Reproducibility: two runs on the same sketch give identical results.
+* Drag residuals are excluded by construction (the API takes only `Sketch`); this is recorded, not tested.
+* Cost: a sketch of 20 constrained rectangles is diagnosed and its wall time is recorded as a test property and in the
+  execution record; no pass/fail threshold.
+
+All existing CTest checks stay green. Desktop only.
+
+== Implementation notes
+* The Ceres problem (residual formulas, parameter blocks) moved to the internal header `src/solver_problem.h`,
+  shared by `solve` and `diagnose`; the Jacobian comes from `ceres::Problem::Evaluate`, so diagnostics and solving
+  can never disagree on residual definitions.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, CMake 4.2, Ceres 2.2 and Eigen 5.0.1 (vcpkg); build directory `build/ubuntu`.
+Baseline: 88/88 CTest checks passed before S03 (branch stacked on S02).
+
+RED: 10/10 new `constraint_diagnostics_test` cases failed against the stub (`build/issue8-red.log`).
+GREEN: Release build and 98/98 full CTest checks passed (`build/issue8-green.log`);
+a Debug build with `-Wall -Wextra -Werror -fsanitize=address,undefined` passes 98/98.
+
+Observed dependent sets: parallel on a rectangle's horizontal sides lists exactly both horizontals and the parallel
+(rank 4, DOF 4); the contradictory 60 mm top length lists both lengths and both verticals, the loop that ties top to
+bottom (rank 7, DOF 1, the height being free).
+Cost: 20 constrained rectangles (160 parameters, 160 rows) diagnose in about 1 ms on the development machine
+(`diagnose_20_rectangles_us` test property, one run, Release); no target is claimed.
+No test reaches `kIllConditioned`, `kTooLarge` or `kNumericalFailure`; they are implemented as specified but unexercised.
+Desktop only; nothing is displayed in the UI yet (U02).
