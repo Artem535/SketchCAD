@@ -243,6 +243,50 @@ Free/constrained/fixed/singular fixtures; actual touch/mouse drag; latency measu
 === Verification
 Intersections/tangent/ambiguous picks, invalid edit rollback; UI preview/cancel; constraint integrity после edit.
 
+[[u05]]
+== U05: Align the sketch shell and theme with the tablet mockup
+
+* Requirements: S01-UI.
+* Dependencies: U01, U02, U03.
+* Initial status: ready.
+* Specification: xref:tablet-shell.adoc[].
+
+=== Deliverable
+Оболочка эскиза по `design/sketchcad-tablet.html`: светлая и тёмная темы из токенов макета, шапка с режимами и пилюлей DOF,
+плавающие rail, контекстная панель, зум, инспектор свойств, toast и строка состояния.
+
+=== Scope
+Добавлено по замечаниям пользователя 2 и 3 после U02. Только существующие инструменты; без меню проектов, портретной
+раскладки и RU/EN.
+
+=== Acceptance
+Цвета совпадают с токенами в обеих темах; Material по умолчанию нигде не виден; инспектор показывает свойства выбора
+и ограничения; сценарии U01–U03 не сломаны.
+
+=== Verification
+Qt Test с реальными кликами offscreen, снимки обеих тем, ручное сравнение с макетом.
+
+[[u06]]
+== U06: Draw dimensions in the nanoCAD/ESKD style
+
+* Requirements: S01-DIM, S01-UI.
+* Dependencies: S02, U02, U05.
+* Initial status: planned.
+
+=== Deliverable
+Размеры на холсте как в nanoCAD (ЕСКД): выносные линии, размерная линия со стрелками, текст над размерной линией,
+радиусы и углы; стиль фиксируется в ADR-0004.
+
+=== Scope
+Добавлено по замечанию пользователя 6 после U02. Раскладка размеров считается в ядре без Qt; редактирование касанием
+текста сохраняется.
+
+=== Acceptance
+Длина, расстояние, радиус и угол рисуются по ADR-0004 в обеих темах; текст остаётся целью касания не меньше 48 dp.
+
+=== Verification
+GoogleTest на раскладку, Qt Test и снимки.
+
 [[f01]]
 == F01: Define a versioned project format and implement save/open
 
