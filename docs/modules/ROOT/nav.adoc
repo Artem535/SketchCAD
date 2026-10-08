@@ -22,3 +22,4 @@
 ** xref:dimensions.adoc[Driving dimensions]
 ** xref:diagnostics.adoc[DOF and conflict diagnostics]
 ** xref:constraint-ui.adoc[Constraints and dimensions UI]
+** xref:constrained-drag.adoc[Constrained dragging]

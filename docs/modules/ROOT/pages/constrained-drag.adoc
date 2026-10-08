@@ -1,0 +1,107 @@
+= U03: Constrained interactive dragging
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/11[#11]. Requirements: S01-DRAG, S01-UNDO.
+Depends on U01 (xref:sketch-viewport.adoc[]), S01 (xref:constraint-solver.adoc[]), S02 (xref:dimensions.adoc[]);
+uses the degenerate-solution rule of issue #29.
+
+Fixes user remark 1 from U02 testing: dragging one endpoint of a horizontal line moved both endpoints by half the
+pointer movement, because the dragged point was only an initial guess and the solver spread the correction evenly.
+
+Not in this increment: dragging lines, circles or arcs as a whole (only points are dragged, as in U01),
+pointer-cancel handling beyond Escape, constraint-creating snaps (U04), device latency on a tablet (P01).
+
+== Core: `drag_point`
+`SolveResult drag_point(Sketch& sketch, EntityId point, Position target)` (`include/sketchcad/drag.h`, `src/drag.cpp`).
+
+* Moves `point` as close to `target` as the hard constraints allow and moves the rest of the geometry as little as
+  practical. Hard constraints are never relaxed: the result satisfies every constraint within the S01 tolerances
+  (`kLengthTolerance`, `kAngleTolerance`) or the sketch is left unchanged.
+* `point` must be a point of the sketch and `target` finite, otherwise `kInvalidInput` and nothing changes.
+* A point not referenced by any constraint (directly, through a line or as a curve center) moves exactly to `target`
+  without running the solver.
+* Otherwise two phases:
+  . *Soft phase* (bounded, at most 50 Levenberg–Marquardt iterations): hard residuals weighted 10, the drag residual
+    `point − target` [mm] weighted 1, and stabilization residuals `q − q₀` [mm] for every other solver variable
+    (point coordinates, radii) weighted 1e-3. These soft residuals exist only inside `drag_point`;
+    they are never part of `solve`, `diagnose` or the DOF count (ADR-0003).
+  . *Projection*: the soft result is solved with the normal `solve` (hard residuals only, same tolerance checks,
+    same degenerate rule).
+* The result is accepted only if the projection returns `kSolved` and no line or radius that was longer than
+  `kLengthTolerance` in the input became no longer than it (`kDegenerate`). Any other status is returned and the sketch
+  is unchanged.
+* Intent, not exact contract: the dragged point follows the target along its free DOF; geometry tied to it by
+  constraints follows rigidly where the constraints require; untied geometry keeps its place. A fixed point stays
+  where it is (`kSolved`, unchanged), a point of a fixed-length line with a fixed other end moves on the circle
+  nearest to the target.
+
+== Gesture lifecycle (`ToolSession`, `Document`)
+* begin: a press on a point with the select tool arms the drag; the first `drag` opens a `Document` gesture.
+* update: every `drag` is one `gesture_step` running `drag_point` from the last accepted state (warm start) towards
+  the snapped pointer position. A rejected step leaves the last valid geometry in place; the gesture continues and the
+  next pointer position is tried again from that state. A rejected intermediate state is never shown or committed.
+* commit: `release` ends the gesture; the whole drag is one undo step (none if nothing moved).
+* cancel: Escape during a drag cancels the gesture and restores the geometry from before the press.
+* With the app's commit step (the solver) installed, an accepted step is re-checked by it; it is already solved, so
+  the check does not move geometry.
+
+== Acceptance / test cases
+Core (`drag_test`, GoogleTest, with an independent residual oracle in the test):
+
+* Free point (no constraints): moves exactly to the target; other geometry untouched.
+* Horizontal line: dragging one endpoint vertically by 6 mm moves both endpoints by 6 mm (± 1e-3 mm) and the other
+  endpoint keeps its x; dragging horizontally moves only the dragged endpoint.
+* Length dimension kept: dragging an endpoint of a 40 mm line changes its direction or position, the length stays
+  40 mm within `kLengthTolerance`.
+* Fixed point: dragging a point with `kFix` leaves the whole sketch unchanged (`kSolved`).
+* Fixed pivot: a 30 mm line with a fixed end; dragging the free end towards a far target puts it on the 30 mm circle,
+  on the ray from the pivot to the target (± 1e-3 mm).
+* Rectangle (horizontal/vertical sides, coincident corners, one fixed corner): dragging the opposite corner resizes
+  it; all constraints hold; the fixed corner does not move.
+* Singular / invalid: unknown or non-point ID, or non-finite target → `kInvalidInput`, unchanged.
+  Dragging an endpoint of a horizontal line exactly onto its other endpoint would collapse the line: the step is
+  rejected (`kInvalidInput` or `kDegenerate`) and the sketch is unchanged.
+* Unconstrained geometry elsewhere in the sketch is never touched.
+* Cost: a sketch of 20 constrained rectangles, one corner dragged in 20 steps; the mean step time is recorded as a test
+  property; no pass/fail threshold.
+
+`sketch_tool_test`: with `solver_step()` installed, a drag of a horizontal line's endpoint is one undo step and Undo
+restores both endpoints; Escape-cancel (`cancel()`) restores the start geometry and adds no history; a step onto the other
+endpoint (collapse) keeps the last valid geometry and a later valid step still moves the point.
+
+Qt (`sketch_controller_test`): dragging an endpoint of a horizontal line through the controller moves both endpoints
+vertically by the pointer movement in mm.
+QML (`qml_test`, real pointer moves offscreen): draw a line, apply `horizontal`, drag an endpoint with the mouse; the
+other endpoint follows vertically and the line stays horizontal.
+
+All existing CTest checks stay green. Desktop only; touch input and latency on a device are not claimed (P01).
+
+== Implementation notes
+* The soft phase lives in the internal `detail::Problem` (`run_drag`): hard terms get a `ceres::ScaledLoss`, anchors are
+  plain auto-diff residuals; `solve`, `diagnose` and `run` never see them.
+* The hard weight in the soft phase is deliberately moderate (10): with 1e3 the penalty made Levenberg–Marquardt creep
+  along curved constraint manifolds and a large single step (pivot fixture, 90° turn) stopped far from the target within
+  the 50-iteration bound. Accuracy comes from the projection, not from the penalty weight.
+* No new `DragSession` class and no `DragHandler.qml` (backlog suggestion): the lifecycle already exists as
+  `ToolSession::press/drag/release/cancel` over a `Document` gesture, and `SketchViewport.qml`'s `PointHandler` already
+  delivers the pointer; only the gesture step changed.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2, Ceres 2.2, Eigen 5.0.1; build directory `build/ubuntu`.
+Baseline: 106/106 CTest checks on the stack below (#28 → #30 → #31).
+
+RED: 13 checks failed against the stub and the U01 gesture step (`build/issue11-red.log`): 8/10 `drag_test` cases,
+3/3 new `sketch_tool_test` cases, `sketch_controller_test` and `qml_test`. `Drag.InvalidInputLeavesSketchUnchanged`
+and `Drag.CollapseIsRejected` passed against the stub, which rejects everything; they are meaningful only with the
+implementation. The first `qml_test` version passed against the old code (incremental pointer moves let the other
+endpoint catch up), so it was tightened before implementation to require the dragged point at the pointer.
+
+During GREEN: the pivot fixture failed with hard weight 1e3 (see notes) and passed with 10;
+`RejectedDragStepKeepsTheLastValidGeometry` compared the untouched endpoint exactly and saw a 2e-19 mm projection
+movement; the test was relaxed to the specified ±1e-3 mm.
+GREEN: Release build and 119/119 full CTest checks passed (`build/issue11-green.log`); the Debug
+`-Wall -Wextra -Werror -fsanitize=address,undefined` build also passes 119/119.
+Cost: 20 constrained rectangles (160 point parameters), one corner dragged in 20 steps: about 10 ms per step on the
+development machine (`drag_step_20_rectangles_us`, Release, one run). The whole sketch is solved on every step;
+solving only the connected component of the dragged point is a possible later optimization. No target is claimed.
+Not claimed: touch drag and latency on a tablet (P01), pointer-cancel from the platform (only Escape is tested).

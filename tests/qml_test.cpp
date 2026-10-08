@@ -80,6 +80,42 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void drag_keeps_horizontal_line() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("snapToggle"));
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    click(item("tool_select"));
+    tap(controller, 35, 60);
+    click(item("action_horizontal"));
+    QCOMPARE(controller.constraints().size(), 1);
+    QTest::keyClick(window_, Qt::Key_Escape);
+
+    const QPoint from = scene_of(controller, 10, 60);
+    const QPoint to = scene_of(controller, 10, 70);
+    QTest::mousePress(window_, Qt::LeftButton, Qt::NoModifier, from);
+    for (int i = 1; i <= 5; ++i)
+      QTest::mouseMove(window_, from + (to - from) * i / 5);
+    QTest::mouseRelease(window_, Qt::LeftButton, Qt::NoModifier, to);
+
+    const auto& s = controller.document().sketch();
+    for (const auto& [id, e] : s.entities())
+      if (const auto* l = std::get_if<sketchcad::SketchLine>(&e)) {
+        const auto a = std::get<sketchcad::SketchPoint>(*s.entity(l->start));
+        const auto b = std::get<sketchcad::SketchPoint>(*s.entity(l->end));
+        QVERIFY2(std::abs(a.position.y - b.position.y) < 1e-6,
+                 "line stays horizontal");
+        // The dragged endpoint reaches the pointer (pixel rounding aside),
+        // the other one follows it vertically.
+        QVERIFY2(std::abs(a.position.y - 70) < 0.3, "dragged point at pointer");
+        QVERIFY2(std::abs(b.position.y - 70) < 0.3, "other endpoint follows");
+        QVERIFY(std::abs(b.position.x - 60) < 0.5);
+      }
+    QVERIFY(controller.document().undo_label() == "Move point");
+  }
   void initTestCase() { QQuickStyle::setStyle("Material"); }
   void draw_select_delete_undo_and_zoom() {
     SketchController controller;
