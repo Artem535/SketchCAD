@@ -165,9 +165,11 @@ Analytical DOF fixtures, redundant duplicates, contradictory dimensions, singula
 
 === Scope
 World/view transform mm, pan/zoom, hit testing, selection/delete, drawing tools; touch/stylus/mouse and keyboard escape/cancel; отмена незавершённого инструмента.
+Простая привязка без ограничений (перенесена из U04 решением пользователя 8 октября 2026): к сетке и к существующим точкам; привязка к точке переиспользует её ID как общую вершину; включается и выключается. Детальный контракт — xref:sketch-viewport.adoc[].
 
 === Acceptance
 Пользователь строит line/polyline/rectangle/circle/arc и редактирует геометрию; zoom не меняет модель; selection остаётся пригодным при разных масштабах; отмена не создаёт мусор.
+Привязка к сетке и точке видна до фиксации; замкнутый контур получается привязкой к первой точке; при выключенной привязке позиции не округляются.
 
 === Verification
 Qt Test real controls/pointer interactions; populated screenshot; runtime на Android и desktop; object selection при zoom.
@@ -224,7 +226,8 @@ Free/constrained/fixed/singular fixtures; actual touch/mouse drag; latency measu
 Завершение полезного contour workflow.
 
 === Scope
-Endpoint/center/intersection snaps с визуальным preview; construction toggle; trim/extend для применимых line/arc/circle cases; стабильные refs после topology edit.
+Привязки, создающие ограничения (endpoint/center/intersection/on-curve), с визуальным preview; construction toggle; trim/extend для применимых line/arc/circle cases; стабильные refs после topology edit.
+Простая привязка к сетке и к существующим точкам без ограничений реализуется в U01.
 
 === Acceptance
 Замкнутый контур создаётся воспроизводимо; preview не мутирует document; trim/delete корректно обрабатывают constraints, без dangling refs; construction исключается из рабочего профиля.

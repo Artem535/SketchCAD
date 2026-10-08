@@ -1,0 +1,87 @@
+= U01: Sketch viewport, drawing tools and simple snapping
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/9[#9]. Requirements: S01-GEO, S01-UI.
+Depends on C01 (xref:sketch-model.adoc[]), C02 (xref:document-commands.adoc[]), xref:adr-0002-tablet-ui.adoc[ADR-0002] and P01 (issue #3) for device checks.
+Simple snapping was moved here from U04 by user decision on 8 October 2026.
+
+This increment replaces the stage-0 rectangle demo UI (`Controller`, old `Main.qml`) with the sketch shell.
+The core `Rectangle` class and its tests stay until the generalized solver (S01) supersedes them.
+No constraints, dimensions, solver, construction toggle, trim/extend or persistence are added.
+
+== Layering
+* Core, Qt-free (`include/sketchcad/sketch_view.h`, `sketch_tool.h`): view transform, picking, snapping and the tool state machine.
+  They operate on `Sketch` and `Document` in millimetres and are tested with GoogleTest.
+* App (`app/sketch_controller.*`): owns the `Document` and the tool session, converts screen pixels to world mm,
+  and publishes SVG path strings per layer for `QtQuick.Shapes` (ADR-0002).
+* QML (`app/Main.qml`, `app/SketchViewport.qml`): shell and input only.
+
+== View transform
+World coordinates are mm with Y up; screen coordinates are px with Y down.
+`screen = (x * scale + offset_x, offset_y - y * scale)`. Scale is px per mm, clamped to [0.05, 200].
+`zoom_at(screen_point, factor)` keeps the world point under `screen_point` fixed; `pan(dx, dy)` moves by pixels.
+`fit(bounds, viewport)` frames the geometry bounds with a margin, or the default 100×100 mm area for an empty sketch.
+View changes never modify the document.
+
+== Picking
+`pick(sketch, world_point, tolerance_mm)` returns the nearest entity within tolerance.
+Points win over curves when both are in tolerance; among equal kinds the smallest distance wins, ties by smaller ID.
+Distances: points — Euclidean; lines — to the segment; circles — to the circumference; arcs — to the arc span, otherwise to its end points.
+The app passes a screen tolerance of 16 px converted to mm, so selection stays usable at every zoom.
+
+== Simple snapping
+`snap(sketch, world_point, settings)` returns `{position, kind, point}` where kind is `none`, `grid` or `point`.
+* Disabled snapping returns the input position unchanged (kind `none`).
+* An existing point within the point tolerance wins and returns its exact position and ID.
+* Otherwise the position is rounded to the grid step.
+* The app chooses the grid step from the 1–2–5 series so that one step is at least 8 px on screen; the visible minor grid uses the same step.
+Snapping creates no constraints. Snapping to an existing point makes the new entity reference that point ID (a shared vertex),
+except for the rectangle tool, which creates its own four corners.
+
+== Tools
+All tools work on snapped world positions. Each finished shape is exactly one `Document` command; in-progress state is a preview only.
+[cols="1,3",options="header"]
+|===
+|Tool |Behaviour
+|Select |Tap picks one entity or clears the selection on empty space. Dragging a selected point moves it as one `Document` gesture (free move, no solver).
+|Line |Tap start, tap end: one line. Zero-length input (same position) is ignored. The tool then waits for a new start.
+|Polyline |Each tap adds a vertex. Finishing (Enter, finish button, or tapping the last vertex again) commits an open polyline of ≥ 2 vertices. Tapping the first vertex (point snap) closes it with ≥ 3 vertices.
+|Rectangle |Two opposite corners, axis-aligned; degenerate width or height is ignored.
+|Circle |Center, then a point on the circumference; zero radius is ignored.
+|Arc |Center, start point (sets radius), end point (sets direction). The arc runs counter-clockwise from start to end; coincident start/end directions are ignored.
+|===
+Cancel (Escape, cancel button or switching the tool) discards the in-progress shape and never changes the document.
+Undo/Redo while a shape is in progress first cancels it.
+
+Delete removes the selected entity in one command; for a curve it also removes its defining points that no other entity references.
+Deleting a point still referenced by another entity is rejected without change, with a status message.
+
+== Shell (from `design/sketchcad-tablet.html`)
+* Top bar: title, status text (entity count and active tool hint), Undo/Redo buttons with enabled state from the document.
+* Left rail: Select, Line, Polyline, Rectangle, Circle, Arc, separator, snap toggle; buttons at least 48 dp.
+* Bottom context bar when something is selected: Delete and Close; finish/cancel buttons while a polyline or other shape is in progress.
+* Zoom controls: zoom in, zoom out, fit.
+* Material style, light/dark from the system. Visible strings use `qsTr`; translation is R01.
+
+== Input
+* Mouse: left button drives the tool; middle or right drag pans; wheel zooms at the cursor.
+* Touch: one finger drives the tool when "finger draws" is on (default), otherwise pans; two fingers pan and pinch-zoom.
+* Stylus: drives the tool. Distinguishing stylus from finger is verified on the device in P01.
+* Keyboard: Escape cancels, Delete deletes, Enter finishes a polyline, Ctrl+Z / Ctrl+Shift+Z undo/redo.
+
+== Acceptance / test cases
+Core (GoogleTest):
+* View transform round trip; zoom keeps the anchored world point; clamping; fit of empty and non-empty sketches.
+* Pick priority (point over line), nearest-wins, arc span, empty result outside tolerance.
+* Snap: disabled leaves position, grid rounding, point snap wins and returns the ID.
+* Tools: line reuses a snapped point; zero-length ignored; open and closed polyline; rectangle; circle; arc counter-clockwise sweep;
+  cancel leaves the document unchanged; each shape is one undo step; delete removes unshared defining points; referenced point delete rejected;
+  point drag is one undo step.
+
+App (Qt Test): pixel input through the controller creates geometry at the expected mm; zoom/pan do not change the document;
+selection still works after zoom; path strings update for geometry, selection and preview; undo/redo state signals.
+
+QML (Qt Test, offscreen): real clicks on rail buttons and the canvas draw a line and a rectangle, Escape cancels, select + Delete removes,
+the wheel zooms; a populated screenshot is saved for comparison with the reference.
+
+All CTest checks stay green; the core stays Qt-free. Runtime on Android is verified in P01, not by these tests.
