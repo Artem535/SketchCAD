@@ -8,6 +8,7 @@ namespace {
 constexpr double kTwoPi = 2 * std::numbers::pi;
 // Sweeps closer than this to 0 or a full turn are treated as degenerate.
 constexpr double kMinSweep = 1e-9;
+constexpr std::size_t kMaxSelection = 2;
 
 double distance(Position a, Position b) {
   return std::hypot(a.x - b.x, a.y - b.y);
@@ -32,7 +33,7 @@ ToolSession::ToolSession(Document& document) : document_(document) {}
 
 void ToolSession::set_tool(Tool tool) {
   cancel();
-  if (tool != Tool::kSelect) selection_.reset();
+  if (tool != Tool::kSelect) selected_.clear();
   tool_ = tool;
 }
 
@@ -48,12 +49,19 @@ void ToolSession::hover(Position p) {
 
 void ToolSession::press(Position p) {
   if (tool_ == Tool::kSelect) {
-    selection_ = pick(document_.sketch(), p, pick_tolerance_mm_);
     dragged_point_.reset();
-    const Sketch& sketch = document_.sketch();
-    if (selection_ &&
-        std::holds_alternative<SketchPoint>(*sketch.entity(*selection_)))
-      dragged_point_ = selection_;
+    const auto hit = pick(document_.sketch(), p, pick_tolerance_mm_);
+    if (!hit) {
+      selected_.clear();
+      return;
+    }
+    // Additive: reselecting moves to the end, a third entity drops the
+    // oldest.
+    std::erase(selected_, *hit);
+    selected_.push_back(*hit);
+    if (selected_.size() > kMaxSelection) selected_.erase(selected_.begin());
+    if (std::holds_alternative<SketchPoint>(*document_.sketch().entity(*hit)))
+      dragged_point_ = hit;
     return;
   }
   const SnapResult s = snapped(p);
@@ -159,32 +167,45 @@ bool ToolSession::cancel() {
 
 DeleteResult ToolSession::delete_selection() {
   drop_stale_selection();
-  if (!selection_) return DeleteResult::kNothingSelected;
-  const EntityId id = *selection_;
-  const Entity entity = *document_.sketch().entity(id);
-  std::vector<EntityId> defining;
-  if (const auto* l = std::get_if<SketchLine>(&entity))
-    defining = {l->start, l->end};
-  else if (const auto* c = std::get_if<SketchCircle>(&entity))
-    defining = {c->center};
-  else if (const auto* a = std::get_if<SketchArc>(&entity))
-    defining = {a->center};
+  if (selected_.empty()) return DeleteResult::kNothingSelected;
   const auto unconstrain = [](Sketch& sk, EntityId entity) {
     for (EntityId c : sk.constraints_of(entity)) sk.erase(c);
   };
-  const bool ok = document_.execute("Delete", [&](Sketch& sk) {
+  // Erases one entity with its constraints, then its defining points that no
+  // other geometry uses (with theirs).
+  const auto erase = [&](Sketch& sk, EntityId id) {
+    const auto entity = sk.entity(id);
+    if (!entity) return true;  // Already erased as a defining point.
+    std::vector<EntityId> defining;
+    if (const auto* l = std::get_if<SketchLine>(&*entity))
+      defining = {l->start, l->end};
+    else if (const auto* c = std::get_if<SketchCircle>(&*entity))
+      defining = {c->center};
+    else if (const auto* a = std::get_if<SketchArc>(&*entity))
+      defining = {a->center};
     unconstrain(sk, id);
     if (!sk.erase(id)) return false;
-    // Points still used by other entities stay, with their constraints.
     for (EntityId point : defining) {
       Sketch trial = sk;
       unconstrain(trial, point);
       if (trial.erase(point)) sk = std::move(trial);
     }
     return true;
+  };
+  const std::vector<EntityId> ids = selected_;
+  const bool ok = document_.execute("Delete", [&](Sketch& sk) {
+    // Curves before points, so a selected endpoint of a selected line goes.
+    for (int pass = 0; pass < 2; ++pass)
+      for (EntityId id : ids) {
+        const auto e = sk.entity(id);
+        if (e && std::holds_alternative<SketchPoint>(*e) == (pass == 1) &&
+            !erase(sk, id))
+          return false;
+      }
+    return true;
   });
   if (!ok) return DeleteResult::kPointInUse;
-  selection_.reset();
+  selected_.clear();
   return DeleteResult::kDeleted;
 }
 
@@ -269,6 +290,7 @@ void ToolSession::update_preview(std::optional<Position> cursor) {
 }
 
 void ToolSession::drop_stale_selection() {
-  if (selection_ && !document_.sketch().entity(*selection_)) selection_.reset();
+  std::erase_if(selected_,
+                [&](EntityId id) { return !document_.sketch().entity(id); });
 }
 }  // namespace sketchcad

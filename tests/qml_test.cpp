@@ -40,11 +40,7 @@ class QmlTest : public QObject {
                       scene_of(c, x_mm, y_mm));
   }
 
- private slots:
-  void initTestCase() { QQuickStyle::setStyle("Material"); }
-  void draw_select_delete_undo_and_zoom() {
-    SketchController controller;
-    QQmlApplicationEngine engine;
+  void open(QQmlApplicationEngine& engine, SketchController& controller) {
     engine.rootContext()->setContextProperty("sketch", &controller);
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
@@ -54,6 +50,41 @@ class QmlTest : public QObject {
     window_->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window_));
     QVERIFY(item("sketchCanvas"));
+  }
+  double line_length(const SketchController& c) {
+    const auto& s = c.document().sketch();
+    for (const auto& [id, e] : s.entities())
+      if (const auto* l = std::get_if<sketchcad::SketchLine>(&e)) {
+        const auto a = std::get<sketchcad::SketchPoint>(*s.entity(l->start));
+        const auto b = std::get<sketchcad::SketchPoint>(*s.entity(l->end));
+        return std::hypot(b.position.x - a.position.x,
+                          b.position.y - a.position.y);
+      }
+    return 0;
+  }
+  void type(const QString& digits) {
+    for (QChar ch : digits) {
+      const QByteArray name =
+          ch == '.' ? QByteArray("key_dot") : "key_" + QString(ch).toLatin1();
+      click(item(name.constData()));
+    }
+  }
+  // Closed popups leave the scene, so "not found" also means hidden.
+  bool shown(const char* name) {
+    QQuickItem* i = item(name);
+    return i && i->isVisible();
+  }
+  QString text_of(const char* name) {
+    QQuickItem* i = item(name);
+    return i ? i->property("text").toString() : QString();
+  }
+
+ private slots:
+  void initTestCase() { QQuickStyle::setStyle("Material"); }
+  void draw_select_delete_undo_and_zoom() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
 
     click(item("snapToggle"));
     QVERIFY(!controller.snap_enabled());
@@ -111,6 +142,66 @@ class QmlTest : public QObject {
 
     const QString shot =
         QCoreApplication::applicationDirPath() + "/sketch_u01.png";
+    QVERIFY(window_->grabWindow().save(shot));
+  }
+  void constrain_dimension_conflict_and_panel() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("snapToggle"));
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    click(item("tool_select"));
+    tap(controller, 35, 60);
+    QVERIFY(text_of("dofStatus").contains("4"));
+
+    click(item("action_horizontal"));
+    QCOMPARE(controller.constraints().size(), 1);
+    QVERIFY(text_of("dofStatus").contains("3"));
+    QVERIFY2(!item("action_radius"), "inapplicable actions are not offered");
+
+    click(item("action_length"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QCOMPARE(text_of("dimensionValue"), QString("50"));
+    type("75");
+    QCOMPARE(text_of("dimensionValue"), QString("75"));
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(std::abs(line_length(controller) - 75) < 1e-6);
+
+    // A second length at 75 is redundant; changing it to 90 conflicts.
+    click(item("action_length"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    type("90");
+    click(item("applyDimension"));
+    QCOMPARE(controller.message(), QString("conflict"));
+    QVERIFY(shown("dimensionEditor"));
+    QVERIFY(!text_of("dimensionError").isEmpty());
+    QVERIFY(!controller.conflict_path().isEmpty());
+    QVERIFY(std::abs(line_length(controller) - 75) < 1e-6);
+    QTest::qWait(400);  // Let the popup's enter transition finish.
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u02_conflict.png"));
+    click(item("cancelDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+
+    click(item("undoButton"));
+    QCOMPARE(controller.constraints().size(), 2);
+
+    click(item("constraintsToggle"));
+    QTRY_VERIFY(shown("constraintPanel"));
+    click(item("deleteConstraint_0"));
+    QCOMPARE(controller.constraints().size(), 1);
+
+    click(item("dimensionLabel_0"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QCOMPARE(text_of("dimensionValue"), QString("75"));
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QTRY_VERIFY(!shown("dimensionEditor"));
+
+    const QString shot =
+        QCoreApplication::applicationDirPath() + "/sketch_u02.png";
     QVERIFY(window_->grabWindow().save(shot));
   }
 };

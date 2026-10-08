@@ -285,3 +285,67 @@ TEST_F(Tools, DeleteRemovesConstraintsOfErasedGeometryInOneStep) {
   ASSERT_TRUE(session.undo());
   EXPECT_TRUE(sketch() == before);
 }
+namespace {
+// Two horizontal lines 10 mm apart and a free point, drawn with snapping off.
+struct ThreeThings {
+  EntityId low, high, point;
+};
+ThreeThings three_things(Document& doc) {
+  ThreeThings t{};
+  doc.execute("Setup", [&](Sketch& s) {
+    t.low = *s.create_line(*s.create_point({0, 0}), *s.create_point({10, 0}));
+    t.high = *s.create_line(*s.create_point({0, 10}), *s.create_point({10, 10}));
+    t.point = *s.create_point({20, 20});
+    return true;
+  });
+  return t;
+}
+}  // namespace
+TEST_F(Tools, SelectionAddsUpToTwoAndDropsTheOldest) {
+  const ThreeThings t = three_things(doc);
+  const auto tap = [&](Position p) {
+    session.press(p);
+    session.release(p);
+  };
+  tap({5, 0});
+  EXPECT_EQ(session.selected(), (std::vector<EntityId>{t.low}));
+  tap({5, 10});
+  EXPECT_EQ(session.selected(), (std::vector<EntityId>{t.low, t.high}));
+  EXPECT_EQ(session.selection(), t.high);
+  tap({5, 0});  // Reselecting keeps both and makes it the most recent.
+  EXPECT_EQ(session.selected(), (std::vector<EntityId>{t.high, t.low}));
+  tap({20, 20});
+  EXPECT_EQ(session.selected(), (std::vector<EntityId>{t.low, t.point}));
+  EXPECT_EQ(session.selection(), t.point);
+  tap({50, 50});
+  EXPECT_TRUE(session.selected().empty());
+  EXPECT_FALSE(session.selection());
+}
+TEST_F(Tools, DeletingTwoSelectedLinesIsOneCommand) {
+  const ThreeThings t = three_things(doc);
+  const Sketch before = sketch();
+  for (Position p : {Position{5, 0}, Position{5, 10}}) {
+    session.press(p);
+    session.release(p);
+  }
+  EXPECT_EQ(session.delete_selection(), DeleteResult::kDeleted);
+  EXPECT_FALSE(sketch().entity(t.low));
+  EXPECT_FALSE(sketch().entity(t.high));
+  EXPECT_TRUE(sketch().entity(t.point));
+  EXPECT_TRUE(session.selected().empty());
+  ASSERT_TRUE(session.undo());
+  EXPECT_TRUE(sketch() == before);
+}
+TEST_F(Tools, DeleteFailsAsAWholeWhenOneMemberCannotBeErased) {
+  const ThreeThings t = three_things(doc);
+  const EntityId end = std::get<SketchLine>(*sketch().entity(t.low)).end;
+  const Sketch before = sketch();
+  for (Position p : {Position{20, 20}, Position{10, 0}}) {
+    session.press(p);
+    session.release(p);
+  }
+  ASSERT_EQ(session.selected(), (std::vector<EntityId>{t.point, end}));
+  EXPECT_EQ(session.delete_selection(), DeleteResult::kPointInUse);
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_EQ(session.selected(), (std::vector<EntityId>{t.point, end}));
+}

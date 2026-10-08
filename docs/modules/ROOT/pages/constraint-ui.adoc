@@ -68,7 +68,8 @@ Qt (`sketch_controller_test`): applicable keys for point, two points, line, two 
 and empty selection; `apply` adds a constraint as one undo step and updates `constraints` and `diagnosis`/`dof`;
 non-applicable keys are rejected with `invalid_action` without touching the document; a conflicting dimension value
 reports `conflict`, sets `conflict_path` and keeps the document; `remove_constraint` and Undo;
-redundant and unknown diagnoses are published.
+a redundant diagnosis is published (an unknown diagnosis cannot be produced by UI commands, since the tools never create
+degenerate geometry; its mapping is covered by the core diagnostics tests).
 
 QML (`qml_test`, real clicks offscreen): select a line, click the `horizontal` chip → constraint added and the DOF chip
 changes; add a length → editor opens, type via the keypad, Apply → line length changes; a conflicting value shows the
@@ -76,3 +77,26 @@ message and conflict highlight and leaves geometry unchanged; Undo button restor
 constraint; the label of a dimension reopens the editor; a populated screenshot is saved.
 
 Runtime on Android and RU/EN layout are not claimed by these tests.
+
+== Implementation notes
+* The controller caches the diagnosis per document revision and the applicable actions per (revision, selection),
+  because `refresh_scene` also runs on hover.
+* A rejected command is diagnosed on the candidate sketch (with the new constraint or value applied), so the highlight
+  includes the constraint that was not committed.
+* Material `Pane`/`Popup` backgrounds render transparent in this shell, so the editor and panels set explicit backgrounds
+  (as U01 did for its panes).
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2, Ceres 2.2, Eigen 5.0.1; build directory `build/ubuntu`.
+Baseline: 98/98 CTest checks passed on `main` before U02.
+
+RED, observed in the test output (not saved to log files):
+3/3 new `ToolSession` selection tests, 6/6 new `sketch_controller_test` cases and the new `qml_test` scenario
+(no DOF chip) failed against stubs and the U01 shell.
+Two `qml_test` failures during GREEN were test defects, fixed in the test: helper functions placed under `private slots`
+and dereferencing a closed popup (closed popups leave the scene); expectations were not changed.
+GREEN: Release build and 101/101 full CTest checks passed (`build/issue10-green.log`); the Debug
+`-Wall -Wextra -Werror -fsanitize=address,undefined` build also passes 101/101.
+`qml_test` saves `sketch_u02.png` and `sketch_u02_conflict.png` (editor with the conflict message, red highlight,
+"Избыточно · DOF 2" chip), inspected manually.
+Not claimed: RU/EN layout (R01), device input (P01), an unknown diagnosis through UI commands.

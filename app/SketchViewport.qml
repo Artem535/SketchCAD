@@ -8,6 +8,8 @@ Item {
     id: root
     objectName: "sketchCanvas"
     required property var controller
+    // A dimension label was tapped.
+    signal dimensionClicked(var id)
     clip: true
 
     onWidthChanged: controller.set_viewport_size(width, height)
@@ -72,6 +74,54 @@ Item {
             fillColor: "transparent"
             capStyle: ShapePath.RoundCap
             PathSvg { path: root.controller.selected_path }
+        }
+        ShapePath {
+            strokeColor: root.accent
+            strokeWidth: 3
+            strokeStyle: ShapePath.DashLine
+            dashPattern: [2, 2]
+            fillColor: "transparent"
+            PathSvg { path: root.controller.constraint_path }
+        }
+        ShapePath {
+            strokeColor: Material.color(Material.Red)
+            strokeWidth: 4
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            PathSvg { path: root.controller.conflict_path }
+        }
+    }
+
+    // Driving dimension values; each is a 48 px touch target.
+    Repeater {
+        model: root.controller.dimension_labels
+        delegate: Item {
+            id: label
+            required property var modelData
+            required property int index
+            objectName: "dimensionLabel_" + index
+            width: Math.max(48, text.implicitWidth + 16)
+            height: 48
+            x: modelData.x - width / 2
+            y: modelData.y - height / 2
+            Rectangle {
+                anchors.centerIn: parent
+                width: text.implicitWidth + 12
+                height: text.implicitHeight + 6
+                radius: 6
+                color: root.dark ? "#1f2a33" : "#ffffff"
+                border.color: root.accent
+            }
+            Label {
+                id: text
+                anchors.centerIn: parent
+                text: label.modelData.text
+                color: root.accent
+                font.pixelSize: 13
+            }
+            TapHandler {
+                onTapped: root.dimensionClicked(label.modelData.id)
+            }
         }
     }
 

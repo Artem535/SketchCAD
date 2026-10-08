@@ -37,8 +37,14 @@ class ToolSession {
   bool cancel();
   bool in_progress() const { return !vertices_.empty(); }
 
-  std::optional<EntityId> selection() const { return selection_; }
-  void clear_selection() { selection_.reset(); }
+  // Most recently selected entity.
+  std::optional<EntityId> selection() const {
+    if (selected_.empty()) return std::nullopt;
+    return selected_.back();
+  }
+  // Up to two selected entities in tap order.
+  const std::vector<EntityId>& selected() const { return selected_; }
+  void clear_selection() { selected_.clear(); }
   DeleteResult delete_selection();
 
   bool undo();
@@ -65,7 +71,7 @@ class ToolSession {
   SnapSettings snap_settings_;
   double pick_tolerance_mm_ = 4;
   std::vector<Vertex> vertices_;
-  std::optional<EntityId> selection_;
+  std::vector<EntityId> selected_;
   std::optional<EntityId> dragged_point_;
   bool dragging_ = false;
   std::optional<SnapResult> last_snap_;
