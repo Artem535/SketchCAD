@@ -1,5 +1,7 @@
 #include "sketch_controller.h"
 
+#include "sketchcad/dimension_layout.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -313,6 +315,7 @@ void SketchController::refresh_scene() {
   if (const auto c = sketch.constraint(selected_constraint_))
     for (EntityId id : {c->first, c->second})
       constraint_path_ += entity_path(sketch, id, kSelectedMarkerPx);
+  refresh_dimensions();
   fixed_path_.clear();
   for (const auto& [id, c] : sketch.constraints())
     if (c.kind == sketchcad::ConstraintKind::kFix)
@@ -602,56 +605,29 @@ QString SketchController::diagnosis_reason() const {
 
 QVariantList SketchController::dimension_labels() const {
   QVariantList list;
-  const Sketch& s = document_.sketch();
-  const auto at = [&](EntityId id) {
-    return std::get<SketchPoint>(*s.entity(id)).position;
+  const auto has = [](const std::vector<EntityId>& ids, EntityId id) {
+    return std::find(ids.begin(), ids.end(), id) != ids.end();
   };
-  const auto mid = [](Position a, Position b) {
-    return Position{(a.x + b.x) / 2, (a.y + b.y) / 2};
-  };
-  const auto line_mid = [&](EntityId id) {
-    const auto l = std::get<SketchLine>(*s.entity(id));
-    return mid(at(l.start), at(l.end));
-  };
-  // Labels sit 18 px above their anchor so they do not cover the geometry.
-  constexpr double kLift = 18;
-  for (const auto& [id, c] : s.constraints()) {
-    if (!sketchcad::is_dimension(c.kind)) continue;
-    Position anchor{0, 0};
-    QString text = format_value(c.value);
-    switch (c.kind) {
-      case sketchcad::ConstraintKind::kLength:
-        anchor = line_mid(c.first);
-        break;
-      case sketchcad::ConstraintKind::kDistance:
-        anchor = std::holds_alternative<SketchLine>(*s.entity(c.second))
-                     ? mid(at(c.first), line_mid(c.second))
-                     : mid(at(c.first), at(c.second));
-        break;
+  for (const auto& g : sketchcad::layout_dimensions(document_.sketch(), view_)) {
+    QString text;
+    switch (g.kind) {
       case sketchcad::ConstraintKind::kAngle:
-        anchor = mid(line_mid(c.first), line_mid(c.second));
-        text = format_value(c.value / kDegree) + QStringLiteral("°");
+        text = format_value(g.value / kDegree) + QStringLiteral("°");
         break;
-      case sketchcad::ConstraintKind::kRadius: {
-        const Entity e = *s.entity(c.first);
-        const auto* circle = std::get_if<SketchCircle>(&e);
-        const EntityId center =
-            circle ? circle->center : std::get<SketchArc>(e).center;
-        const double r = circle ? circle->radius : std::get<SketchArc>(e).radius;
-        const Position p = at(center);
-        anchor = {p.x + r * std::numbers::sqrt2 / 2,
-                  p.y + r * std::numbers::sqrt2 / 2};
-        text = QStringLiteral("R") + text;
+      case sketchcad::ConstraintKind::kRadius:
+        text = QStringLiteral("R") + format_value(g.value);
         break;
-      }
       default:
+        text = format_value(g.value);
         break;
     }
-    const ScreenPoint p = view_.to_screen(anchor);
-    list.append(QVariantMap{{"id", QVariant::fromValue<qulonglong>(id)},
-                            {"x", p.x},
-                            {"y", p.y - kLift},
-                            {"text", text}});
+    list.append(QVariantMap{
+        {"id", QVariant::fromValue<qulonglong>(g.id)},
+        {"x", g.text_position.x},
+        {"y", g.text_position.y},
+        {"angle", g.text_angle / kDegree},
+        {"text", text},
+        {"bad", has(diagnosis_.dependent, g.id) || has(diagnosis_.violated, g.id)}});
   }
   return list;
 }
@@ -762,4 +738,36 @@ QString SketchController::selection_title() const {
   if (std::holds_alternative<sketchcad::SketchCircle>(*entity))
     return QStringLiteral("Окружность");
   return QStringLiteral("Дуга");
+}
+
+// ESKD dimension graphics (dimension-style.adoc) as two SVG layers.
+void SketchController::refresh_dimensions() {
+  dimension_path_.clear();
+  dimension_arrows_path_.clear();
+  for (const auto& g : sketchcad::layout_dimensions(document_.sketch(), view_)) {
+    for (const auto& [a, b] : g.segments)
+      dimension_path_ += move_to(a) + line_to(b);
+    for (const auto& arc : g.arcs) {
+      // Pieces of at most half a turn; positive screen sweep is SVG
+      // sweep-flag 1 (Y down).
+      const int pieces = static_cast<int>(
+          std::ceil(std::abs(arc.sweep) / std::numbers::pi - 1e-9));
+      const auto at = [&](double angle) {
+        return ScreenPoint{arc.center.x + arc.radius * std::cos(angle),
+                           arc.center.y + arc.radius * std::sin(angle)};
+      };
+      dimension_path_ += move_to(at(arc.start));
+      for (int i = 1; i <= std::max(pieces, 1); ++i) {
+        const ScreenPoint p =
+            at(arc.start + arc.sweep * i / std::max(pieces, 1));
+        dimension_path_ += QStringLiteral("A %1 %1 0 0 %2 %3 %4 ")
+                               .arg(num(arc.radius))
+                               .arg(arc.sweep > 0 ? 1 : 0)
+                               .arg(num(p.x), num(p.y));
+      }
+    }
+    for (const auto& a : g.arrows)
+      dimension_arrows_path_ +=
+          move_to(a[0]) + line_to(a[1]) + line_to(a[2]) + QStringLiteral("Z ");
+  }
 }

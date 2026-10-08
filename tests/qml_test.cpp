@@ -101,6 +101,41 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void dimensions_in_eskd_style() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    window_->setProperty("darkTheme", false);
+    click(item("snapToggle"));
+    click(item("tool_rectangle"));
+    tap(controller, 20, 40);
+    tap(controller, 80, 70);
+    click(item("tool_select"));
+    for (const auto& [x, y] : {std::pair{50.0, 40.0}, std::pair{80.0, 55.0}}) {
+      QTest::keyClick(window_, Qt::Key_Escape);
+      tap(controller, x, y);
+      click(item("action_length"));
+      QTRY_VERIFY(shown("dimensionEditor"));
+      click(item("cancelDimension"));
+      QTRY_VERIFY(!shown("dimensionEditor"));
+    }
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QCOMPARE(controller.dimensions().size(), 2);
+    QVERIFY(!controller.dimension_path().isEmpty());
+    // The vertical dimension's label is rotated to read bottom to top.
+    QTRY_VERIFY(item("dimensionLabel_1"));
+    QCOMPARE(item("dimensionLabel_1")->rotation(), -90.0);
+    click(item("dimensionLabel_0"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("cancelDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u06_light.png"));
+    window_->setProperty("darkTheme", true);
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u06_dark.png"));
+  }
   void shell_follows_mockup_theme() {
     SketchController controller;
     QQmlApplicationEngine engine;

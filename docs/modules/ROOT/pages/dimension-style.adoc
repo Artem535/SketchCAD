@@ -1,0 +1,97 @@
+= U06: Dimensions in the nanoCAD/ESKD style
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/34[#34]. Requirements: S01-DIM, S01-UI.
+Depends on S02 (xref:dimensions.adoc[]), U02 (xref:constraint-ui.adoc[]), U05 (xref:tablet-shell.adoc[]).
+Decision: xref:adr-0004-dimension-style.adoc[ADR-0004].
+
+Addresses user remark 6 from U02 testing ("drawings should look like nanoCAD").
+Not in this increment: storing or dragging dimension positions, automatic de-cluttering of overlapping dimensions,
+diameter dimensions, paper-space units (1.0 drawings).
+
+== Core: `layout_dimensions`
+`std::vector<DimensionGraphic> layout_dimensions(const Sketch&, const ViewTransform&, const DimensionStyle& = {})`
+(`include/sketchcad/dimension_layout.h`, `src/dimension_layout.cpp`), Qt-free, screen pixels (Y down).
+
+* One `DimensionGraphic` per dimension constraint (`kLength`, `kDistance`, `kAngle`, `kRadius`) in constraint order;
+  other constraints produce nothing. Fields: `id`, `kind`, `value` (mm or radians), `segments` (pairs of points),
+  `arcs` (`center`, `radius`, `start`, `sweep`, screen radians), `arrows` (filled triangles, tip first),
+  `text_position` (bottom centre of the text box) and `text_angle` (screen radians in [−π/2, π/2)).
+* `DimensionStyle` defaults (px): `offset` 32, `overshoot` 6, `arrow_length` 12, `arrow_half_angle` 10°, `text_gap` 4,
+  `angle_radius` 0.6 × the shorter ray clamped to [32, 120].
+* *Side*: for linear dimensions the dimension line goes to the side of the measured segment that faces away from the
+  centre of the sketch bounds (screen); if the centre lies on the segment's line, the side whose normal points up
+  (screen −Y), or left for a vertical segment.
+* *Length / point–point distance* between screen points A and B with unit normal n on the chosen side:
+  extension lines A → A + n·(offset + overshoot) and B → B + n·(offset + overshoot); dimension line
+  A + n·offset → B + n·offset; arrows with tips at both ends of the dimension line, pointing outward along it.
+  If |AB| < 2·arrow_length + 8, arrows sit outside pointing inward and the dimension line extends by arrow_length + 10
+  beyond each end.
+* *Point–line distance*: dimension line from the point P to its foot F on the infinite line, arrows at P and F pointing
+  away from the middle (outside, as above, when short); if F lies outside the segment, an extension line from the nearer
+  endpoint to F extended by overshoot. A distance of zero (point on the line) draws no dimension line, only the text.
+* *Radius*: direction u = from the centre to the arc's mid-angle point (arc) or screen up-right at −45° (circle);
+  dimension line from the centre C to C + u·r, one arrow with its tip on the curve pointing outward.
+  If r < 2·arrow_length, the line goes from the curve outward to C + u·(r + arrow_length + 24) with the arrow tip on the
+  curve pointing inward, and the text sits over the outer part.
+* *Angle*: vertex V = intersection of the two infinite lines; each ray points from V to that line's farther endpoint.
+  If the angle between the rays equals the dimension value (within 1e-6 rad) the arc spans the two rays, otherwise the
+  first ray and the reversed second ray. Arc radius R = angle_radius; arrows at both arc ends, tangent, pointing
+  away from the arc's middle; if a ray's farther endpoint is closer to V than R, an extension line along the ray from
+  that endpoint to R + overshoot. Parallel lines (no vertex) fall back to text only at the midpoint between the lines'
+  midpoints.
+* *Text*: `text_angle` is the dimension line direction reduced to [−π/2, π/2), so a vertical dimension reads bottom to
+  top (ESKD). The text is placed above the middle of the dimension line (or the arc) in its own frame: `text_position` =
+  middle + `text_gap` · (the text's up direction). As ESKD requires, this does not depend on the side of the geometry,
+  so the text of a dimension below or right of a part sits between the dimension line and the part.
+
+== Controller and QML
+* New layers `dimension_path` (SVG: extension and dimension lines, arcs) and `dimension_arrows_path` (closed
+  triangles), drawn thin (1 px) in `muted`, arrows filled `muted`.
+* `dimension_labels` entries gain `angle` (degrees, for QML rotation); `x`, `y` become the text position
+  (bottom centre). The QML label is rotated about its bottom centre, drawn in `primary` 15 px medium without a box, and
+  keeps a touch target of at least 48 px; tap opens the dimension editor (U02 behaviour).
+* Dependent or violated dimensions (diagnosis) draw their text in `err`.
+
+== Acceptance / test cases
+Core (`dimension_layout_test`, GoogleTest, view scale 4 px/mm, no pan):
+
+* A horizontal 50 mm line alone: dimension line 32 px above, 200 px long; extension lines from both endpoints 38 px
+  long; two arrows with tips at the dimension line ends pointing outward; text 4 px above the middle, angle 0.
+* Rectangle 40 × 20 mm with length dimensions on the bottom and right sides: the bottom one is below the rectangle,
+  the right one right of it; the right text angle is −π/2.
+* Short line (2 mm = 8 px): arrows outside pointing inward, dimension line extended.
+* Circle radius: one segment from the centre to the circle at −45°, arrow tip on the circle.
+* Small circle (radius 4 mm = 16 px < 2·arrow_length): leader outside the circle, arrow tip on the circle pointing inward.
+* Angle of 90° between two lines sharing a corner: one arc centred at the corner with sweep π/2 and radius in
+  [32, 120]; two arrows at the arc ends.
+* Point–line distance with the foot outside the segment: perpendicular dimension line and one extension line.
+* Every `text_angle` is within [−π/2, π/2); non-dimension constraints produce no graphics; layout is deterministic.
+
+Qt (`sketch_controller_test`): after `apply("length")` on a line, `dimension_path` and `dimension_arrows_path` are
+non-empty and the label carries `angle`; Undo clears them.
+QML (`qml_test`): existing dimension scenarios keep passing (the label still opens the editor); screenshots of a
+dimensioned rectangle in light and dark (`sketch_u06_light.png`, `sketch_u06_dark.png`) are saved and inspected.
+
+Desktop only; Android not claimed.
+
+== Implementation notes
+* The controller lays dimensions out once per scene refresh (also on pan and zoom) for the two path layers, and again
+  for `dimension_labels`; both use the same `layout_dimensions` call, so lines and texts cannot disagree.
+* Dimension texts get a tight `canvas`-coloured mask (85 % opacity) so the grid does not run through the digits,
+  similar to the text background mask in nanoCAD.
+* Angle and radius texts follow the same "above the line in the text's own frame" rule; for an angle the text is
+  tangent to the arc at its middle.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; build directory `build/ubuntu`. Baseline: 119/119 on `main` after U05.
+
+RED (`build/issue34-red.log`): 10 checks failed against the stub — all 8 `dimension_layout_test` cases,
+`sketch_controller_test` and `qml_test`. Six layout cases crashed instead of failing an assertion: the test helper
+`only()` dereferenced the first element of an empty result. The helper was fixed to return an empty graphic after
+the size expectation fails, and RED was re-checked against the stub: all 8 layout cases then fail on assertions
+(test output, not saved). Expectations were not changed.
+GREEN: Release 127/127 (`build/issue34-green.log`); Debug `-Wall -Wextra -Werror -fsanitize=address,undefined` 127/127.
+Screenshots `sketch_u06_light.png` and `sketch_u06_dark.png` (rectangle with width and height) inspected: extension
+lines, dimension lines with arrows, text above the line, the vertical text reading bottom to top.
+Not claimed: overlap handling between dimensions, Android, the GOST paper values (only proportions are used, ADR-0004).
