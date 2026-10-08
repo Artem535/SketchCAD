@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace sketchcad {
 namespace {
@@ -106,16 +107,41 @@ P outward(P a, P b, P centre) {
   if (std::abs(n.y) > 1e-9) return n.y < 0 ? n : n * -1;
   return n.x < 0 ? n : n * -1;
 }
+// Centroid (screen) of each point's connected group: points linked by line
+// endpoints and by curves sharing a centre (issue #41).
+std::map<EntityId, P> group_centres(const Sketch& sketch,
+                                    const ViewTransform& view) {
+  std::map<EntityId, EntityId> parent;
+  const auto find = [&](EntityId id) {
+    while (parent[id] != id) id = parent[id] = parent[parent[id]];
+    return id;
+  };
+  for (const auto& [id, e] : sketch.entities())
+    if (std::holds_alternative<SketchPoint>(e)) parent[id] = id;
+  for (const auto& [id, e] : sketch.entities())
+    if (const auto* l = std::get_if<SketchLine>(&e))
+      parent[find(l->start)] = find(l->end);
+  std::map<EntityId, std::pair<P, int>> sums;
+  for (const auto& [id, root] : parent) {
+    auto& [sum, n] = sums[find(id)];
+    sum = sum +
+          view.to_screen(std::get<SketchPoint>(*sketch.entity(id)).position);
+    ++n;
+  }
+  std::map<EntityId, P> centres;
+  for (const auto& [id, root] : parent) {
+    const auto& [sum, n] = sums[find(id)];
+    centres[id] = sum * (1.0 / n);
+  }
+  return centres;
+}
 }  // namespace
 
 std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
                                                 const ViewTransform& view,
                                                 const DimensionStyle& style) {
   std::vector<DimensionGraphic> result;
-  const auto box = bounds(sketch);
-  const P centre = box ? view.to_screen({(box->min.x + box->max.x) / 2,
-                                         (box->min.y + box->max.y) / 2})
-                       : P{0, 0};
+  const std::map<EntityId, P> centres = group_centres(sketch, view);
   const auto point = [&](EntityId id) {
     return view.to_screen(std::get<SketchPoint>(*sketch.entity(id)).position);
   };
@@ -137,6 +163,8 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
     switch (c.kind) {
       case ConstraintKind::kLength: {
         const auto [s, e] = ends(c.first);
+        const P centre =
+            centres.at(std::get<SketchLine>(*sketch.entity(c.first)).start);
         if (norm(e - s) < kEps) b.text(s, 0);
         else b.linear(s, e, outward(s, e, centre));
         break;
@@ -146,7 +174,7 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
         if (!is_line(c.second)) {
           const P q = point(c.second);
           if (norm(q - p) < kEps) b.text(p, 0);
-          else b.linear(p, q, outward(p, q, centre));
+          else b.linear(p, q, outward(p, q, centres.at(c.first)));
           break;
         }
         const auto [s, e] = ends(c.second);
