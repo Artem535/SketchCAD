@@ -418,5 +418,6 @@ TEST_F(Tools, RejectedDragStepKeepsTheLastValidGeometry) {
   session.drag({4, 0});
   session.release({4, 0});
   EXPECT_NEAR(point_at(sketch(), line.start).x, 4, 1e-3);
-  EXPECT_EQ(point_at(sketch(), line.end), (Position{10, 0}));
+  EXPECT_NEAR(point_at(sketch(), line.end).x, 10, 1e-3);
+  EXPECT_NEAR(point_at(sketch(), line.end).y, 0, 1e-3);
 }

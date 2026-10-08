@@ -135,6 +135,18 @@ struct Cost {
   }
 };
 
+// Soft drag residual: weight * (value - target), per coordinate.
+template <int N>
+struct Anchor {
+  std::array<double, N> target;
+  double weight;
+  template <typename T>
+  bool operator()(const T* value, T* r) const {
+    for (int i = 0; i < N; ++i) r[i] = T(weight) * (value[i] - T(target[i]));
+    return true;
+  }
+};
+
 struct Term {
   EntityId constraint;
   Cost cost;
@@ -185,12 +197,44 @@ class Problem {
   ceres::TerminationType run() {
     ceres::Problem problem;
     populate(problem);
+    return minimize(problem, 200);
+  }
+
+  bool has_point(EntityId point) const { return points_.contains(point); }
+
+  // Soft drag phase (U03): hard residuals weighted `hard`, `point` pulled
+  // to `target` with weight 1 and every other variable held at its current
+  // value with weight `stay`. The result still needs a hard projection.
+  ceres::TerminationType run_drag(EntityId point, Position target,
+                                  double hard, double stay,
+                                  int max_iterations) {
+    ceres::Problem problem;
+    populate(problem, hard);
+    for (auto& [id, p] : points_) {
+      const bool dragged = id == point;
+      problem.AddResidualBlock(
+          new ceres::AutoDiffCostFunction<Anchor<2>, 2, 2>(new Anchor<2>{
+              dragged ? std::array{target.x, target.y} : p,
+              dragged ? 1.0 : stay}),
+          nullptr, p.data());
+    }
+    for (auto& [id, r] : radii_)
+      problem.AddResidualBlock(
+          new ceres::AutoDiffCostFunction<Anchor<1>, 1, 1>(
+              new Anchor<1>{{r}, stay}),
+          nullptr, &r);
+    return minimize(problem, max_iterations);
+  }
+
+ private:
+  ceres::TerminationType minimize(ceres::Problem& problem,
+                                  int max_iterations) {
     for (auto& [id, r] : radii_)
       if (problem.HasParameterBlock(&r))
         problem.SetParameterLowerBound(&r, 0, kMinRadius);
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::DENSE_QR;
-    options.max_num_iterations = 200;
+    options.max_num_iterations = max_iterations;
     options.function_tolerance = 1e-16;
     options.gradient_tolerance = 1e-16;
     options.parameter_tolerance = 1e-16;
@@ -200,6 +244,7 @@ class Problem {
     return summary.termination_type;
   }
 
+ public:
   // Jacobian of all residuals at the current values: rows in constraint
   // order, columns over referenced points (x, y) then radii. `rows` receives
   // the constraint ID of each row.
@@ -267,7 +312,8 @@ class Problem {
 
  private:
   // Adds one residual block per constraint, in `terms_` order.
-  std::vector<ceres::ResidualBlockId> populate(ceres::Problem& problem) {
+  std::vector<ceres::ResidualBlockId> populate(ceres::Problem& problem,
+                                               double weight = 1) {
     std::vector<ceres::ResidualBlockId> ids;
     for (Term& term : terms_) {
       auto cost = std::make_unique<ceres::DynamicAutoDiffCostFunction<Cost, 4>>(
@@ -275,7 +321,11 @@ class Problem {
       for (double* block : term.blocks)
         cost->AddParameterBlock(is_radius(block) ? 1 : 2);
       cost->SetNumResiduals(residual_count(term.cost.shape));
-      ids.push_back(problem.AddResidualBlock(cost.release(), nullptr,
+      ceres::LossFunction* loss =
+          weight == 1 ? nullptr
+                      : new ceres::ScaledLoss(nullptr, weight * weight,
+                                              ceres::TAKE_OWNERSHIP);
+      ids.push_back(problem.AddResidualBlock(cost.release(), loss,
                                              term.blocks));
     }
     return ids;

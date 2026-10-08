@@ -21,7 +21,7 @@ pointer-cancel handling beyond Escape, constraint-creating snaps (U04), device l
 * A point not referenced by any constraint (directly, through a line or as a curve center) moves exactly to `target`
   without running the solver.
 * Otherwise two phases:
-  . *Soft phase* (bounded, at most 50 Levenberg–Marquardt iterations): hard residuals weighted 1e3, the drag residual
+  . *Soft phase* (bounded, at most 50 Levenberg–Marquardt iterations): hard residuals weighted 10, the drag residual
     `point − target` [mm] weighted 1, and stabilization residuals `q − q₀` [mm] for every other solver variable
     (point coordinates, radii) weighted 1e-3. These soft residuals exist only inside `drag_point`;
     they are never part of `solve`, `diagnose` or the DOF count (ADR-0003).
@@ -75,3 +75,33 @@ QML (`qml_test`, real pointer moves offscreen): draw a line, apply `horizontal`,
 other endpoint follows vertically and the line stays horizontal.
 
 All existing CTest checks stay green. Desktop only; touch input and latency on a device are not claimed (P01).
+
+== Implementation notes
+* The soft phase lives in the internal `detail::Problem` (`run_drag`): hard terms get a `ceres::ScaledLoss`, anchors are
+  plain auto-diff residuals; `solve`, `diagnose` and `run` never see them.
+* The hard weight in the soft phase is deliberately moderate (10): with 1e3 the penalty made Levenberg–Marquardt creep
+  along curved constraint manifolds and a large single step (pivot fixture, 90° turn) stopped far from the target within
+  the 50-iteration bound. Accuracy comes from the projection, not from the penalty weight.
+* No new `DragSession` class and no `DragHandler.qml` (backlog suggestion): the lifecycle already exists as
+  `ToolSession::press/drag/release/cancel` over a `Document` gesture, and `SketchViewport.qml`'s `PointHandler` already
+  delivers the pointer; only the gesture step changed.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2, Ceres 2.2, Eigen 5.0.1; build directory `build/ubuntu`.
+Baseline: 106/106 CTest checks on the stack below (#28 → #30 → #31).
+
+RED: 13 checks failed against the stub and the U01 gesture step (`build/issue11-red.log`): 8/10 `drag_test` cases,
+3/3 new `sketch_tool_test` cases, `sketch_controller_test` and `qml_test`. `Drag.InvalidInputLeavesSketchUnchanged`
+and `Drag.CollapseIsRejected` passed against the stub, which rejects everything; they are meaningful only with the
+implementation. The first `qml_test` version passed against the old code (incremental pointer moves let the other
+endpoint catch up), so it was tightened before implementation to require the dragged point at the pointer.
+
+During GREEN: the pivot fixture failed with hard weight 1e3 (see notes) and passed with 10;
+`RejectedDragStepKeepsTheLastValidGeometry` compared the untouched endpoint exactly and saw a 2e-19 mm projection
+movement; the test was relaxed to the specified ±1e-3 mm.
+GREEN: Release build and 119/119 full CTest checks passed (`build/issue11-green.log`); the Debug
+`-Wall -Wextra -Werror -fsanitize=address,undefined` build also passes 119/119.
+Cost: 20 constrained rectangles (160 point parameters), one corner dragged in 20 steps: about 10 ms per step on the
+development machine (`drag_step_20_rectangles_us`, Release, one run). The whole sketch is solved on every step;
+solving only the connected component of the dragged point is a possible later optimization. No target is claimed.
+Not claimed: touch drag and latency on a tablet (P01), pointer-cancel from the platform (only Escape is tested).

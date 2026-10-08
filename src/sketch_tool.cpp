@@ -1,5 +1,7 @@
 #include "sketchcad/sketch_tool.h"
 
+#include "sketchcad/drag.h"
+
 #include <cmath>
 #include <numbers>
 
@@ -137,8 +139,11 @@ void ToolSession::drag(Position p) {
   if (!dragging_) return;
   const SnapResult s = snapped(p, dragged_point_);
   last_snap_ = s;
-  document_.gesture_step(
-      [&](Sketch& sk) { return sk.update_point(*dragged_point_, s.position); });
+  // Warm start from the last accepted state; a rejected step keeps it.
+  document_.gesture_step([&](Sketch& sk) {
+    return drag_point(sk, *dragged_point_, s.position).status ==
+           SolveStatus::kSolved;
+  });
 }
 
 void ToolSession::release(Position) {
