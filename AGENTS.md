@@ -1,7 +1,15 @@
 # Agent instructions
 
 ## Mandatory workflow
-For every behavior change: (1) write or update Antora AsciiDoc documentation with acceptance criteria; (2) create a GitHub issue linking that documentation; (3) apply type, area and status labels; (4) write tests and observe an expected failure; (5) implement and run the full relevant test suite. Never implement undocumented or untracked behavior. Reference the issue in commits and PRs. Record verification evidence and limitations in the issue. Do not claim Android support from desktop-only tests.
+Every task follows this order:
+
+1. Write or update the Antora specification (docs/modules/ROOT/pages/*.adoc): behavior, constraints and acceptance criteria.
+2. Create a GitHub issue that links the specification.
+3. Apply labels: task type, subsystem (`area:*`) and `status:ready`.
+4. Write the tests and record the expected failure (RED) before implementing.
+5. Implement the behavior, pass the checks and link the PR to the issue (a closing keyword such as `Closes #N` in the PR description).
+
+Never implement undocumented or untracked behavior. Reference the issue in commits. Record verification evidence and limitations in the issue. Do not claim Android support from desktop-only tests.
 
 ## Stack and boundaries
 C++20, CMake/Ninja, Qt Quick/QML, Ceres and Eigen. OCCT is planned for a later modeling milestone. Keep the sketch model and solver independent of Qt and OCCT. Use stable entity IDs, millimeters, finite parameter validation, transactional solve/rollback and explicit tolerance checks. Least-squares convergence does not prove constraints are satisfied. DOF analysis must exclude drag/stabilization residuals.
