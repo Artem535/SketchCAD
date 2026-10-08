@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`AGENTS.md` is the canonical agent entry point (mandatory workflow, stack boundaries, style, product constraints) and applies here in full. Key points: every behavior change goes docs (Antora, with acceptance criteria) → GitHub issue with type/area/status labels → failing test (observe RED) → implementation → full relevant test run, with evidence recorded in the issue. Never implement undocumented or untracked behavior; never claim Android support from desktop-only tests; do not add payment integrations or pick a license (`LICENSE.draft.md` is a draft, not in force).
+`AGENTS.md` is the canonical agent entry point (mandatory workflow, stack boundaries, style, product constraints) and applies here in full. Key points: every task goes Antora spec (behavior, constraints, acceptance criteria) → GitHub issue linking the spec → labels for type, `area:*` and `status:ready` → tests with the expected failure observed (RED) → implementation, passing checks and a PR linked to the issue with a closing keyword (`Closes #N`), with evidence recorded in the issue. Never implement undocumented or untracked behavior; never claim Android support from desktop-only tests; do not add payment integrations or pick a license (`LICENSE.draft.md` is a draft, not in force).
 
 ## Build and test
 
