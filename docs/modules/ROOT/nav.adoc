@@ -17,3 +17,4 @@
 ** xref:sketch-model.adoc[Sketch model contract]
 ** xref:document-commands.adoc[Document commands and Undo/Redo]
 ** xref:sketch-viewport.adoc[Sketch viewport and tools]
+** xref:constraint-solver.adoc[Constraints and solver]

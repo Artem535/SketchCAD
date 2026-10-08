@@ -112,6 +112,8 @@ Constraint IDs и решение общей модели Ceres.
 === Verification
 RED для каждого типа; GREEN с независимым residual oracle, mixed geometry и degenerate inputs; CTest core.
 
+Контракт, матрица поддерживаемых пар и tolerance policy: xref:constraint-solver.adoc[].
+
 [[s02]]
 == S02: Implement editable driving dimensions
 

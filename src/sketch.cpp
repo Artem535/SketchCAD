@@ -22,6 +22,13 @@ bool valid_arc(double radius, double start, double sweep) {
 EntityId higher_watermark(EntityId a, EntityId b) {
   return a == 0 || b == 0 ? 0 : std::max(a, b);
 }
+// Center point and radius of a circle or arc.
+std::pair<EntityId, double> curve_of(const Entity& entity) {
+  if (const auto* c = std::get_if<SketchCircle>(&entity))
+    return {c->center, c->radius};
+  const auto& a = std::get<SketchArc>(entity);
+  return {a.center, a.radius};
+}
 bool references_point(const Entity& entity, EntityId id) {
   return std::visit(
       [id](const auto& value) {
@@ -40,13 +47,16 @@ bool references_point(const Entity& entity, EntityId id) {
 Sketch& Sketch::operator=(const Sketch& other) {
   if (this == &other) return *this;
   auto candidate = other.entities_;
+  auto constraints = other.constraints_;
   entities_.swap(candidate);
+  constraints_.swap(constraints);
   next_id_ = higher_watermark(next_id_, other.next_id_);
   return *this;
 }
 Sketch& Sketch::operator=(Sketch&& other) {
   if (this == &other) return *this;
   entities_ = std::move(other.entities_);
+  constraints_ = std::move(other.constraints_);
   next_id_ = higher_watermark(next_id_, other.next_id_);
   return *this;
 }
@@ -55,12 +65,17 @@ bool Sketch::is_point(EntityId id) const {
   return it != entities_.end() &&
          std::holds_alternative<SketchPoint>(it->second);
 }
-std::optional<EntityId> Sketch::insert(Entity entity) {
+std::optional<EntityId> Sketch::allocate() {
   if (next_id_ == 0) return std::nullopt;
   const EntityId id = next_id_;
-  std::visit([id](auto& value) { value.id = id; }, entity);
-  entities_.emplace(id, std::move(entity));
   next_id_ = id == std::numeric_limits<EntityId>::max() ? 0 : id + 1;
+  return id;
+}
+std::optional<EntityId> Sketch::insert(Entity entity) {
+  const auto id = allocate();
+  if (!id) return std::nullopt;
+  std::visit([id](auto& value) { value.id = *id; }, entity);
+  entities_.emplace(*id, std::move(entity));
   return id;
 }
 std::optional<EntityId> Sketch::create_point(Position p, bool construction) {
@@ -135,8 +150,9 @@ bool Sketch::set_construction(EntityId id, bool construction) {
   return true;
 }
 bool Sketch::erase(EntityId id) {
+  if (constraints_.erase(id)) return true;
   auto it = entities_.find(id);
-  if (it == entities_.end()) return false;
+  if (it == entities_.end() || !constraints_of(id).empty()) return false;
   if (std::holds_alternative<SketchPoint>(it->second)) {
     for (const auto& [other_id, entity] : entities_)
       if (references_point(entity, id)) return false;
@@ -186,5 +202,89 @@ std::optional<Polyline> Sketch::create_rectangle(Position origin, double width,
   const std::array<Position, 4> positions{
       {origin, {right, origin.y}, {right, top}, {origin.x, top}}};
   return create_polyline(positions, true, construction);
+}
+
+std::optional<EntityId> Sketch::add_constraint(ConstraintKind kind,
+                                               EntityId first,
+                                               EntityId second) {
+  const auto get = [&](EntityId id) -> const Entity* {
+    auto it = entities_.find(id);
+    return it == entities_.end() ? nullptr : &it->second;
+  };
+  const auto point = [&](EntityId id) {
+    const Entity* e = get(id);
+    return e && std::holds_alternative<SketchPoint>(*e);
+  };
+  const auto line = [&](EntityId id) {
+    const Entity* e = get(id);
+    return e && std::holds_alternative<SketchLine>(*e);
+  };
+  const auto curve = [&](EntityId id) {
+    const Entity* e = get(id);
+    return e && (std::holds_alternative<SketchCircle>(*e) ||
+                 std::holds_alternative<SketchArc>(*e));
+  };
+  const bool pair = second != 0 && first != second;
+  Constraint c{0, kind, first, second};
+  switch (kind) {
+    case ConstraintKind::kCoincident:
+      if (!pair || !point(first) || !point(second)) return std::nullopt;
+      break;
+    case ConstraintKind::kHorizontal:
+    case ConstraintKind::kVertical:
+      if (!(second == 0 && line(first)) &&
+          !(pair && point(first) && point(second)))
+        return std::nullopt;
+      break;
+    case ConstraintKind::kParallel:
+    case ConstraintKind::kPerpendicular:
+      if (!pair || !line(first) || !line(second)) return std::nullopt;
+      break;
+    case ConstraintKind::kTangent:
+      if (!pair) return std::nullopt;
+      if (curve(first) && line(second)) std::swap(c.first, c.second);
+      if (line(c.first) && curve(c.second)) break;
+      if (!curve(first) || !curve(second)) return std::nullopt;
+      {
+        // Internal or external contact, whichever is closer now.
+        const auto [c1, r1] = curve_of(*get(first));
+        const auto [c2, r2] = curve_of(*get(second));
+        const Position a = std::get<SketchPoint>(*get(c1)).position;
+        const Position b = std::get<SketchPoint>(*get(c2)).position;
+        const double d = std::hypot(a.x - b.x, a.y - b.y);
+        c.internal = std::abs(d - std::abs(r1 - r2)) < std::abs(d - (r1 + r2));
+      }
+      break;
+    case ConstraintKind::kEqual:
+      if (!pair || !((line(first) && line(second)) ||
+                     (curve(first) && curve(second))))
+        return std::nullopt;
+      break;
+    case ConstraintKind::kFix:
+      if (second != 0 || !point(first)) return std::nullopt;
+      c.target = std::get<SketchPoint>(*get(first)).position;
+      break;
+    default:
+      return std::nullopt;
+  }
+  const auto id = allocate();
+  if (!id) return std::nullopt;
+  c.id = *id;
+  constraints_.emplace(*id, c);
+  return id;
+}
+std::optional<Constraint> Sketch::constraint(EntityId id) const {
+  auto it = constraints_.find(id);
+  if (it == constraints_.end()) return std::nullopt;
+  return it->second;
+}
+std::vector<EntityId> Sketch::constraints_of(EntityId entity) const {
+  std::vector<EntityId> ids;
+  for (const auto& [id, c] : constraints_)
+    if (c.first == entity || c.second == entity) ids.push_back(id);
+  return ids;
+}
+bool Sketch::operator==(const Sketch& other) const {
+  return entities_ == other.entities_ && constraints_ == other.constraints_;
 }
 }  // namespace sketchcad
