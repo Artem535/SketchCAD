@@ -107,6 +107,8 @@ class QmlTest : public QObject {
     open(engine, controller);
     const Palette light{"#f4f6f9", "#ffffff", "#f7f9fb", "#dbe9fb"};
     const Palette dark{"#12191f", "#1c262f", "#161e25", "#1f3b57"};
+    // The start theme follows the platform; force a known one.
+    window_->setProperty("darkTheme", false);
     expect_palette(light);
 
     for (const char* mode : {"mode_part", "mode_assembly", "mode_drawing"}) {
@@ -128,6 +130,7 @@ class QmlTest : public QObject {
     QCOMPARE(color_of("dofStatus_background"), QColor("#dbe9fb"));
     tap(controller, 10, 60);
     click(item("action_fix"));
+    QTest::keyClick(window_, Qt::Key_Escape);
     tap(controller, 60, 60);
     click(item("action_fix"));
     QTRY_COMPARE(controller.dof(), 0);
@@ -140,6 +143,8 @@ class QmlTest : public QObject {
     tap(controller, 35, 60);
     click(item("constraintsToggle"));
     QTRY_VERIFY(shown("inspector"));
+    QTRY_COMPARE(item("inspector")->x() + item("inspector")->width(),
+                 window_->width() - 8.0);  // Slide-in finished.
     QCOMPARE(color_of("inspector"), QColor("#ffffff"));
     QTRY_COMPARE(text_of("inspectorTitle"), QString("Линия"));
     QCOMPARE(text_of("property_0"), QString("Длина"));
@@ -149,10 +154,6 @@ class QmlTest : public QObject {
                                        "/sketch_u05_light.png"));
 
     // A rejected command shows an error toast.
-    QVERIFY(controller.apply("length") != 0);
-    QTRY_VERIFY(shown("dimensionEditor"));
-    click(item("cancelDimension"));
-    QTRY_VERIFY(!shown("dimensionEditor"));
     QCOMPARE(controller.apply("vertical"), 0ull);  // Both ends are fixed.
     QCOMPARE(controller.message(), QString("conflict"));
     QTRY_VERIFY(shown("toast"));
@@ -321,6 +322,8 @@ class QmlTest : public QObject {
 
     click(item("constraintsToggle"));
     QTRY_VERIFY(shown("inspector"));
+    QTRY_COMPARE(item("inspector")->x() + item("inspector")->width(),
+                 window_->width() - 8.0);  // Slide-in finished.
     click(item("deleteConstraint_0"));
     QCOMPARE(controller.constraints().size(), 1);
 

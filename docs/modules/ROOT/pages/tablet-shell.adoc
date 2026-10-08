@@ -1,7 +1,7 @@
 = U05: Tablet shell and theme from the mockup
 :toc:
 
-Requirement: S01-UI. Depends on U01 (xref:sketch-viewport.adoc[]), U02 (xref:constraint-ui.adoc[]), U03
+Issue: https://github.com/Artem535/SketchCAD/issues/33[#33]. Requirement: S01-UI. Depends on U01 (xref:sketch-viewport.adoc[]), U02 (xref:constraint-ui.adoc[]), U03
 (xref:constrained-drag.adoc[]). Reference: `design/sketchcad-tablet.html` (1280×800 dp landscape) and
 xref:adr-0002-tablet-ui.adoc[ADR-0002].
 
@@ -14,7 +14,8 @@ not exist yet (point, construction, trim, dimension tool: U04), constraint glyph
 choice (no settings storage before F01), device checks (P01).
 
 == Theme
-* `app/Theme.qml` is a QML singleton holding the mockup colour tokens for both themes, verbatim from the mockup CSS:
+* `app/Theme.qml` holds the mockup colour tokens for both themes, verbatim from the mockup CSS; one instance lives in
+  `Main.qml`, is passed to the panels and is exposed as the window property `darkTheme`:
 +
 [cols="1,1,1"]
 |===
@@ -76,8 +77,9 @@ choice (no settings storage before F01), device checks (P01).
   violated entries marked with `err`; tap selects (highlight), as in U02.
 * *Dimension editor* keypad card anchored bottom right (right 12, bottom 12, 372 dp, radius 24): value 34 px,
   4-column key grid, keys 56 dp radius 16 on `surface2`, Apply key `primary`/`onPrimary`. Object names from U02 kept.
-* *Toast* (`toast`) at top centre: messages (U02 keys) appear as a toast for 2.6 s; error keys use `err` background with
-  white text, the rest `ink` background with `surface` text. The status line of U01/U02 is removed.
+* *Toast* (`toast`) at top centre: messages (U02 keys, all of them errors) appear as a toast for 2.6 s on the `err`
+  background; text is white in the light theme and `errContainer` in the dark one (white on the pale dark `err` is
+  unreadable; the mockup has that defect). The status line of U01/U02 is removed.
 
 == Controller additions
 * `selection_properties`: list of `{label, value, unit}` for the selection, values formatted like dimension labels:
@@ -85,6 +87,7 @@ choice (no settings storage before F01), device checks (P01).
   two entities → empty list. Empty selection → Объектов, Ограничений, DOF.
 * `selection_title`: the inspector title above.
 * `fixed_path`: points with a `kFix` constraint, drawn as filled `primary` handles (fixed handle in the mockup).
+* `grid_step`: the current snap grid step in mm for the status strip.
 
 == Acceptance / test cases
 Qt (`sketch_controller_test`): `selection_properties` and `selection_title` for empty, point, line (length and angle),
@@ -92,7 +95,9 @@ circle, arc and two-entity selections; `fixed_path` set after `fix` and cleared 
 
 QML (`qml_test`, offscreen, real clicks):
 
-* Light theme by default offscreen: window background, canvas, app bar and rail colours equal the light tokens;
+* With the theme forced to light through the window's `darkTheme` property (the start theme follows the platform,
+  which differs between hosts): window background, canvas, app bar, rail, zoom control, status strip and the selected
+  mode segment equal the light tokens;
   no item uses Material's purple default (the app bar colour is `surface`).
 * Overflow menu → "Тёмная тема": the same items switch to the dark tokens; toggling back restores light.
 * Mode switch: "Эскиз" selected, the three 1.0 modes disabled.
@@ -106,3 +111,33 @@ QML (`qml_test`, offscreen, real clicks):
   compared manually with the mockup; differences are listed in the execution record.
 
 Runtime on Android, RU/EN layout and portrait are not claimed.
+
+== Implementation notes
+* No QML singleton: a `qmldir` would be needed in both resource bundles (app and `qml_test`); a single `Theme` instance
+  passed as a required property is simpler and keeps the panels testable.
+* The context bar is centred in the free space between the rail and the zoom control, so it never covers the zoom
+  control while the inspector is open; the status strip hides when the context bar would overlap it.
+* `ConstraintPanel.qml` is removed; its list moved into `Inspector.qml` with the same object names. The U02 QML test
+  now waits for the inspector to be `inspector` and fully slid in before clicking.
+* Light theme in the mockup uses shadows; the panels use a 1 px `line` border in light and no border in dark instead
+  (Qt Quick has no cheap box shadow without Qt5Compat/MultiEffect).
+
+== Execution record
+Environment: Ubuntu 26.04 (Wayland host, dark system scheme), GCC 15.2, Qt 6.10.2; build directory `build/ubuntu`.
+Baseline: 119/119 CTest checks on `main` after U03.
+
+RED (`build/issue33-red.log`): `sketch_controller_test` (inspector rows/title and fixed handles were stubs) and
+`qml_test` (no theme tokens, mode switch or inspector) failed; 117/119 passed.
+During GREEN, test defects fixed in the test without changing expectations:
+the offscreen platform reported the host's dark scheme, so "light by default offscreen" was wrong and the test now forces
+the start theme through `darkTheme` (spec updated); the second `fix` tapped a point while the first was still selected
+(two points selected, `fix` not offered) — Escape added between; the toast step called `controller.apply("length")`,
+which does not open the QML editor — the editor step was removed; one click landed during the inspector slide-in.
+The first object-count expectation (8) in the controller test was a counting mistake (arcs have no endpoint points: 7),
+fixed before RED was recorded.
+GREEN: Release 119/119 (`build/issue33-green.log`); Debug `-Wall -Wextra -Werror -fsanitize=address,undefined` 119/119.
+Screenshots `sketch_u05_light.png` and `sketch_u05_dark.png` inspected against the mockup. Remaining differences:
+no shadows (borders instead), tools of U04 absent from the rail, no hamburger/projects menu (F01), constraint glyphs in
+the inspector are the first letter of the kind instead of icons, dimension labels are mockup pills without
+extension lines (U06).
+Not claimed: Android, RU/EN, portrait.

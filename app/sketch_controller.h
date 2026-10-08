@@ -39,6 +39,8 @@ class SketchController : public QObject {
   Q_PROPERTY(bool in_progress READ in_progress NOTIFY changed)
   Q_PROPERTY(QString message READ message NOTIFY changed)
   Q_PROPERTY(double scale READ scale NOTIFY changed)
+  // Current snap grid step in mm (depends on zoom).
+  Q_PROPERTY(double grid_step READ grid_step NOTIFY changed)
   // {id, kind, value}; lengths in mm, angles in degrees.
   Q_PROPERTY(QVariantList dimensions READ dimensions NOTIFY changed)
   // Constraint and dimension keys valid for the current selection.
@@ -92,6 +94,7 @@ class SketchController : public QObject {
   // Translation key of the last rejected action, empty when none.
   QString message() const { return message_; }
   double scale() const { return view_.scale(); }
+  double grid_step() const { return session_.snap_settings().grid_step_mm; }
   QVariantList dimensions() const;
   QStringList applicable() const;
   QVariantList constraints() const;
