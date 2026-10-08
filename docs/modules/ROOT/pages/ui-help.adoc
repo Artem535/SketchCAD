@@ -53,3 +53,21 @@ QML (`qml_test`, real clicks offscreen):
 * Existing scenarios keep passing; a screenshot `sketch_u07_help.png` with the popup open is saved and inspected.
 
 Desktop only; RU/EN and Android are not claimed.
+
+== Implementation notes
+* Test hooks on the window: `helpKeys`, `helpTitles` (key → title) and `helpHint(key)`.
+* Tooltips open after 600 ms. Without a delay the tooltip of a just-clicked rail button opened at once over the canvas
+  and swallowed the next taps (found by the existing U01–U03 QML scenarios).
+* The help list uses a `Repeater` in a `Flickable` (all entries instantiated) rather than a `ListView`.
+* Marked constraint rows show "Избыточно · …" or "Конфликт · …" as their second line and a red "?" button instead of a
+  text badge, so the constraint name is not truncated.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; build directory `build/ubuntu`. Baseline: 127/127 on `main` after U06.
+
+RED (`build/issue37-red.log`): the new `qml_test` scenario `term_help` failed (no help keys); 126/127 passed.
+During GREEN, immediate tooltips broke four existing QML scenarios (taps landed on a tooltip); fixed in the app with a
+600 ms delay, no test changed. GREEN: Release 127/127 (`build/issue37-green.log`); Debug
+`-Wall -Wextra -Werror -fsanitize=address,undefined` 127/127.
+Screenshot `sketch_u07_help.png` (redundant-constraint help over the inspector) inspected.
+The help texts are the author's plain-language wording; they were not reviewed by the user yet. Desktop only.

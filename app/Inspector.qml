@@ -9,6 +9,8 @@ Rectangle {
     required property var controller
     required property var theme
     required property var labelOf
+    required property var help
+    required property var helpPopup
     property bool open: false
 
     width: 324
@@ -119,7 +121,23 @@ Rectangle {
             }
         }
 
-        SectionTitle { text: qsTr("Ограничения") }
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 6
+            SectionTitle {
+                text: qsTr("Ограничения")
+                Layout.topMargin: 0
+                Layout.bottomMargin: 0
+            }
+            Item { Layout.fillWidth: true }
+            ToolButton {
+                objectName: "help_constraints"
+                icon.source: "qrc:/icons/help.svg"
+                icon.color: panel.theme.muted
+                onClicked: panel.helpPopup.showList(qsTr("Ограничения и размеры"),
+                                                    ["constraint", "dimension"])
+            }
+        }
         Label {
             visible: list.count === 0
             text: qsTr("Нет ограничений. Выберите объекты и нажмите действие внизу.")
@@ -141,9 +159,10 @@ Rectangle {
                 required property var modelData
                 required property int index
                 readonly property bool bad: modelData.dependent || modelData.violated
+                readonly property string state: modelData.violated ? "conflict" : "redundant"
                 objectName: "constraint_" + index
                 width: ListView.view.width
-                height: 48
+                height: 56
                 leftPadding: 0
                 rightPadding: 0
                 highlighted: panel.controller.selected_constraint === modelData.id
@@ -168,22 +187,42 @@ Rectangle {
                             font.weight: Font.Medium
                         }
                     }
-                    Label {
-                        text: panel.labelOf(row.modelData.kind)
-                              + (row.modelData.value !== undefined
-                                 ? " · " + Number(row.modelData.value.toFixed(3))
-                                   + (row.modelData.kind === "angle" ? "°" : qsTr(" мм"))
-                                 : "")
-                        font.pixelSize: 14
-                        color: panel.theme.ink
-                        elide: Text.ElideRight
+                    ColumnLayout {
+                        spacing: 0
                         Layout.fillWidth: true
+                        Label {
+                            text: panel.labelOf(row.modelData.kind)
+                                  + (row.modelData.value !== undefined
+                                     ? " · " + Number(row.modelData.value.toFixed(3))
+                                       + (row.modelData.kind === "angle" ? "°" : qsTr(" мм"))
+                                     : "")
+                            font.pixelSize: 14
+                            color: panel.theme.ink
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            objectName: "constraintHint_" + row.index
+                            // A marked row says why instead of what.
+                            text: row.bad
+                                  ? panel.help.title(row.state) + " · " + panel.help.hint(row.state)
+                                  : panel.help.hint(row.modelData.kind)
+                            font.pixelSize: 12
+                            color: row.bad ? panel.theme.err : panel.theme.muted
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
                     }
-                    Label {
+                    Button {
+                        id: badge
+                        objectName: "constraintBadge_" + row.index
                         visible: row.bad
-                        text: row.modelData.violated ? qsTr("конфликт") : qsTr("избыточно")
-                        color: panel.theme.err
-                        font.pixelSize: 12
+                        flat: true
+                        icon.source: "qrc:/icons/help.svg"
+                        icon.color: panel.theme.err
+                        implicitWidth: 48
+                        implicitHeight: 48
+                        onClicked: panel.helpPopup.show(row.state)
                     }
                     ToolButton {
                         objectName: "deleteConstraint_" + row.index

@@ -7,6 +7,7 @@ Popup {
     id: editor
     required property var controller
     required property var theme
+    required property var helpPopup
     // Turns a controller message key into visible text.
     required property var describe
 
@@ -85,20 +86,30 @@ Popup {
             event.accepted = true
         }
 
-        Label {
-            text: {
-                switch (editor.kind) {
-                case "length": return qsTr("Длина")
-                case "distance": return qsTr("Расстояние")
-                case "angle": return qsTr("Угол")
-                case "radius": return qsTr("Радиус")
-                }
-                return qsTr("Размер")
-            }
-            font.pixelSize: 13
-            color: editor.theme.muted
+        RowLayout {
+            Layout.fillWidth: true
             Layout.leftMargin: 10
-            Layout.topMargin: 4
+            Label {
+                text: {
+                    switch (editor.kind) {
+                    case "length": return qsTr("Длина")
+                    case "distance": return qsTr("Расстояние")
+                    case "angle": return qsTr("Угол")
+                    case "radius": return qsTr("Радиус")
+                    }
+                    return qsTr("Размер")
+                }
+                font.pixelSize: 13
+                color: editor.theme.muted
+                Layout.fillWidth: true
+            }
+            ToolButton {
+                objectName: "help_dimension"
+                icon.source: "qrc:/icons/help.svg"
+                icon.color: editor.theme.muted
+                focusPolicy: Qt.NoFocus
+                onClicked: editor.helpPopup.show(editor.kind)
+            }
         }
         RowLayout {
             Layout.fillWidth: true
