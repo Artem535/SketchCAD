@@ -74,6 +74,8 @@ class ToolSession {
   };
 
   SnapResult snapped(Position, std::optional<EntityId> exclude = {}) const;
+  void place(const SnapResult&);
+  void preview_dimension(ConstraintKind kind, EntityId id);
   void add_vertex(const SnapResult&);
   bool commit_polyline(bool closed);
   void update_preview(std::optional<Position> cursor);

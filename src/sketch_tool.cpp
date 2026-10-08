@@ -1,7 +1,10 @@
 #include "sketchcad/sketch_tool.h"
 
+#include "sketchcad/diagnostics.h"
 #include "sketchcad/drag.h"
+#include "sketchcad/solver.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
@@ -21,6 +24,25 @@ double ccw_sweep(double from, double to) {
   double sweep = std::fmod(to - from, kTwoPi);
   if (sweep < 0) sweep += kTwoPi;
   return sweep;
+}
+
+// Adds driving dimensions at their measured values, skipping any that the
+// diagnosis lists as dependent (redundant) or cannot judge.
+void add_auto_dimensions(
+    Sketch& sk, const std::vector<std::pair<ConstraintKind, EntityId>>& dims) {
+  for (const auto& [kind, id] : dims) {
+    const auto value = measure(sk, kind, id);
+    if (!value) continue;
+    Sketch trial = sk;
+    const auto added = trial.add_dimension(kind, id, 0, *value);
+    if (!added) continue;
+    const Diagnosis d = diagnose(trial);
+    if (d.status == DiagnosisStatus::kUnknown ||
+        std::find(d.dependent.begin(), d.dependent.end(), *added) !=
+            d.dependent.end())
+      continue;
+    sk = std::move(trial);
+  }
 }
 
 // Reuses a snapped point that still exists, otherwise creates one.
@@ -46,6 +68,7 @@ SnapResult ToolSession::snapped(Position p,
 
 void ToolSession::hover(Position p) {
   last_snap_ = snapped(p);
+  hover_ = last_snap_->position;
   update_preview(last_snap_->position);
 }
 
@@ -68,6 +91,12 @@ void ToolSession::press(Position p) {
   }
   const SnapResult s = snapped(p);
   last_snap_ = s;
+  hover_ = s.position;
+  place(s);
+}
+
+// One drawing step at `s`, from a tap or from an entered value.
+void ToolSession::place(const SnapResult& s) {
   // Exact match without snapping, snap tolerance with it.
   const double near =
       snap_settings_.enabled ? snap_settings_.point_tolerance_mm : 0;
@@ -83,7 +112,11 @@ void ToolSession::press(Position p) {
         document_.execute("Line", [&](Sketch& sk) {
           auto a = vertex_point(sk, start.position, start.point);
           auto b = vertex_point(sk, s.position, s.point);
-          return a && b && sk.create_line(*a, *b).has_value();
+          const auto line = a && b ? sk.create_line(*a, *b) : std::nullopt;
+          if (!line) return false;
+          if (auto_dimensions_)
+            add_auto_dimensions(sk, {{ConstraintKind::kLength, *line}});
+          return true;
         }))
       vertices_.clear();
   } else if (tool_ == Tool::kPolyline) {
@@ -94,13 +127,26 @@ void ToolSession::press(Position p) {
     else if (s.position != vertices_.back().position)
       add_vertex(s);
   } else if (tool_ == Tool::kRectangle) {
-    const Position a = vertices_.front().position, b = s.position;
+    const Position a = vertices_.front().position;
+    Position b = s.position;
+    if (locked_width_) b.x = a.x + *locked_width_;
     const double w = std::abs(b.x - a.x), h = std::abs(b.y - a.y);
     if (w > 0 && h > 0 &&
         document_.execute("Rectangle", [&](Sketch& sk) {
-          return sk
-              .create_rectangle({std::min(a.x, b.x), std::min(a.y, b.y)}, w, h)
-              .has_value();
+          const auto r = sk.create_rectangle(
+              {std::min(a.x, b.x), std::min(a.y, b.y)}, w, h);
+          if (!r) return false;
+          if (auto_dimensions_) {
+            // Sides run bottom, right, top, left.
+            if (!sk.add_constraint(ConstraintKind::kHorizontal, r->lines[0]) ||
+                !sk.add_constraint(ConstraintKind::kVertical, r->lines[1]) ||
+                !sk.add_constraint(ConstraintKind::kHorizontal, r->lines[2]) ||
+                !sk.add_constraint(ConstraintKind::kVertical, r->lines[3]))
+              return false;
+            add_auto_dimensions(sk, {{ConstraintKind::kLength, r->lines[0]},
+                                     {ConstraintKind::kLength, r->lines[1]}});
+          }
+          return true;
         }))
       vertices_.clear();
   } else if (tool_ == Tool::kCircle) {
@@ -108,7 +154,11 @@ void ToolSession::press(Position p) {
     const double r = distance(center.position, s.position);
     if (r > 0 && document_.execute("Circle", [&](Sketch& sk) {
           auto c = vertex_point(sk, center.position, center.point);
-          return c && sk.create_circle(*c, r).has_value();
+          const auto circle = c ? sk.create_circle(*c, r) : std::nullopt;
+          if (!circle) return false;
+          if (auto_dimensions_)
+            add_auto_dimensions(sk, {{ConstraintKind::kRadius, *circle}});
+          return true;
         }))
       vertices_.clear();
   } else if (tool_ == Tool::kArc) {
@@ -124,8 +174,13 @@ void ToolSession::press(Position p) {
           sweep < kTwoPi - kMinSweep &&
           document_.execute("Arc", [&](Sketch& sk) {
             auto id = vertex_point(sk, c, center.point);
-            return id &&
-                   sk.create_arc(*id, distance(c, a), start, sweep).has_value();
+            const auto arc =
+                id ? sk.create_arc(*id, distance(c, a), start, sweep)
+                   : std::nullopt;
+            if (!arc) return false;
+            if (auto_dimensions_)
+              add_auto_dimensions(sk, {{ConstraintKind::kRadius, *arc}});
+            return true;
           }))
         vertices_.clear();
     }
@@ -244,15 +299,25 @@ bool ToolSession::commit_polyline(bool closed) {
       ids.push_back(*id);
     }
     if (closed) ids.push_back(ids.front());
-    for (std::size_t i = 1; i < ids.size(); ++i)
-      if (!sk.create_line(ids[i - 1], ids[i])) return false;
+    std::vector<std::pair<ConstraintKind, EntityId>> dims;
+    for (std::size_t i = 1; i < ids.size(); ++i) {
+      const auto line = sk.create_line(ids[i - 1], ids[i]);
+      if (!line) return false;
+      dims.push_back({ConstraintKind::kLength, *line});
+    }
+    if (auto_dimensions_) add_auto_dimensions(sk, dims);
     return true;
   });
 }
 
 void ToolSession::update_preview(std::optional<Position> cursor) {
   preview_ = Sketch();
-  if (vertices_.empty()) return;
+  if (vertices_.empty()) {
+    locked_width_.reset();
+    return;
+  }
+  if (cursor && tool_ == Tool::kRectangle && locked_width_)
+    cursor->x = vertices_.front().position.x + *locked_width_;
   std::vector<Position> chain;
   for (const Vertex& v : vertices_) chain.push_back(v.position);
   if (cursor) chain.push_back(*cursor);
@@ -261,32 +326,45 @@ void ToolSession::update_preview(std::optional<Position> cursor) {
   const Position first = chain.front(), last = chain.back();
   switch (tool_) {
     case Tool::kLine:
-    case Tool::kPolyline:
+    case Tool::kPolyline: {
+      std::optional<EntityId> current;
       for (std::size_t i = 1; i < points.size(); ++i)
         if (chain[i - 1] != chain[i])
-          preview_.create_line(points[i - 1], points[i]);
+          current = preview_.create_line(points[i - 1], points[i]);
+      // Live dimension of the segment being drawn.
+      if (current && cursor) preview_dimension(ConstraintKind::kLength, *current);
       break;
+    }
     case Tool::kRectangle:
       if (cursor) {
         preview_ = Sketch();
-        preview_.create_rectangle({std::min(first.x, last.x),
-                                   std::min(first.y, last.y)},
-                                  std::abs(last.x - first.x),
-                                  std::abs(last.y - first.y));
+        const auto r = preview_.create_rectangle(
+            {std::min(first.x, last.x), std::min(first.y, last.y)},
+            std::abs(last.x - first.x), std::abs(last.y - first.y));
+        if (r) {
+          preview_dimension(ConstraintKind::kLength, r->lines[0]);
+          preview_dimension(ConstraintKind::kLength, r->lines[1]);
+        }
       }
       break;
     case Tool::kCircle:
-      if (cursor) preview_.create_circle(points.front(), distance(first, last));
+      if (cursor)
+        if (const auto c =
+                preview_.create_circle(points.front(), distance(first, last)))
+          preview_dimension(ConstraintKind::kRadius, *c);
       break;
     case Tool::kArc:
       if (chain.size() == 2) {
-        preview_.create_line(points[0], points[1]);
+        if (const auto l = preview_.create_line(points[0], points[1]))
+          preview_dimension(ConstraintKind::kLength, *l);
       } else if (chain.size() >= 3) {
         const Position a = chain[1];
         const double start = std::atan2(a.y - first.y, a.x - first.x);
-        preview_.create_arc(
-            points.front(), distance(first, a), start,
-            ccw_sweep(start, std::atan2(last.y - first.y, last.x - first.x)));
+        if (const auto arc = preview_.create_arc(
+                points.front(), distance(first, a), start,
+                ccw_sweep(start,
+                          std::atan2(last.y - first.y, last.x - first.x))))
+          preview_dimension(ConstraintKind::kRadius, *arc);
       }
       break;
     case Tool::kSelect:
@@ -298,9 +376,74 @@ void ToolSession::drop_stale_selection() {
   std::erase_if(selected_,
                 [&](EntityId id) { return !document_.sketch().entity(id); });
 }
-InputField ToolSession::input_field() const { return InputField::kNone; }
+void ToolSession::preview_dimension(ConstraintKind kind, EntityId id) {
+  if (const auto value = measure(preview_, kind, id))
+    preview_.add_dimension(kind, id, 0, *value);
+}
 
-double ToolSession::input_value() const { return 0; }
+InputField ToolSession::input_field() const {
+  if (vertices_.empty()) return InputField::kNone;
+  switch (tool_) {
+    case Tool::kLine:
+    case Tool::kPolyline:
+      return InputField::kLength;
+    case Tool::kRectangle:
+      return locked_width_ ? InputField::kHeight : InputField::kWidth;
+    case Tool::kCircle:
+      return InputField::kRadius;
+    case Tool::kArc:
+      return vertices_.size() == 1 ? InputField::kRadius : InputField::kNone;
+    case Tool::kSelect:
+      break;
+  }
+  return InputField::kNone;
+}
 
-bool ToolSession::enter_value(double) { return false; }
+double ToolSession::input_value() const {
+  if (vertices_.empty() || !hover_) return 0;
+  const Position from = vertices_.back().position;
+  switch (input_field()) {
+    case InputField::kLength:
+    case InputField::kRadius:
+      return distance(from, *hover_);
+    case InputField::kWidth:
+      return std::abs(hover_->x - vertices_.front().position.x);
+    case InputField::kHeight:
+      return std::abs(hover_->y - vertices_.front().position.y);
+    case InputField::kNone:
+      break;
+  }
+  return 0;
+}
+
+bool ToolSession::enter_value(double value) {
+  const InputField field = input_field();
+  if (field == InputField::kNone || !std::isfinite(value) || value <= 0)
+    return false;
+  const Position from = vertices_.back().position;
+  const Position toward = hover_.value_or(Position{from.x + 1, from.y});
+  const auto sign = [](double d) { return d < 0 ? -1.0 : 1.0; };
+  if (field == InputField::kWidth) {
+    locked_width_ = sign(toward.x - from.x) * value;
+    update_preview(hover_);
+    return true;
+  }
+  Position target;
+  if (field == InputField::kHeight) {
+    const Position a = vertices_.front().position;
+    target = {a.x + *locked_width_, a.y + sign(toward.y - a.y) * value};
+  } else {
+    // Length or radius: along the direction to the hover, +X if none.
+    const double d = distance(from, toward);
+    const Position u = d > 0 ? Position{(toward.x - from.x) / d,
+                                        (toward.y - from.y) / d}
+                             : Position{1, 0};
+    target = {from.x + u.x * value, from.y + u.y * value};
+  }
+  const std::size_t before = vertices_.size();
+  const auto revision = document_.revision();
+  place({target, SnapKind::kNone, std::nullopt});
+  if (in_progress()) update_preview(hover_);
+  return vertices_.size() != before || document_.revision() != revision;
+}
 }  // namespace sketchcad

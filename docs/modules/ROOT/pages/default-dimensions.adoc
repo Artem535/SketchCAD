@@ -14,7 +14,7 @@ dimensions for already existing geometry, a setting that persists across session
 * While a shape is in progress, `ToolSession::preview()` carries driving dimensions at the measured values of the
   rubber band, laid out and drawn like U06 dimensions:
   line and the current polyline segment → length; rectangle → width (bottom side) and height (right side) of the
-  preview; circle → radius; arc → radius from the second tap on.
+  preview; circle → radius; arc → the length of the radius line after the centre, the radius once the start is set.
 * They live only in the preview sketch and never enter the document.
 
 == Dynamic input (core, `ToolSession`)
@@ -50,7 +50,10 @@ dimensions for already existing geometry, a setting that persists across session
   (`previewDimensionLabel_<index>`) opens the dimension editor in input mode: title from the field ("Длина", "Ширина",
   "Высота", "Радиус"), the typed digit as the first character (or the current value when tapped), Apply calls
   `enter_value`, Cancel keeps drawing. Escape in the editor closes only the editor.
-* The help (U07) gains `autodim` (Авторазмеры) and `input` (Ввод значения при рисовании) entries.
+* The help (U07) gains `autodim` (Авторазмеры) and `input` (Ввод значения при рисовании) entries (23 entries; the
+  U07 test's count changes accordingly).
+* With a mouse or a hovering stylus the rubber band holds still while the pointer is over its live dimension, and a
+  press there does not reach the drawing tool, so the label can be clicked.
 
 == Acceptance / test cases
 Core (`sketch_tool_test`):
@@ -75,3 +78,27 @@ preview label opens the editor with the current value. A screenshot `sketch_u08_
 dimension) is saved and inspected.
 
 Desktop only; Android not claimed.
+
+== Implementation notes
+* `ToolSession::press` now delegates the drawing step to `place()`, which `enter_value` reuses with an unsnapped
+  target, so typed and tapped vertices share one code path.
+* Redundancy of an automatic dimension is judged with `diagnose` on a trial copy per dimension (in shape order); it
+  costs one diagnosis per dimension at shape creation, not per frame.
+* Earlier test fixtures (`Tools`, `SketchControllerTest::make`, `QmlTest::open`) switch automatic dimensions off,
+  because their expectations (DOF counts, constraint lists) predate U08.
+* Digit shortcuts are created with an `Instantiator` (one `Shortcut` per key).
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; build directory `build/ubuntu`. Baseline: 127/127 on `main` after U07.
+
+RED (`build/issue39-red.log`): 9 checks failed against the stubs — 7 new `AutoDims` cases, `sketch_controller_test`
+and `qml_test`. `AutoDimensionsAreOnByDefault`, `OffCreatesNoConstraints` and `RedundantDimensionIsSkippedButTheShapeIsKept`
+passed against the stub (default flag in the header; no dimensions created at all), so they are meaningful only with
+the implementation. A first compile error in the new test (mixed `double`/`float` initializer) was fixed before RED.
+During GREEN (QML): the digit shortcuts in a `Repeater` and then an `Instantiator` appeared not to fire, but
+the scenario's later step was the one failing: a click on the live label also reached the drawing tool and, with a
+mouse, the hover moved the rubber band (and the label) away under the pointer. Fixed in the app (presses on a live
+label are left to it; hover holds over it); no expectation changed. The U07 help count changed from 21 to 23 by spec.
+GREEN: Release 137/137 (`build/issue39-green.log`); Debug `-Wall -Wextra -Werror -fsanitize=address,undefined` 137/137.
+Screenshot `sketch_u08_drawing.png` (a committed 40 mm line with its automatic dimension and a rubber band with its
+live dimension) inspected. Desktop only.

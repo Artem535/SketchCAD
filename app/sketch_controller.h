@@ -174,6 +174,8 @@ class SketchController : public QObject {
   void refresh_scene();
   void refresh_grid();
   void refresh_dimensions();
+  void dimension_paths(const sketchcad::Sketch& sketch, QString& lines,
+                       QString& arrows) const;
   QString curve_path(const sketchcad::Sketch& sketch,
                      const sketchcad::Entity& entity) const;
   QString marker_path(sketchcad::Position p, double radius_px) const;

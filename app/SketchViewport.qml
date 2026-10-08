@@ -11,6 +11,8 @@ Item {
     required property var theme
     // A dimension label was tapped.
     signal dimensionClicked(var id)
+    // A live dimension of the shape being drawn was tapped.
+    signal previewDimensionClicked()
     clip: true
 
     onWidthChanged: controller.set_viewport_size(width, height)
@@ -59,6 +61,21 @@ Item {
             strokeWidth: 0.5
             fillColor: root.theme.muted
             PathSvg { path: root.controller.dimension_arrows_path }
+        }
+        // Live dimensions of the shape being drawn (U08).
+        ShapePath {
+            strokeColor: root.accent
+            strokeWidth: 1
+            strokeStyle: ShapePath.DashLine
+            dashPattern: [3, 2]
+            fillColor: "transparent"
+            PathSvg { path: root.controller.preview_dimension_path }
+        }
+        ShapePath {
+            strokeColor: root.accent
+            strokeWidth: 0.5
+            fillColor: root.accent
+            PathSvg { path: root.controller.preview_dimension_arrows_path }
         }
         ShapePath {
             strokeColor: root.geometryColor
@@ -151,6 +168,49 @@ Item {
         }
     }
 
+    // True when `p` (canvas px) is on a live dimension: the drawing tool
+    // leaves such presses to the label.
+    function onLiveLabel(p) {
+        for (let i = 0; i < liveLabels.count; ++i) {
+            const label = liveLabels.itemAt(i)
+            if (label && label.contains(label.mapFromItem(root, p.x, p.y))) return true
+        }
+        return false
+    }
+
+    Repeater {
+        id: liveLabels
+        model: root.controller.preview_dimension_labels
+        delegate: Item {
+            id: live
+            required property var modelData
+            required property int index
+            readonly property real radians: modelData.angle * Math.PI / 180
+            objectName: "previewDimensionLabel_" + index
+            width: Math.max(48, liveText.implicitWidth + 16)
+            height: 48
+            x: modelData.x + Math.sin(radians) * liveText.implicitHeight / 2 - width / 2
+            y: modelData.y - Math.cos(radians) * liveText.implicitHeight / 2 - height / 2
+            rotation: modelData.angle
+            Rectangle {
+                anchors.centerIn: parent
+                width: liveText.implicitWidth + 10
+                height: liveText.implicitHeight + 2
+                radius: 4
+                color: root.theme.primaryContainer
+            }
+            Label {
+                id: liveText
+                anchors.centerIn: parent
+                text: live.modelData.text
+                color: root.accent
+                font.pixelSize: 15
+                font.weight: Font.Medium
+            }
+            TapHandler { onTapped: root.previewDimensionClicked() }
+        }
+    }
+
     // Snap indicator: ring on a point, small cross on the grid.
     Rectangle {
         objectName: "snapIndicator"
@@ -168,8 +228,10 @@ Item {
 
     HoverHandler {
         id: hover
-        onPointChanged: root.controller.hover(point.position.x,
-                                              point.position.y)
+        // The rubber band holds still over its own live dimension, so the
+        // label can be clicked instead of running away from the pointer.
+        onPointChanged: if (!root.onLiveLabel(point.position))
+                            root.controller.hover(point.position.x, point.position.y)
     }
 
     // Drives the active tool: mouse, touchpad, stylus, and touch when
@@ -178,6 +240,8 @@ Item {
         id: toolPoint
         objectName: "toolPoint"
         property point last
+        // The press started on a live dimension label (U08).
+        property bool onLabel: false
         acceptedButtons: Qt.LeftButton
         acceptedDevices: root.controller.finger_draws
                          ? PointerDevice.AllDevices
@@ -185,13 +249,16 @@ Item {
         onActiveChanged: {
             if (active) {
                 last = point.position
-                root.controller.press(last.x, last.y)
+                onLabel = root.onLiveLabel(last)
+                if (!onLabel) root.controller.press(last.x, last.y)
+            } else if (onLabel) {
+                onLabel = false
             } else {
                 root.controller.release(last.x, last.y)
             }
         }
         onPointChanged: {
-            if (!active) return
+            if (!active || onLabel) return
             last = point.position
             root.controller.drag(last.x, last.y)
         }

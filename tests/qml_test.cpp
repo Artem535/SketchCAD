@@ -155,11 +155,12 @@ class QmlTest : public QObject {
                               "equal", "fix", "length", "distance",
                               "angle", "radius"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 21);
+    QCOMPARE(keys.size(), 23);
     for (const QString& key : actions + QStringList{"constraint", "dimension",
                                                      "dof", "defined",
                                                      "redundant", "conflict",
-                                                     "snap", "finger", "modes"}) {
+                                                     "snap", "finger", "autodim",
+                                                     "input", "modes"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",
