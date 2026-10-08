@@ -356,6 +356,26 @@ class SketchControllerTest : public QObject {
     QVERIFY(!c->applicable().contains("coincident"));
     QVERIFY(c->applicable().contains("distance"));
   }
+  void drag_keeps_constraints_and_moves_tied_geometry() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    tap(c, 35, 10);
+    QVERIFY(c->apply("horizontal") != 0);
+    c->clear_selection();
+    const auto id = lines(c).front();
+    const auto l = std::get<SketchLine>(*c->document().sketch().entity(id));
+    const QPointF from = c->screen_of(10, 10), to = c->screen_of(10, 16);
+    c->press(from.x(), from.y());
+    c->drag((from.x() + to.x()) / 2, (from.y() + to.y()) / 2);
+    c->drag(to.x(), to.y());
+    c->release(to.x(), to.y());
+    const auto& s = c->document().sketch();
+    QVERIFY(std::abs(point_of(s, l.start).y - 16) < 1e-3);
+    QVERIFY(std::abs(point_of(s, l.end).y - 16) < 1e-3);
+    QVERIFY(std::abs(point_of(s, l.end).x - 60) < 1e-3);
+    QCOMPARE(c->diagnosis(), QString("consistent"));
+  }
   void unknown_tool_name_is_ignored() {
     auto* c = make();
     c->set_tool("rectangle");

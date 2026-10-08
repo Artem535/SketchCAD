@@ -4,6 +4,8 @@
 
 #include <cstddef>
 #include <numbers>
+
+#include "sketchcad/solver.h"
 using namespace sketchcad;
 namespace {
 constexpr double kPi = std::numbers::pi;
@@ -19,6 +21,11 @@ T only(const Sketch& s) {
     if (std::holds_alternative<T>(e)) return std::get<T>(e);
   ADD_FAILURE() << "entity type not found";
   return {};
+}
+EntityId only_line_id(const Sketch& s) {
+  for (const auto& [id, e] : s.entities())
+    if (std::holds_alternative<SketchLine>(e)) return id;
+  return 0;
 }
 Position point_at(const Sketch& s, EntityId id) {
   return std::get<SketchPoint>(s.entity(id).value()).position;
@@ -348,4 +355,68 @@ TEST_F(Tools, DeleteFailsAsAWholeWhenOneMemberCannotBeErased) {
   EXPECT_EQ(session.delete_selection(), DeleteResult::kPointInUse);
   EXPECT_TRUE(sketch() == before);
   EXPECT_EQ(session.selected(), (std::vector<EntityId>{t.point, end}));
+}
+TEST_F(Tools, ConstrainedDragMovesTheLineAsOneUndoStep) {
+  doc.set_commit_step(solver_step());
+  session.set_tool(Tool::kLine);
+  session.press({0, 0});
+  session.press({10, 0});
+  const SketchLine line = only<SketchLine>(sketch());
+  ASSERT_TRUE(doc.execute("Horizontal", [&](Sketch& s) {
+    return s.add_constraint(ConstraintKind::kHorizontal, only_line_id(s))
+        .has_value();
+  }));
+  session.set_tool(Tool::kSelect);
+  session.press({0, 0});
+  session.drag({0, 3});
+  session.drag({0, 6});
+  session.release({0, 6});
+  EXPECT_NEAR(point_at(sketch(), line.start).y, 6, 1e-3);
+  EXPECT_NEAR(point_at(sketch(), line.end).y, 6, 1e-3);
+  EXPECT_NEAR(point_at(sketch(), line.end).x, 10, 1e-3);
+  EXPECT_EQ(doc.undo_label(), "Move point");
+  ASSERT_TRUE(doc.undo());
+  EXPECT_EQ(point_at(sketch(), line.start), (Position{0, 0}));
+  EXPECT_EQ(point_at(sketch(), line.end), (Position{10, 0}));
+  EXPECT_EQ(doc.undo_label(), "Horizontal");
+}
+TEST_F(Tools, CancelledConstrainedDragRestoresTheStart) {
+  doc.set_commit_step(solver_step());
+  session.set_tool(Tool::kLine);
+  session.press({0, 0});
+  session.press({10, 0});
+  const SketchLine line = only<SketchLine>(sketch());
+  ASSERT_TRUE(doc.execute("Horizontal", [&](Sketch& s) {
+    return s.add_constraint(ConstraintKind::kHorizontal, only_line_id(s))
+        .has_value();
+  }));
+  const Sketch before = sketch();
+  session.set_tool(Tool::kSelect);
+  session.press({0, 0});
+  session.drag({0, 6});
+  ASSERT_NEAR(point_at(sketch(), line.end).y, 6, 1e-3);
+  EXPECT_TRUE(session.cancel());
+  session.release({0, 6});
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_EQ(doc.undo_label(), "Horizontal");
+}
+TEST_F(Tools, RejectedDragStepKeepsTheLastValidGeometry) {
+  doc.set_commit_step(solver_step());
+  session.set_tool(Tool::kLine);
+  session.press({0, 0});
+  session.press({10, 0});
+  const SketchLine line = only<SketchLine>(sketch());
+  ASSERT_TRUE(doc.execute("Horizontal", [&](Sketch& s) {
+    return s.add_constraint(ConstraintKind::kHorizontal, only_line_id(s))
+        .has_value();
+  }));
+  session.set_tool(Tool::kSelect);
+  session.press({0, 0});
+  session.drag({2, 0});
+  session.drag({10, 0});  // Would collapse the line.
+  EXPECT_NEAR(point_at(sketch(), line.start).x, 2, 1e-3);
+  session.drag({4, 0});
+  session.release({4, 0});
+  EXPECT_NEAR(point_at(sketch(), line.start).x, 4, 1e-3);
+  EXPECT_EQ(point_at(sketch(), line.end), (Position{10, 0}));
 }
