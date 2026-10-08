@@ -20,6 +20,31 @@ ApplicationWindow {
     font.pixelSize: 16
 
     Theme { id: theme }
+    Help { id: help }
+    HelpPopup { id: helpPopup; help: help; theme: theme }
+    // Test hooks: help keys, hints and titles (ui-help.adoc).
+    readonly property var helpKeys: help.keys
+    readonly property var helpTitles: {
+        const titles = {}
+        for (const key of help.keys) titles[key] = help.title(key)
+        return titles
+    }
+    function helpHint(key) { return help.hint(key) }
+
+    // The current diagnosis in plain words for the DOF help.
+    function dofState() {
+        const n = sketch.dof
+        const ways = n === 1 ? qsTr("одним способом") : qsTr("%1 способами").arg(n)
+        switch (sketch.diagnosis) {
+        case "unknown": return qsTr("Сейчас: диагностика недоступна для этой геометрии")
+        case "conflicting": return qsTr("Сейчас: конфликт — правила противоречат друг другу")
+        case "redundant":
+            return n === 0 ? qsTr("Сейчас: полностью определён, но есть лишние правила")
+                           : qsTr("Сейчас: есть лишние правила; чертёж можно сдвинуть ещё %1").arg(ways)
+        }
+        return n === 0 ? qsTr("Сейчас: полностью определён — двигать нечего")
+                       : qsTr("Сейчас: чертёж можно сдвинуть ещё %1").arg(ways)
+    }
     // Test hook and future settings: the active theme.
     property alias darkTheme: theme.dark
 
@@ -148,6 +173,11 @@ ApplicationWindow {
     component ModeButton: AbstractButton {
         id: modeButton
         property string caption
+        // Disabled buttons get no hover, so the hint uses a HoverHandler.
+        HoverHandler { id: modeHover }
+        ToolTip.visible: modeHover.hovered && !enabled
+        ToolTip.delay: 600
+        ToolTip.text: help.hint("modes")
         implicitHeight: 42
         leftPadding: 16
         rightPadding: 16
@@ -240,6 +270,7 @@ ApplicationWindow {
                 rightPadding: 14
                 onClicked: sketch.highlight_dependent()
                 ToolTip.visible: hovered
+                ToolTip.delay: 600
                 ToolTip.text: qsTr("Показать избыточные и конфликтующие ограничения")
                 contentItem: Row {
                     spacing: 8
@@ -267,11 +298,21 @@ ApplicationWindow {
                 }
             }
             IconButton {
+                objectName: "help_dof"
+                iconName: "help"
+                icon.color: theme.muted
+                onClicked: helpPopup.show("dof", window.dofState())
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: help.hint("dof")
+            }
+            IconButton {
                 objectName: "undoButton"
                 iconName: "undo"
                 enabled: sketch.can_undo
                 onClicked: sketch.undo()
                 ToolTip.visible: hovered
+                ToolTip.delay: 600
                 ToolTip.text: qsTr("Отменить")
             }
             IconButton {
@@ -280,6 +321,7 @@ ApplicationWindow {
                 enabled: sketch.can_redo
                 onClicked: sketch.redo()
                 ToolTip.visible: hovered
+                ToolTip.delay: 600
                 ToolTip.text: qsTr("Повторить")
             }
             IconButton {
@@ -364,6 +406,9 @@ ApplicationWindow {
                 objectName: "snapToggle"
                 iconName: "snap"
                 text: qsTr("Привязка")
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: help.hint("snap")
                 checked: sketch.snap_enabled
                 onToggled: sketch.snap_enabled = checked
             }
@@ -371,6 +416,9 @@ ApplicationWindow {
                 objectName: "fingerToggle"
                 iconName: "finger"
                 text: qsTr("Палец")
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: help.hint("finger")
                 checked: sketch.finger_draws
                 onToggled: sketch.finger_draws = checked
             }
@@ -388,6 +436,19 @@ ApplicationWindow {
                 text: qsTr("Связи")
                 checked: inspector.open
                 onToggled: inspector.open = checked
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Список ограничений и свойства выбранного")
+            }
+            RailButton {
+                objectName: "help_glossary"
+                iconName: "help"
+                text: qsTr("Справка")
+                checkable: false
+                onClicked: helpPopup.showList(qsTr("Справка: термины"), help.keys)
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Что означают термины и действия")
             }
             Item { Layout.fillHeight: true }
         }
@@ -424,6 +485,8 @@ ApplicationWindow {
         id: inspector
         controller: sketch
         theme: theme
+        help: help
+        helpPopup: helpPopup
         labelOf: window.labelOf
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -434,6 +497,7 @@ ApplicationWindow {
         id: editor
         controller: sketch
         theme: theme
+        helpPopup: helpPopup
         describe: window.describe
     }
 
@@ -467,7 +531,21 @@ ApplicationWindow {
                     objectName: "action_" + modelData
                     text: window.labelOf(modelData)
                     onClicked: window.applyAction(modelData)
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    ToolTip.text: help.hint(modelData)
                 }
+            }
+            Chip {
+                objectName: "help_actions"
+                visible: !sketch.in_progress && sketch.applicable.length > 0
+                icon.source: "qrc:/icons/help.svg"
+                tint: theme.muted
+                onClicked: helpPopup.showList(qsTr("Что делают эти действия"),
+                                              sketch.applicable)
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Объяснить действия")
             }
             Separator { visible: sketch.applicable.length > 0 && !sketch.in_progress }
             Chip {
@@ -577,7 +655,7 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Redo]; onActivated: sketch.redo() }
     // Disabled while the dimension editor owns the keyboard.
     Shortcut {
-        enabled: !editor.opened
+        enabled: !editor.opened && !helpPopup.opened
         sequences: ["Escape"]
         onActivated: sketch.cancel() || sketch.clear_selection()
     }

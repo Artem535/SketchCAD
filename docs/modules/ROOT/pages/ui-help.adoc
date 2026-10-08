@@ -1,0 +1,73 @@
+= U07: Explanations of terms in the UI
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/37[#37]. Requirement: S01-UI. Depends on U02 (xref:constraint-ui.adoc[]), U05 (xref:tablet-shell.adoc[]),
+U06 (xref:dimension-style.adoc[]).
+
+Origin: after U06 the user said they do not understand "DOF", "ограничение" and similar terms, and asked for buttons and
+hints next to every term in the UI. The audience knows 2D drafting (nanoCAD, ESKD) but not parametric sketching.
+
+Not in this increment: illustrations or animations in the help, a tutorial or onboarding flow, translations (R01; all
+strings use `qsTr`), renaming terms (the DOF pill text stays as in U02/U05).
+
+== Help content (`app/Help.qml`)
+* One entry per term: `{title, text}` in plain Russian, two to four sentences, with a concrete example on a line or a
+  rectangle; no unexplained jargon inside an entry.
+* Terms: `constraint` (ограничение), `dimension` (управляющий размер), `dof` (степени свободы), `defined` (полностью
+  определён), `redundant` (избыточно), `conflict` (конфликт), `snap` (привязка), `finger` (палец рисует / двигает вид),
+  `modes` (Деталь, Сборка, Чертёж — версия 1.0), and every action key of U02: `coincident`, `horizontal`, `vertical`,
+  `parallel`, `perpendicular`, `tangent`, `equal`, `fix`, `length`, `distance`, `angle`, `radius`.
+* Every entry also has a one-line `hint` used for tooltips and list subtitles.
+
+== Help popup (`app/HelpPopup.qml`)
+* A card (`helpPopup`, `surface`, radius 20, max 420 dp wide) centred over the canvas, opened by the help buttons below.
+  It shows either one entry (`helpTitle`, `helpText`) or a list of entries (`helpEntry_<key>`, each with title and
+  text), and a close button (`closeHelp`). Escape and a tap outside close it.
+* For `dof` the popup adds the current state in plain words (`helpState`): "Сейчас: можно сдвинуть ещё N способами"
+  or "Сейчас: полностью определён", "избыточно", "конфликт", "диагностика недоступна".
+
+== Help buttons and hints
+* `help_dof`: a 48 dp "?" icon button right of the DOF pill → `dof` entry with the current state.
+* `help_constraints`: "?" next to the inspector section title "Ограничения" → `constraint` and `dimension` entries.
+* `help_actions`: a "?" chip at the end of the context bar while actions are offered → the entries of the currently
+  applicable actions, in their order.
+* `help_glossary`: a rail button "Справка" (below "Связи") → all entries.
+* Inspector constraint rows show the entry's `hint` as a second line (`constraintHint_<index>`); the "избыточно" and
+  "конфликт" badges are buttons (`constraintBadge_<index>`) that open `redundant` or `conflict`.
+* The dimension editor title has a "?" (`help_dimension`) → the entry of the edited dimension kind.
+* Hover tooltips (desktop, stylus hover) with the `hint` on action chips, rail tools and toggles, and the disabled mode
+  tabs ("Появится в версии 1.0"). Touch has the help buttons; tooltips are not the only way to reach a hint.
+* Help buttons are touch targets of at least 48 dp; their icon is drawn in `muted`.
+
+== Acceptance / test cases
+QML (`qml_test`, real clicks offscreen):
+
+* `help_dof` opens the popup with title "Степени свободы (DOF)", non-empty text and a state line naming the current
+  number of free movements; `closeHelp` closes it.
+* With a line selected, `help_actions` lists exactly the applicable actions (`helpEntry_<key>` for each, no others).
+* `help_glossary` lists every term above (all 21 keys).
+* `help_constraints` opens the constraint and dimension entries; after adding `horizontal`, `constraintHint_0` is
+  non-empty; a redundant pair shows `constraintBadge_*` that opens `redundant`.
+* `help_dimension` in the dimension editor opens the entry of the edited kind.
+* Every action key has a non-empty `hint` (checked through the window property `helpKeys` and a hint lookup).
+* Existing scenarios keep passing; a screenshot `sketch_u07_help.png` with the popup open is saved and inspected.
+
+Desktop only; RU/EN and Android are not claimed.
+
+== Implementation notes
+* Test hooks on the window: `helpKeys`, `helpTitles` (key → title) and `helpHint(key)`.
+* Tooltips open after 600 ms. Without a delay the tooltip of a just-clicked rail button opened at once over the canvas
+  and swallowed the next taps (found by the existing U01–U03 QML scenarios).
+* The help list uses a `Repeater` in a `Flickable` (all entries instantiated) rather than a `ListView`.
+* Marked constraint rows show "Избыточно · …" or "Конфликт · …" as their second line and a red "?" button instead of a
+  text badge, so the constraint name is not truncated.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; build directory `build/ubuntu`. Baseline: 127/127 on `main` after U06.
+
+RED (`build/issue37-red.log`): the new `qml_test` scenario `term_help` failed (no help keys); 126/127 passed.
+During GREEN, immediate tooltips broke four existing QML scenarios (taps landed on a tooltip); fixed in the app with a
+600 ms delay, no test changed. GREEN: Release 127/127 (`build/issue37-green.log`); Debug
+`-Wall -Wextra -Werror -fsanitize=address,undefined` 127/127.
+Screenshot `sketch_u07_help.png` (redundant-constraint help over the inspector) inspected.
+The help texts are the author's plain-language wording; they were not reviewed by the user yet. Desktop only.
