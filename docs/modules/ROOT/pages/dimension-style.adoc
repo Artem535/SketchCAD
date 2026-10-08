@@ -74,3 +74,24 @@ QML (`qml_test`): existing dimension scenarios keep passing (the label still ope
 dimensioned rectangle in light and dark (`sketch_u06_light.png`, `sketch_u06_dark.png`) are saved and inspected.
 
 Desktop only; Android not claimed.
+
+== Implementation notes
+* The controller lays dimensions out once per scene refresh (also on pan and zoom) for the two path layers, and again
+  for `dimension_labels`; both use the same `layout_dimensions` call, so lines and texts cannot disagree.
+* Dimension texts get a tight `canvas`-coloured mask (85 % opacity) so the grid does not run through the digits,
+  similar to the text background mask in nanoCAD.
+* Angle and radius texts follow the same "above the line in the text's own frame" rule; for an angle the text is
+  tangent to the arc at its middle.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; build directory `build/ubuntu`. Baseline: 119/119 on `main` after U05.
+
+RED (`build/issue34-red.log`): 10 checks failed against the stub — all 8 `dimension_layout_test` cases,
+`sketch_controller_test` and `qml_test`. Six layout cases crashed instead of failing an assertion: the test helper
+`only()` dereferenced the first element of an empty result. The helper was fixed to return an empty graphic after
+the size expectation fails, and RED was re-checked against the stub: all 8 layout cases then fail on assertions
+(test output, not saved). Expectations were not changed.
+GREEN: Release 127/127 (`build/issue34-green.log`); Debug `-Wall -Wextra -Werror -fsanitize=address,undefined` 127/127.
+Screenshots `sketch_u06_light.png` and `sketch_u06_dark.png` (rectangle with width and height) inspected: extension
+lines, dimension lines with arrows, text above the line, the vertical text reading bottom to top.
+Not claimed: overlap handling between dimensions, Android, the GOST paper values (only proportions are used, ADR-0004).

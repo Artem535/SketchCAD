@@ -41,9 +41,10 @@ EntityId line(Sketch& s, Position a, Position b) {
   const EntityId q = *s.create_point(b);
   return *s.create_line(p, q);
 }
-const DimensionGraphic& only(const std::vector<DimensionGraphic>& v) {
+// The single graphic, or an empty one (failing the test) when missing.
+DimensionGraphic only(const std::vector<DimensionGraphic>& v) {
   EXPECT_EQ(v.size(), 1u);
-  return v.front();
+  return v.empty() ? DimensionGraphic{} : v.front();
 }
 }  // namespace
 
@@ -51,8 +52,7 @@ TEST(DimensionLayout, LengthOfALoneHorizontalLineGoesUp) {
   Sketch s;
   const EntityId l = line(s, {0, 0}, {50, 0});
   const EntityId id = *s.add_dimension(K::kLength, l, 0, 50);
-  const auto all = layout_dimensions(s, ViewTransform{});
-  const DimensionGraphic& g = only(all);
+  const DimensionGraphic g = only(layout_dimensions(s, ViewTransform{}));
   EXPECT_EQ(g.id, id);
   EXPECT_EQ(g.kind, K::kLength);
   EXPECT_DOUBLE_EQ(g.value, 50);

@@ -152,6 +152,7 @@ class SketchController : public QObject {
   void sync_tolerances();
   void refresh_scene();
   void refresh_grid();
+  void refresh_dimensions();
   QString curve_path(const sketchcad::Sketch& sketch,
                      const sketchcad::Entity& entity) const;
   QString marker_path(sketchcad::Position p, double radius_px) const;

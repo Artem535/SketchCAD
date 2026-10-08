@@ -47,6 +47,19 @@ Item {
             fillColor: "transparent"
             PathSvg { path: root.controller.axes_path }
         }
+        // ESKD dimension lines and arrows (ADR-0004).
+        ShapePath {
+            strokeColor: root.theme.muted
+            strokeWidth: 1
+            fillColor: "transparent"
+            PathSvg { path: root.controller.dimension_path }
+        }
+        ShapePath {
+            strokeColor: root.theme.muted
+            strokeWidth: 0.5
+            fillColor: root.theme.muted
+            PathSvg { path: root.controller.dimension_arrows_path }
+        }
         ShapePath {
             strokeColor: root.geometryColor
             strokeWidth: 2.5
@@ -100,32 +113,35 @@ Item {
         }
     }
 
-    // Driving dimension values; each is a 48 px touch target.
+    // Dimension texts above their dimension lines (ESKD), each a 48 px
+    // touch target; (x, y) is the bottom centre of the text.
     Repeater {
         model: root.controller.dimension_labels
         delegate: Item {
             id: label
             required property var modelData
             required property int index
+            readonly property real radians: modelData.angle * Math.PI / 180
             objectName: "dimensionLabel_" + index
             width: Math.max(48, text.implicitWidth + 16)
             height: 48
-            x: modelData.x - width / 2
-            y: modelData.y - height / 2
+            // Rotating about the centre equals rotating about the text's
+            // bottom centre once the centre is moved up by half the text.
+            x: modelData.x + Math.sin(radians) * text.implicitHeight / 2 - width / 2
+            y: modelData.y - Math.cos(radians) * text.implicitHeight / 2 - height / 2
+            rotation: modelData.angle
             Rectangle {
                 anchors.centerIn: parent
-                width: Math.max(text.implicitWidth + 24, 48)
-                height: 32
-                radius: 16
-                color: root.theme.surface
-                border.color: root.accent
-                border.width: 1.5
+                width: text.implicitWidth + 4
+                height: text.implicitHeight - 4
+                color: root.theme.canvas
+                opacity: 0.85
             }
             Label {
                 id: text
                 anchors.centerIn: parent
                 text: label.modelData.text
-                color: root.accent
+                color: label.modelData.bad ? root.theme.err : root.accent
                 font.pixelSize: 15
                 font.weight: Font.Medium
             }
