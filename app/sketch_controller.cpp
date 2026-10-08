@@ -742,11 +742,18 @@ QString SketchController::selection_title() const {
 
 // ESKD dimension graphics (dimension-style.adoc) as two SVG layers.
 void SketchController::refresh_dimensions() {
-  dimension_path_.clear();
-  dimension_arrows_path_.clear();
-  for (const auto& g : sketchcad::layout_dimensions(document_.sketch(), view_)) {
+  dimension_paths(document_.sketch(), dimension_path_, dimension_arrows_path_);
+  dimension_paths(session_.preview(), preview_dimension_path_,
+                  preview_dimension_arrows_path_);
+}
+
+void SketchController::dimension_paths(const Sketch& sketch, QString& lines,
+                                       QString& arrows) const {
+  lines.clear();
+  arrows.clear();
+  for (const auto& g : sketchcad::layout_dimensions(sketch, view_)) {
     for (const auto& [a, b] : g.segments)
-      dimension_path_ += move_to(a) + line_to(b);
+      lines += move_to(a) + line_to(b);
     for (const auto& arc : g.arcs) {
       // Pieces of at most half a turn; positive screen sweep is SVG
       // sweep-flag 1 (Y down).
@@ -756,18 +763,59 @@ void SketchController::refresh_dimensions() {
         return ScreenPoint{arc.center.x + arc.radius * std::cos(angle),
                            arc.center.y + arc.radius * std::sin(angle)};
       };
-      dimension_path_ += move_to(at(arc.start));
+      lines += move_to(at(arc.start));
       for (int i = 1; i <= std::max(pieces, 1); ++i) {
         const ScreenPoint p =
             at(arc.start + arc.sweep * i / std::max(pieces, 1));
-        dimension_path_ += QStringLiteral("A %1 %1 0 0 %2 %3 %4 ")
-                               .arg(num(arc.radius))
-                               .arg(arc.sweep > 0 ? 1 : 0)
-                               .arg(num(p.x), num(p.y));
+        lines += QStringLiteral("A %1 %1 0 0 %2 %3 %4 ")
+                   .arg(num(arc.radius))
+                   .arg(arc.sweep > 0 ? 1 : 0)
+                   .arg(num(p.x), num(p.y));
       }
     }
     for (const auto& a : g.arrows)
-      dimension_arrows_path_ +=
+      arrows +=
           move_to(a[0]) + line_to(a[1]) + line_to(a[2]) + QStringLiteral("Z ");
   }
+}
+
+void SketchController::set_auto_dimensions(bool enabled) {
+  if (enabled == session_.auto_dimensions()) return;
+  session_.set_auto_dimensions(enabled);
+  emit changed();
+}
+
+QString SketchController::input_field() const {
+  switch (session_.input_field()) {
+    case sketchcad::InputField::kLength: return QStringLiteral("length");
+    case sketchcad::InputField::kWidth: return QStringLiteral("width");
+    case sketchcad::InputField::kHeight: return QStringLiteral("height");
+    case sketchcad::InputField::kRadius: return QStringLiteral("radius");
+    case sketchcad::InputField::kNone: break;
+  }
+  return {};
+}
+
+double SketchController::input_value() const { return session_.input_value(); }
+
+bool SketchController::enter_value(double value) {
+  const bool ok = session_.enter_value(value);
+  message_ = ok ? QString() : QStringLiteral("invalid_value");
+  refresh_scene();
+  emit changed();
+  return ok;
+}
+
+QVariantList SketchController::preview_dimension_labels() const {
+  QVariantList list;
+  for (const auto& g : sketchcad::layout_dimensions(session_.preview(), view_)) {
+    const QString text = g.kind == sketchcad::ConstraintKind::kRadius
+                             ? QStringLiteral("R") + format_value(g.value)
+                             : format_value(g.value);
+    list.append(QVariantMap{{"x", g.text_position.x},
+                            {"y", g.text_position.y},
+                            {"angle", g.text_angle / kDegree},
+                            {"text", text}});
+  }
+  return list;
 }

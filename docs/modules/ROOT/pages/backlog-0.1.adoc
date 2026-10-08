@@ -310,6 +310,29 @@ GoogleTest на раскладку, Qt Test и снимки.
 === Verification
 Qt Test с реальными кликами offscreen, снимок окна справки.
 
+[[u08]]
+== U08: Live dimensions while drawing and automatic dimensions
+
+* Requirements: S01-DIM, S01-EDIT, S01-UI.
+* Dependencies: U01, S02, S03, U06, U07.
+* Initial status: ready.
+* Specification: xref:default-dimensions.adoc[].
+
+=== Deliverable
+Размеры резиновой линии при рисовании, ввод точного значения с клавиатуры или клавишной панели и автоматические
+управляющие размеры у новых фигур (без избыточных).
+
+=== Scope
+Добавлено по замечанию пользователя 5 после U02. Без ввода углов и координат, без авторазмеров для уже существующей
+геометрии.
+
+=== Acceptance
+Фигура и её авторазмеры — одна команда; избыточный авторазмер не ставится; введённое значение задаёт длину или радиус;
+авторазмеры отключаются.
+
+=== Verification
+GoogleTest для ToolSession, Qt Test контроллера и QML с реальным вводом, снимок рисования.
+
 [[f01]]
 == F01: Define a versioned project format and implement save/open
 

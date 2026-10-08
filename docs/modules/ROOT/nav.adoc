@@ -27,3 +27,4 @@
 ** xref:tablet-shell.adoc[Tablet shell and theme]
 ** xref:dimension-style.adoc[Dimension style]
 ** xref:ui-help.adoc[Term help]
+** xref:default-dimensions.adoc[Default dimensions]

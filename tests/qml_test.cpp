@@ -51,6 +51,8 @@ class QmlTest : public QObject {
     window_->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window_));
     QVERIFY(item("sketchCanvas"));
+    // Scenarios before U08 assume no automatic dimensions.
+    controller.set_auto_dimensions(false);
   }
   double line_length(const SketchController& c) {
     const auto& s = c.document().sketch();
@@ -101,6 +103,49 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void live_and_automatic_dimensions() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_auto_dimensions(true);
+    click(item("snapToggle"));
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    QTest::mouseMove(window_, scene_of(controller, 30, 60));
+    QCOMPARE(controller.input_field(), QString("length"));
+    QTRY_VERIFY(item("previewDimensionLabel_0"));
+    QTest::keyClick(window_, Qt::Key_4);
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QTest::keyClick(window_, Qt::Key_0);
+    QCOMPARE(text_of("dimensionValue"), QString("40"));
+    QTest::keyClick(window_, Qt::Key_Return);
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(!controller.in_progress());
+    QCOMPARE(controller.dimensions().size(), 1);
+    QVERIFY(std::abs(line_length(controller) - 40) < 1e-6);
+
+    // A tap on the live dimension opens the editor with the current value.
+    tap(controller, 10, 90);
+    QTest::mouseMove(window_, scene_of(controller, 40, 90));
+    QTRY_VERIFY(item("previewDimensionLabel_0"));
+    QTest::qWait(50);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u08_drawing.png"));
+    click(item("previewDimensionLabel_0"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QVERIFY(!text_of("dimensionValue").isEmpty());
+    click(item("cancelDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(controller.in_progress());
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QVERIFY(!controller.in_progress());
+
+    // The overflow menu turns automatic dimensions off.
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("autoDimensionsToggle"));
+    click(item("autoDimensionsToggle"));
+    QTRY_VERIFY(!controller.auto_dimensions());
+  }
   void term_help() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -110,11 +155,12 @@ class QmlTest : public QObject {
                               "equal", "fix", "length", "distance",
                               "angle", "radius"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 21);
+    QCOMPARE(keys.size(), 23);
     for (const QString& key : actions + QStringList{"constraint", "dimension",
                                                      "dof", "defined",
                                                      "redundant", "conflict",
-                                                     "snap", "finger", "modes"}) {
+                                                     "snap", "finger", "autodim",
+                                                     "input", "modes"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",

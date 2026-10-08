@@ -13,6 +13,8 @@ Popup {
 
     property var dimensionId: 0
     property string kind: ""
+    // Dynamic input (U08): the drawing field instead of a dimension.
+    property string field: ""
     property string buffer: ""
     property bool fresh: true
     property string error: ""
@@ -44,6 +46,7 @@ Popup {
         for (let i = 0; i < list.length; ++i) {
             if (list[i].id !== id) continue
             dimensionId = id
+            field = ""
             kind = list[i].kind
             buffer = format(list[i].value)
             fresh = true
@@ -51,6 +54,24 @@ Popup {
             open()
             return
         }
+    }
+
+    // Opens the editor for the value of the shape being drawn; `typed` is
+    // the first character typed on a keyboard, if any.
+    function input(name, typed) {
+        field = name
+        kind = name === "radius" ? "radius" : "length"
+        dimensionId = 0
+        error = ""
+        if (typed !== undefined && typed !== "") {
+            buffer = ""
+            fresh = false
+            press(typed)
+        } else {
+            buffer = format(controller.input_value)
+            fresh = true
+        }
+        open()
     }
 
     function press(key) {
@@ -68,7 +89,9 @@ Popup {
             error = describe("invalid_value")
             return
         }
-        if (controller.set_dimension(dimensionId, value)) close()
+        const ok = field !== "" ? controller.enter_value(value)
+                                : controller.set_dimension(dimensionId, value)
+        if (ok) close()
         else error = describe(controller.message)
     }
 
@@ -91,6 +114,8 @@ Popup {
             Layout.leftMargin: 10
             Label {
                 text: {
+                    if (editor.field === "width") return qsTr("Ширина")
+                    if (editor.field === "height") return qsTr("Высота")
                     switch (editor.kind) {
                     case "length": return qsTr("Длина")
                     case "distance": return qsTr("Расстояние")
@@ -108,7 +133,7 @@ Popup {
                 icon.source: "qrc:/icons/help.svg"
                 icon.color: editor.theme.muted
                 focusPolicy: Qt.NoFocus
-                onClicked: editor.helpPopup.show(editor.kind)
+                onClicked: editor.helpPopup.show(editor.field !== "" ? "input" : editor.kind)
             }
         }
         RowLayout {

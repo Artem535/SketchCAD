@@ -347,6 +347,13 @@ ApplicationWindow {
                         onTriggered: theme.dark = !theme.dark
                     }
                     MenuItem {
+                        objectName: "autoDimensionsToggle"
+                        text: qsTr("Авторазмеры")
+                        checkable: true
+                        checked: sketch.auto_dimensions
+                        onTriggered: sketch.auto_dimensions = !sketch.auto_dimensions
+                    }
+                    MenuItem {
                         objectName: "fingerMenuToggle"
                         text: qsTr("Палец рисует")
                         checkable: true
@@ -364,6 +371,7 @@ ApplicationWindow {
         controller: sketch
         theme: theme
         onDimensionClicked: (id) => editor.edit(id)
+        onPreviewDimensionClicked: if (sketch.input_field !== "") editor.input(sketch.input_field)
     }
 
     // Floating tool rail.
@@ -648,6 +656,17 @@ ApplicationWindow {
                 toast.visible = true
                 toastTimer.restart()
             }
+        }
+    }
+
+    // Typing a number while drawing opens the editor for that value (U08).
+    Instantiator {
+        model: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", ","]
+        delegate: Shortcut {
+            required property string modelData
+            enabled: sketch.input_field !== "" && !editor.opened && !helpPopup.opened
+            sequence: modelData
+            onActivated: editor.input(sketch.input_field, modelData === "," ? "." : modelData)
         }
     }
 

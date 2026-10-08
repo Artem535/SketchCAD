@@ -2,9 +2,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <numbers>
 
+#include "sketchcad/diagnostics.h"
 #include "sketchcad/solver.h"
 using namespace sketchcad;
 namespace {
@@ -32,9 +35,11 @@ Position point_at(const Sketch& s, EntityId id) {
 }
 class Tools : public ::testing::Test {
  protected:
+  // U01-U03 cases predate automatic dimensions (U08) and run without them.
   Tools() {
     session.set_snap({false, 1, 1});
     session.set_pick_tolerance(1);
+    session.set_auto_dimensions(false);
   }
   void snapping() { session.set_snap({true, 1, 1}); }
   const Sketch& sketch() const { return doc.sketch(); }
@@ -420,4 +425,186 @@ TEST_F(Tools, RejectedDragStepKeepsTheLastValidGeometry) {
   EXPECT_NEAR(point_at(sketch(), line.start).x, 4, 1e-3);
   EXPECT_NEAR(point_at(sketch(), line.end).x, 10, 1e-3);
   EXPECT_NEAR(point_at(sketch(), line.end).y, 0, 1e-3);
+}
+
+// U08: automatic dimensions and dynamic input (default-dimensions.adoc).
+namespace {
+class AutoDims : public Tools {
+ protected:
+  AutoDims() {
+    session.set_auto_dimensions(true);
+    doc.set_commit_step(solver_step());
+  }
+  std::vector<Constraint> of_kind(ConstraintKind kind) const {
+    std::vector<Constraint> out;
+    for (const auto& [id, c] : sketch().constraints())
+      if (c.kind == kind) out.push_back(c);
+    return out;
+  }
+};
+constexpr double kNear = 1e-9;
+}  // namespace
+
+TEST_F(AutoDims, AutoDimensionsAreOnByDefault) {
+  Document d;
+  ToolSession fresh{d};
+  EXPECT_TRUE(fresh.auto_dimensions());
+}
+
+TEST_F(AutoDims, LineGetsItsLengthInTheSameCommand) {
+  session.set_tool(Tool::kLine);
+  session.press({0, 0});
+  session.press({30, 40});
+  const auto lengths = of_kind(ConstraintKind::kLength);
+  ASSERT_EQ(lengths.size(), 1u);
+  EXPECT_NEAR(lengths[0].value, 50, kNear);
+  EXPECT_EQ(sketch().constraints().size(), 1u);
+  ASSERT_TRUE(doc.undo());
+  EXPECT_TRUE(sketch().entities().empty());
+  EXPECT_TRUE(sketch().constraints().empty());
+}
+
+TEST_F(AutoDims, OffCreatesNoConstraints) {
+  session.set_auto_dimensions(false);
+  session.set_tool(Tool::kLine);
+  session.press({0, 0});
+  session.press({30, 40});
+  session.set_tool(Tool::kCircle);
+  session.press({50, 50});
+  session.press({55, 50});
+  EXPECT_TRUE(sketch().constraints().empty());
+}
+
+TEST_F(AutoDims, RectangleGetsAxesWidthAndHeight) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({40, 20});
+  EXPECT_EQ(of_kind(ConstraintKind::kHorizontal).size(), 2u);
+  EXPECT_EQ(of_kind(ConstraintKind::kVertical).size(), 2u);
+  const auto lengths = of_kind(ConstraintKind::kLength);
+  ASSERT_EQ(lengths.size(), 2u);
+  std::vector<double> values{lengths[0].value, lengths[1].value};
+  std::sort(values.begin(), values.end());
+  EXPECT_NEAR(values[0], 20, kNear);
+  EXPECT_NEAR(values[1], 40, kNear);
+  const Diagnosis d = diagnose(sketch());
+  ASSERT_TRUE(d.dof);
+  EXPECT_EQ(*d.dof, 2);
+  EXPECT_EQ(d.status, DiagnosisStatus::kConsistent);
+}
+
+TEST_F(AutoDims, CircleArcAndPolylineGetTheirDimensions) {
+  session.set_tool(Tool::kCircle);
+  session.press({0, 0});
+  session.press({12, 0});
+  session.set_tool(Tool::kArc);
+  session.press({50, 0});
+  session.press({60, 0});
+  session.press({50, 10});
+  const auto radii = of_kind(ConstraintKind::kRadius);
+  ASSERT_EQ(radii.size(), 2u);
+  EXPECT_NEAR(radii[0].value, 12, kNear);
+  EXPECT_NEAR(radii[1].value, 10, kNear);
+  session.set_tool(Tool::kPolyline);
+  session.press({0, 50});
+  session.press({10, 50});
+  session.press({10, 60});
+  ASSERT_TRUE(session.finish());
+  EXPECT_EQ(of_kind(ConstraintKind::kLength).size(), 2u);
+}
+
+TEST_F(AutoDims, RedundantDimensionIsSkippedButTheShapeIsKept) {
+  session.set_auto_dimensions(false);
+  session.set_tool(Tool::kLine);
+  session.press({0, 0});
+  session.press({30, 0});
+  const SketchLine first = only<SketchLine>(sketch());
+  ASSERT_TRUE(doc.execute("Fix", [&](Sketch& s) {
+    return s.add_constraint(ConstraintKind::kFix, first.start).has_value() &&
+           s.add_constraint(ConstraintKind::kFix, first.end).has_value();
+  }));
+  session.set_auto_dimensions(true);
+  snapping();
+  session.press({0, 0});  // Snaps onto the fixed points.
+  session.press({30, 0});
+  EXPECT_EQ(count<SketchLine>(sketch()), 2u);
+  EXPECT_TRUE(of_kind(ConstraintKind::kLength).empty());
+  EXPECT_NE(diagnose(sketch()).status, DiagnosisStatus::kRedundant);
+}
+
+TEST_F(AutoDims, PreviewCarriesLiveDimensions) {
+  session.set_tool(Tool::kLine);
+  EXPECT_TRUE(session.preview().constraints().empty());
+  session.press({0, 0});
+  session.hover({6, 8});
+  ASSERT_EQ(session.preview().constraints().size(), 1u);
+  const Constraint c = session.preview().constraints().begin()->second;
+  EXPECT_EQ(c.kind, ConstraintKind::kLength);
+  EXPECT_NEAR(c.value, 10, kNear);
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.hover({40, 20});
+  EXPECT_EQ(session.preview().constraints().size(), 2u);
+  session.cancel();
+  EXPECT_TRUE(session.preview().constraints().empty());
+}
+
+TEST_F(AutoDims, LengthIsEnteredTowardsTheHover) {
+  session.set_tool(Tool::kLine);
+  EXPECT_EQ(session.input_field(), InputField::kNone);
+  EXPECT_FALSE(session.enter_value(10));
+  session.press({0, 0});
+  session.hover({10, 10});
+  EXPECT_EQ(session.input_field(), InputField::kLength);
+  EXPECT_NEAR(session.input_value(), std::hypot(10, 10), kNear);
+  for (double bad : {0.0, -1.0, double(NAN), double(INFINITY)}) EXPECT_FALSE(session.enter_value(bad));
+  EXPECT_TRUE(session.in_progress());
+  ASSERT_TRUE(session.enter_value(30));
+  EXPECT_FALSE(session.in_progress());
+  const SketchLine l = only<SketchLine>(sketch());
+  const Position end = point_at(sketch(), l.end);
+  EXPECT_NEAR(end.x, 30 / std::numbers::sqrt2, 1e-9);
+  EXPECT_NEAR(end.y, 30 / std::numbers::sqrt2, 1e-9);
+  ASSERT_EQ(of_kind(ConstraintKind::kLength).size(), 1u);
+  EXPECT_NEAR(of_kind(ConstraintKind::kLength)[0].value, 30, 1e-9);
+}
+
+TEST_F(AutoDims, RectangleTakesWidthThenHeight) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.hover({-10, 5});
+  EXPECT_EQ(session.input_field(), InputField::kWidth);
+  ASSERT_TRUE(session.enter_value(40));
+  EXPECT_EQ(session.input_field(), InputField::kHeight);
+  session.hover({-3, 30});
+  EXPECT_NEAR(session.input_value(), 30, kNear);
+  ASSERT_TRUE(session.enter_value(25));
+  EXPECT_FALSE(session.in_progress());
+  const auto box = bounds(sketch());
+  ASSERT_TRUE(box);
+  EXPECT_NEAR(box->min.x, -40, kNear);
+  EXPECT_NEAR(box->max.x, 0, kNear);
+  EXPECT_NEAR(box->min.y, 0, kNear);
+  EXPECT_NEAR(box->max.y, 25, kNear);
+}
+
+TEST_F(AutoDims, RadiusIsEnteredForCirclesAndArcs) {
+  session.set_tool(Tool::kCircle);
+  session.press({0, 0});
+  session.hover({3, 4});
+  EXPECT_EQ(session.input_field(), InputField::kRadius);
+  EXPECT_NEAR(session.input_value(), 5, kNear);
+  ASSERT_TRUE(session.enter_value(12));
+  EXPECT_DOUBLE_EQ(only<SketchCircle>(sketch()).radius, 12);
+  session.set_tool(Tool::kArc);
+  session.press({50, 0});
+  session.hover({50, 3});
+  EXPECT_EQ(session.input_field(), InputField::kRadius);
+  ASSERT_TRUE(session.enter_value(10));
+  EXPECT_TRUE(session.in_progress());
+  EXPECT_EQ(session.input_field(), InputField::kNone);
+  session.press({40, 0});
+  const SketchArc a = only<SketchArc>(sketch());
+  EXPECT_NEAR(a.radius, 10, kNear);
+  EXPECT_NEAR(a.start_angle, kPi / 2, 1e-9);
 }
