@@ -1,0 +1,66 @@
+= U10: Reference dimensions and the dimension tool
+:toc:
+
+Issue: TBD. Requirements: S01-DIM, S01-UI. Depends on S02 (xref:dimensions.adoc[]), U06 (xref:dimension-style.adoc[]),
+U09 (xref:dimension-placement.adoc[]).
+
+Origin: after U04 testing the user asked for a separate "Размер" tool that draws a dimension from point to point, and
+chose a *reference* dimension (it only shows the current distance, as in nanoCAD) over a driving one. It also shows
+lengths that U04 no longer dimensions automatically (a line whose end sits on a curve stretches with it).
+
+Not in this increment: angle reference dimensions, point–line reference distances, converting between driving and
+reference, dimensioning free positions that are not points of the sketch, the ESKD footnote "* Размеры для справок"
+(drawings are 1.0).
+
+== Model (core)
+* `Constraint` gains `bool reference = false`. A reference dimension is a dimension constraint (`kLength`, point–point
+  `kDistance`, `kRadius`) with `reference = true`, created with
+  `Sketch::add_dimension(kind, first, second, value, /*reference=*/true)`; validation as for driving dimensions, and
+  point–line `kDistance` and `kAngle` are rejected as references.
+* Reference dimensions are not solver input: `solve`, `drag_point(s)` and `diagnose` ignore them (no residual, no DOF
+  change, never dependent or violated). They still reference their geometry: erasing it is blocked as for any
+  constraint, and the select-tool Delete removes them with the geometry (U01/S02 rule).
+* `set_dimension` rejects a reference dimension (its value is not an input); `set_dimension_placement` works as for
+  driving ones (U09). The stored `value` is the value at creation; what is shown is measured (below).
+* `dimension_placement_at(const Sketch&, const Constraint&, Position)` (`dimension_layout.h`, world mm) returns the
+  U09 placement whose dimension line or leader passes through a world position, for length, point–point distance and
+  radius; the controller's U09 drag uses it for those kinds.
+
+== Layout
+`layout_dimensions` lays reference dimensions out like driving ones; `DimensionGraphic` gains `reference`, and its
+`value` is the current measurement (`measure`) for a reference dimension. ESKD marks reference dimensions with an
+asterisk: the label text is the value followed by `*` (`13.672*`, `R5*`). They are drawn in `muted` (lines and text);
+the text is never `err`.
+
+== Dimension tool (core `ToolSession`, `Tool::kDimension`)
+* Taps, with snapping as for drawing tools (U01/U04):
+  . a tap on an existing point (`kPoint` snap) picks it; a second tap on another point completes a point–point
+    distance;
+  . a tap on a line (no point under it) completes its length; on a circle or arc, its radius;
+  . once complete, the preview shows the reference dimension following the pointer (hover), placed through it with
+    `dimension_placement_at`; the next tap places it: one command "Reference dimension" adding the dimension with its
+    placement, one undo step;
+  . taps elsewhere (empty space, the first point again) are ignored and keep the state.
+* Escape (`cancel`) drops the picks; switching tools does too. `input_field` is `kNone`.
+
+== Controller and QML
+* Tool name `dimension`, rail button `tool_dimension` ("Размер", icon `dimension.svg`) after Arc.
+* `dimensions` and `dimension_labels` entries gain `reference` (bool); labels carry the `*` text. A tap on a reference
+  dimension's text does not open the editor (it can still be dragged, U09); the inspector's constraint list shows it
+  as "<kind> (справочный)" and it can be removed there.
+* Help (U07) gains `reference` ("Справочный размер"); the `dimension` entry mentions the difference.
+
+== Acceptance / test cases
+Core (`dimension_test`): a reference length/distance/radius is accepted, point–line distance and angle are rejected
+as references; `set_dimension` rejects a reference; a reference that contradicts a driving dimension does not make
+`solve` fail or `diagnose` report it, and DOF is unchanged by adding it; after solving the geometry to a new length,
+the laid-out value is the new length with `*`.
+Core (`dimension_layout_test`): `reference` and the measured value in `DimensionGraphic`; `dimension_placement_at`
+gives the offset/along/angle that the U09 formulas give.
+Core (`sketch_tool_test`): point, point, place → one "Reference dimension" command with the placement through the
+third tap; line, place → length; circle, place → radius; empty taps ignored; Escape drops the picks.
+Qt (`sketch_controller_test`): `set_tool("dimension")` and the taps produce a `reference` entry with `*` text; the
+editor flag is not raised by a tap on it; DOF is unchanged.
+QML (`qml_test`): click `tool_dimension`, tap two line ends and a placement point; a label ending with `*` appears;
+screenshot `sketch_u10_reference.png`.
+Desktop only.

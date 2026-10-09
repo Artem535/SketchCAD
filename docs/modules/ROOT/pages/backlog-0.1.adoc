@@ -356,6 +356,26 @@ GoogleTest для ToolSession, Qt Test контроллера и QML с реал
 === Verification
 GoogleTest модели и раскладки, Qt Test контроллера и QML с реальным перетаскиванием, снимок.
 
+== U10: Reference dimensions and the dimension tool
+
+* Requirements: S01-DIM, S01-UI.
+* Dependencies: S02, U06, U09.
+* Initial status: ready.
+* Specification: xref:reference-dimensions.adoc[].
+
+=== Deliverable
+Инструмент «Размер»: точка–точка, длина линии, радиус; справочный размер (со звёздочкой, не держит геометрию),
+третьим касанием задаётся положение.
+
+=== Scope
+Добавлено по запросу пользователя после U04. Без справочных углов и расстояний от точки до линии.
+
+=== Acceptance
+Справочный размер показывает текущее значение, не меняет DOF и не вызывает конфликтов; одно действие отмены.
+
+=== Verification
+GoogleTest модели, раскладки и инструмента, Qt Test контроллера и QML, снимок.
+
 [[f01]]
 == F01: Define a versioned project format and implement save/open
 
