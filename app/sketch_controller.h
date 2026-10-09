@@ -20,6 +20,8 @@ class SketchController : public QObject {
   Q_PROPERTY(QString geometry_path READ geometry_path NOTIFY changed)
   Q_PROPERTY(QString selected_path READ selected_path NOTIFY changed)
   Q_PROPERTY(QString preview_path READ preview_path NOTIFY changed)
+  // Construction curves (U04), drawn dashed.
+  Q_PROPERTY(QString construction_path READ construction_path NOTIFY changed)
   Q_PROPERTY(QString points_path READ points_path NOTIFY changed)
   Q_PROPERTY(QString grid_minor_path READ grid_minor_path NOTIFY changed)
   Q_PROPERTY(QString grid_major_path READ grid_major_path NOTIFY changed)
@@ -89,6 +91,7 @@ class SketchController : public QObject {
   QString geometry_path() const { return geometry_path_; }
   QString selected_path() const { return selected_path_; }
   QString preview_path() const { return preview_path_; }
+  QString construction_path() const { return construction_path_; }
   QString points_path() const { return points_path_; }
   QString grid_minor_path() const { return grid_minor_path_; }
   QString grid_major_path() const { return grid_major_path_; }
@@ -206,6 +209,7 @@ class SketchController : public QObject {
   QString geometry_path_;
   QString selected_path_;
   QString preview_path_;
+  QString construction_path_;
   QString points_path_;
   QString grid_minor_path_;
   QString grid_major_path_;

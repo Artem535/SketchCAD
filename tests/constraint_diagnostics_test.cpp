@@ -176,3 +176,15 @@ TEST(Diagnostics, ResultsAreReproducibleAndCostIsRecorded) {
   EXPECT_EQ(first.parameters, 160);
   EXPECT_EQ(diagnose(s), first);
 }
+
+// U04: a point on a fixed line can still slide along it.
+TEST(Diagnostics, PointOnAFixedLineKeepsOneFreedom) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 0});
+  const auto ends = std::get<SketchLine>(*s.entity(l));
+  ASSERT_TRUE(s.add_constraint(K::kFix, ends.start));
+  ASSERT_TRUE(s.add_constraint(K::kFix, ends.end));
+  const EntityId p = *s.create_point({4, 0});
+  ASSERT_TRUE(s.add_constraint(K::kOnCurve, p, l));
+  expect_dof(s, 1);
+}

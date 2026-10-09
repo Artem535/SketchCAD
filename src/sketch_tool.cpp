@@ -269,6 +269,8 @@ DeleteResult ToolSession::delete_selection() {
   return DeleteResult::kDeleted;
 }
 
+bool ToolSession::toggle_construction() { return false; }
+
 bool ToolSession::undo() {
   cancel();
   const bool ok = document_.undo();

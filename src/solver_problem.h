@@ -433,6 +433,8 @@ class Problem {
           defined = std::hypot(a.x - b.x, a.y - b.y) > kLengthTolerance;
         }
         break;
+      case ConstraintKind::kOnCurve:
+        break;
       case ConstraintKind::kFix:
         term.cost.shape = Shape::kFix;
         term.cost.target = c.target;

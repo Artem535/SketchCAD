@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <numbers>
 
 #include "sketchcad/diagnostics.h"
@@ -607,4 +608,137 @@ TEST_F(AutoDims, RadiusIsEnteredForCirclesAndArcs) {
   const SketchArc a = only<SketchArc>(sketch());
   EXPECT_NEAR(a.radius, 10, kNear);
   EXPECT_NEAR(a.start_angle, kPi / 2, 1e-9);
+}
+
+// U04 (sketch-editing.adoc): snaps that create point-on-curve constraints
+// and construction geometry.
+namespace {
+class Snaps : public AutoDims {
+ protected:
+  Snaps() {
+    session.set_auto_dimensions(false);
+    snapping();
+  }
+  EntityId add(const std::function<EntityId(Sketch&)>& make) {
+    EntityId id = 0;
+    EXPECT_TRUE(doc.execute("Setup", [&](Sketch& s) {
+      id = make(s);
+      return id != 0;
+    }));
+    return id;
+  }
+  EntityId add_line(Position a, Position b) {
+    return add([&](Sketch& s) {
+      return *s.create_line(*s.create_point(a), *s.create_point(b));
+    });
+  }
+  EntityId newest_line() const {
+    EntityId id = 0;
+    for (const auto& [i, e] : sketch().entities())
+      if (std::holds_alternative<SketchLine>(e)) id = i;
+    return id;
+  }
+};
+}  // namespace
+
+TEST_F(Snaps, LineEndingOnACircleRimGetsOneOnCurve) {
+  const EntityId circle = add([](Sketch& s) {
+    return *s.create_circle(*s.create_point({0, 0}), 10.3);
+  });
+  session.set_tool(Tool::kLine);
+  session.press({20, 20});
+  session.press({10.5, 0.2});
+  EXPECT_EQ(doc.undo_label(), "Line");
+  const auto on = of_kind(ConstraintKind::kOnCurve);
+  ASSERT_EQ(on.size(), 1u);
+  EXPECT_EQ(on[0].second, circle);
+  const SketchLine l = std::get<SketchLine>(*sketch().entity(newest_line()));
+  EXPECT_EQ(on[0].first, l.end);
+  const Position end = point_at(sketch(), l.end);
+  EXPECT_NEAR(std::hypot(end.x, end.y), 10.3, kLengthTolerance);
+  ASSERT_TRUE(doc.undo());
+  EXPECT_TRUE(of_kind(ConstraintKind::kOnCurve).empty());
+  EXPECT_EQ(count<SketchLine>(sketch()), 0u);
+}
+
+TEST_F(Snaps, LineEndingOnACrossingGetsTwoOnCurves) {
+  const EntityId l1 = add_line({0, 0}, {10, 10});
+  const EntityId l2 = add_line({0, 10}, {10, 0});
+  session.set_tool(Tool::kLine);
+  session.press({20, 0});
+  session.press({5.3, 5.2});
+  const auto on = of_kind(ConstraintKind::kOnCurve);
+  ASSERT_EQ(on.size(), 2u);
+  EXPECT_EQ(on[0].first, on[1].first);
+  EXPECT_EQ((std::vector<EntityId>{on[0].second, on[1].second}),
+            (std::vector<EntityId>{l1, l2}));
+  const Position p = point_at(sketch(), on[0].first);
+  EXPECT_NEAR(p.x, 5, kLengthTolerance);
+  EXPECT_NEAR(p.y, 5, kLengthTolerance);
+}
+
+TEST_F(Snaps, PointSnapReusesThePointWithoutOnCurve) {
+  const EntityId first = add_line({0, 0}, {10, 0});
+  session.set_tool(Tool::kLine);
+  session.press({10.2, 0.1});
+  session.press({10, 8});
+  EXPECT_TRUE(of_kind(ConstraintKind::kOnCurve).empty());
+  const SketchLine a = std::get<SketchLine>(*sketch().entity(first));
+  const SketchLine b = std::get<SketchLine>(*sketch().entity(newest_line()));
+  EXPECT_EQ(b.start, a.end);
+}
+
+TEST_F(Snaps, CircleCentreOnALineGetsOnCurve) {
+  const EntityId l = add_line({0, 0.3}, {20, 0.3});
+  session.set_tool(Tool::kCircle);
+  session.press({10.2, 0.1});
+  session.press({10, 5});
+  const auto on = of_kind(ConstraintKind::kOnCurve);
+  ASSERT_EQ(on.size(), 1u);
+  EXPECT_EQ(on[0].second, l);
+  EXPECT_EQ(on[0].first, only<SketchCircle>(sketch()).center);
+  EXPECT_NEAR(point_at(sketch(), on[0].first).y, 0.3, kLengthTolerance);
+}
+
+TEST_F(Snaps, OnCurveAndAutomaticLengthAreOneUndoStep) {
+  session.set_auto_dimensions(true);
+  add([](Sketch& s) { return *s.create_circle(*s.create_point({0, 0}), 10.3); });
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kLine);
+  session.press({20, 20});
+  session.press({10.5, 0.2});
+  EXPECT_EQ(of_kind(ConstraintKind::kOnCurve).size(), 1u);
+  EXPECT_EQ(of_kind(ConstraintKind::kLength).size(), 1u);
+  EXPECT_EQ(doc.revision(), revision + 1);
+  ASSERT_TRUE(doc.undo());
+  EXPECT_TRUE(sketch().constraints().empty());
+}
+
+TEST_F(Snaps, ConstructionToggleIsOneUndoableCommand) {
+  const EntityId l = add_line({0, 0}, {10, 0});
+  const EntityId circle = add([](Sketch& s) {
+    return *s.create_circle(*s.create_point({30, 0}), 5);
+  });
+  const auto construction = [&](EntityId id) {
+    return std::visit([](const auto& e) { return e.construction; },
+                      *sketch().entity(id));
+  };
+  session.set_tool(Tool::kSelect);
+  EXPECT_FALSE(session.toggle_construction()) << "nothing selected";
+  session.press({5, 0});
+  ASSERT_TRUE(session.toggle_construction());
+  EXPECT_TRUE(construction(l));
+  EXPECT_EQ(doc.undo_label(), "Construction");
+  session.press({35, 0});
+  // One of the two was off, so both become construction.
+  ASSERT_TRUE(session.toggle_construction());
+  EXPECT_TRUE(construction(l));
+  EXPECT_TRUE(construction(circle));
+  ASSERT_TRUE(session.toggle_construction());
+  EXPECT_FALSE(construction(l));
+  EXPECT_FALSE(construction(circle));
+  ASSERT_TRUE(doc.undo());
+  ASSERT_TRUE(doc.undo());
+  EXPECT_TRUE(construction(l));
+  EXPECT_FALSE(construction(circle));
 }

@@ -68,6 +68,17 @@ std::pair<double, bool> oracle(const Sketch& s, const Constraint& c) {
       return {curve(s, c.first).second - curve(s, c.second).second, false};
     case K::kFix:
       return {length(at(s, c.first), c.target), false};
+    case K::kOnCurve: {
+      const Position p = at(s, c.first);
+      if (is_line(s, c.second)) {
+        const auto [a, b] = ends(s, c.second);
+        const double t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) /
+                         std::pow(length(a, b), 2);
+        return {length(p, {a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)}), false};
+      }
+      const auto [centre, r] = curve(s, c.second);
+      return {length(p, centre) - r, false};
+    }
     case K::kLength:
     case K::kDistance:
     case K::kAngle:
@@ -402,4 +413,40 @@ TEST(SolverDegenerate, VerticalOnHorizontalLineRotatesKeepingLength) {
   const auto [a, b] = points_of(s, l);
   EXPECT_NEAR(length(at(s, a), at(s, b)), 10, kLengthTolerance);
   EXPECT_EQ(s.constraints().size(), constraints) << "no constraint is kept";
+}
+
+// U04 (sketch-editing.adoc).
+TEST(Solver, OnCurveMovesAPointOntoALineACircleAndAnArc) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 0});
+  pin(s, l);
+  const EntityId p = *s.create_point({4, 3});
+  ASSERT_TRUE(s.add_constraint(K::kOnCurve, p, l));
+  expect_solved(s);
+  EXPECT_NEAR(at(s, p).y, 0, kLengthTolerance);
+
+  for (const bool arc : {false, true}) {
+    Sketch t;
+    const EntityId centre = *t.create_point({0, 0});
+    ASSERT_TRUE(t.add_constraint(K::kFix, centre));
+    const EntityId curve =
+        arc ? *t.create_arc(centre, 5, 0, std::acos(-1.0) / 2)
+            : *t.create_circle(centre, 5);
+    ASSERT_TRUE(t.add_dimension(K::kRadius, curve, 0, 5));
+    // Outside the arc's sweep: the arc counts as its full circle.
+    const EntityId q = *t.create_point({-1, -2});
+    ASSERT_TRUE(t.add_constraint(K::kOnCurve, q, curve));
+    expect_solved(t);
+    EXPECT_NEAR(length(at(t, q), {0, 0}), 5, kLengthTolerance) << arc;
+  }
+}
+
+TEST(Solver, OnCurveConflictsWithAFixedPointOffTheLine) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 0});
+  pin(s, l);
+  const EntityId p = *s.create_point({4, 3});
+  ASSERT_TRUE(s.add_constraint(K::kFix, p));
+  ASSERT_TRUE(s.add_constraint(K::kOnCurve, p, l));
+  expect_conflict(s);
 }
