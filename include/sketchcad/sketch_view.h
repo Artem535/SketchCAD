@@ -55,6 +55,8 @@ struct SnapSettings {
   double point_tolerance_mm = 1;
   // Curve snaps prefer where the curve crosses a grid line.
   bool grid_on_curves = false;
+  // Intersection and curve snaps; drags keep points and the grid only.
+  bool curves = true;
 };
 
 struct SnapResult {

@@ -45,6 +45,25 @@ void add_auto_dimensions(
   }
 }
 
+// Points held by kOnCurve on any of `curves`, at their current positions.
+std::map<EntityId, Position> riders_of(const Sketch& s,
+                                       const std::vector<EntityId>& curves) {
+  std::map<EntityId, Position> out;
+  for (const auto& [id, c] : s.constraints())
+    if (c.kind == ConstraintKind::kOnCurve &&
+        std::find(curves.begin(), curves.end(), c.second) != curves.end())
+      out[c.first] = std::get<SketchPoint>(*s.entity(c.first)).position;
+  return out;
+}
+
+// `riders` moved by (dx, dy), added to `targets`.
+void add_riders(std::map<EntityId, Position>& targets,
+                const std::map<EntityId, Position>& riders, double dx,
+                double dy) {
+  for (const auto& [id, start] : riders)
+    targets.try_emplace(id, Position{start.x + dx, start.y + dy});
+}
+
 // Constrains `point` onto each of `curves` (U04 snaps).
 bool put_on(Sketch& s, EntityId point, const std::vector<EntityId>& curves) {
   for (EntityId curve : curves)
@@ -88,6 +107,7 @@ void ToolSession::press(Position p) {
     dragged_point_.reset();
     curve_press_.reset();
     curve_start_.clear();
+    riders_.clear();
     const auto hit = pick(document_.sketch(), p, pick_tolerance_mm_);
     if (!hit) {
       selected_.clear();
@@ -100,8 +120,18 @@ void ToolSession::press(Position p) {
     if (selected_.size() > kMaxSelection) selected_.erase(selected_.begin());
     const Sketch& sk = document_.sketch();
     const Entity e = *sk.entity(*hit);
-    if (std::holds_alternative<SketchPoint>(e)) {
+    if (const auto* point = std::get_if<SketchPoint>(&e)) {
       dragged_point_ = hit;
+      point_start_ = point->position;
+      // Dragging a centre moves its circles and arcs, with their riders.
+      std::vector<EntityId> centred;
+      for (const auto& [id, other] : sk.entities())
+        if ((std::holds_alternative<SketchCircle>(other) &&
+             std::get<SketchCircle>(other).center == *hit) ||
+            (std::holds_alternative<SketchArc>(other) &&
+             std::get<SketchArc>(other).center == *hit))
+          centred.push_back(id);
+      riders_ = riders_of(sk, centred);
       return;
     }
     // A curve moves by its defining points: line ends or the centre.
@@ -115,6 +145,7 @@ void ToolSession::press(Position p) {
     for (EntityId id : defining)
       curve_start_[id] = std::get<SketchPoint>(*sk.entity(id)).position;
     curve_press_ = p;
+    riders_ = riders_of(sk, {*hit});
     return;
   }
   const SnapResult s = snapped(p);
@@ -245,6 +276,7 @@ void ToolSession::drag(Position p) {
     std::map<EntityId, Position> targets;
     for (const auto& [id, start] : curve_start_)
       targets[id] = {start.x + dx, start.y + dy};
+    add_riders(targets, riders_, dx, dy);
     document_.gesture_step([&](Sketch& sk) {
       return drag_points(sk, targets).status == SolveStatus::kSolved;
     });
@@ -253,12 +285,17 @@ void ToolSession::drag(Position p) {
   if (tool_ != Tool::kSelect || !dragged_point_) return;
   if (!dragging_) dragging_ = document_.begin_gesture("Move point");
   if (!dragging_) return;
-  const SnapResult s = snapped(p, dragged_point_);
+  // U01 snapping while dragging: points and the grid, no curves (U04).
+  SnapSettings settings = snap_settings_;
+  settings.curves = false;
+  const SnapResult s = snap(document_.sketch(), p, settings, dragged_point_);
   last_snap_ = s;
   // Warm start from the last accepted state; a rejected step keeps it.
   document_.gesture_step([&](Sketch& sk) {
-    return drag_point(sk, *dragged_point_, s.position).status ==
-           SolveStatus::kSolved;
+    std::map<EntityId, Position> targets{{*dragged_point_, s.position}};
+    add_riders(targets, riders_, s.position.x - point_start_.x,
+               s.position.y - point_start_.y);
+    return drag_points(sk, targets).status == SolveStatus::kSolved;
   });
 }
 
@@ -268,6 +305,7 @@ void ToolSession::release(Position) {
   dragged_point_.reset();
   curve_press_.reset();
   curve_start_.clear();
+  riders_.clear();
 }
 
 bool ToolSession::finish() {
@@ -282,6 +320,7 @@ bool ToolSession::cancel() {
     dragged_point_.reset();
     curve_press_.reset();
     curve_start_.clear();
+    riders_.clear();
     return true;
   }
   if (vertices_.empty()) return false;

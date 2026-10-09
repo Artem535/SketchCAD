@@ -292,7 +292,8 @@ SnapResult snap(const Sketch& s, Position p, const SnapSettings& settings,
   if (auto point = nearest_point(s, p, settings.point_tolerance_mm, exclude))
     return {point_position(s, *point), SnapKind::kPoint, point};
   const double tolerance = settings.point_tolerance_mm;
-  const std::vector<Curve> all = curves(s, exclude);
+  const std::vector<Curve> all =
+      settings.curves ? curves(s, exclude) : std::vector<Curve>{};
   std::optional<SnapResult> best;
   double best_distance = tolerance;
   const auto consider = [&](Position q, SnapKind kind,

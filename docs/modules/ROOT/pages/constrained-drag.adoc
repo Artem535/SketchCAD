@@ -155,3 +155,12 @@ ending on a circle with a radius dimension) was added after the implementation a
 on its first run; it was not seen failing.
 Known limit, unchanged here: a single large pointer jump can fail in the soft phase (see the U04 execution record);
 pointer-sized steps work. Desktop only.
+
+=== Execution record (U03b riders)
+The user's second screenshot: after dragging the circle, the points of a chord slid around it. RED
+(`build/issue46-riders-red.log`): `Snaps.PointsOnADraggedCircleRideAlong` failed in both variants (P about 6 mm off).
+While turning it green the centre-point variant still missed by 0.4 mm: the dragged centre snapped onto the long line
+it passed, because the U04 curve snaps also ran during drags, contrary to the U04 page ("U03 drags keep the U01 snap
+behaviour"). `SnapSettings::curves` now lets drags snap to points and the grid only; the test was not changed.
+GREEN: Release 166/166 (`build/issue46-riders-green.log`); Debug `-Werror` + ASan/UBSan 166/166
+(`build/issue46-riders-werror.log`).
