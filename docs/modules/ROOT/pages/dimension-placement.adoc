@@ -67,3 +67,16 @@ QML (`qml_test`): drag `dimensionLabel_0` with the mouse below the line → the 
 still opens the editor; screenshot `sketch_u09_moved.png`.
 
 Desktop only.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; build directories `build/ubuntu` (Release) and `build/werror`
+(Debug, `-Wall -Wextra -Werror`, ASan/UBSan). Baseline: 138/138 on `fix/dimension-side`.
+
+RED (`build/issue43-red.log`): 5 of 141 checks failed against stubs — the three new core cases, `sketch_controller_test`
+and `qml_test`, all on assertions.
+GREEN: Release 141/141 (`build/issue43-green.log`); Debug `-Werror` + ASan/UBSan 141/141 (`build/issue43-werror.log`).
+Implementation note: the press on a dimension text is handled by the canvas pointer handler itself (as for live
+labels in U08), so a tap opens the editor and a move of more than 6 px starts the "Move dimension" gesture; the
+geometry tools never see it. Escape during the drag goes through `cancel()` and restores the placement.
+Screenshot `sketch_u09_moved.png` inspected: the length dimension of a horizontal line drawn below it after the drag.
+Not claimed: Android, moving point–line distances, de-cluttering.

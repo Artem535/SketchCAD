@@ -133,6 +133,7 @@ Item {
     // Dimension texts above their dimension lines (ESKD), each a 48 px
     // touch target; (x, y) is the bottom centre of the text.
     Repeater {
+        id: dimensionLabels
         model: root.controller.dimension_labels
         delegate: Item {
             id: label
@@ -162,10 +163,17 @@ Item {
                 font.pixelSize: 15
                 font.weight: Font.Medium
             }
-            TapHandler {
-                onTapped: root.dimensionClicked(label.modelData.id)
-            }
         }
+    }
+
+    // ID of the committed dimension whose text is at `p` (canvas px), or 0.
+    function dimensionAt(p) {
+        for (let i = 0; i < dimensionLabels.count; ++i) {
+            const label = dimensionLabels.itemAt(i)
+            if (label && label.contains(label.mapFromItem(root, p.x, p.y)))
+                return label.modelData.id
+        }
+        return 0
     }
 
     // True when `p` (canvas px) is on a live dimension: the drawing tool
@@ -242,6 +250,11 @@ Item {
         property point last
         // The press started on a live dimension label (U08).
         property bool onLabel: false
+        // The press started on a dimension text (U09): a tap edits it, a
+        // drag moves it.
+        property var dimensionId: 0
+        property bool moved: false
+        property point pressed
         acceptedButtons: Qt.LeftButton
         acceptedDevices: root.controller.finger_draws
                          ? PointerDevice.AllDevices
@@ -249,8 +262,15 @@ Item {
         onActiveChanged: {
             if (active) {
                 last = point.position
-                onLabel = root.onLiveLabel(last)
-                if (!onLabel) root.controller.press(last.x, last.y)
+                dimensionId = root.dimensionAt(last)
+                moved = false
+                pressed = last
+                onLabel = dimensionId === 0 && root.onLiveLabel(last)
+                if (dimensionId === 0 && !onLabel) root.controller.press(last.x, last.y)
+            } else if (dimensionId !== 0) {
+                if (moved) root.controller.end_dimension_drag()
+                else root.dimensionClicked(dimensionId)
+                dimensionId = 0
             } else if (onLabel) {
                 onLabel = false
             } else {
@@ -259,6 +279,13 @@ Item {
         }
         onPointChanged: {
             if (!active || onLabel) return
+            if (dimensionId !== 0) {
+                const p = point.position
+                if (!moved && Math.hypot(p.x - pressed.x, p.y - pressed.y) > 6)
+                    moved = root.controller.begin_dimension_drag(dimensionId)
+                if (moved) root.controller.drag_dimension(p.x, p.y)
+                return
+            }
             last = point.position
             root.controller.drag(last.x, last.y)
         }
