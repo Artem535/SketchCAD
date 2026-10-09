@@ -135,3 +135,16 @@ on the outline adds no history.
 Qt (`sketch_controller_test`): a press-drag-release on a circle's outline through the controller moves its centre.
 QML (`qml_test`): draw a circle, drag its outline with the mouse; the centre moves by the pointer displacement.
 Desktop only.
+
+=== Execution record (U03b, issue #46)
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; `build/ubuntu` (Release) and `build/werror` (Debug, `-Werror`,
+ASan/UBSan). Baseline: 158/158 on `feature/12-snaps-construction`.
+RED (`build/issue46-red.log`): 7 of 164 checks failed against a `drag_points` stub returning `kInvalidInput` — two
+`DragPoints` cases, three `Snaps` curve-drag cases, `sketch_controller_test` and `qml_test`, all on assertions.
+`DragPoints.InvalidInputLeavesSketchUnchanged` passed against the stub, as expected.
+GREEN: Release 165/165 (`build/issue46-green.log`); Debug `-Werror` + ASan/UBSan 165/165 (`build/issue46-werror.log`).
+`Snaps.UserSceneCircleWithLinesAndAChordIsDraggedByItsOutline` (the user's screenshot: two outside lines and a chord
+ending on a circle with a radius dimension) was added after the implementation as a regression check and passed
+on its first run; it was not seen failing.
+Known limit, unchanged here: a single large pointer jump can fail in the soft phase (see the U04 execution record);
+pointer-sized steps work. Desktop only.

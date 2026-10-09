@@ -86,6 +86,8 @@ void ToolSession::hover(Position p) {
 void ToolSession::press(Position p) {
   if (tool_ == Tool::kSelect) {
     dragged_point_.reset();
+    curve_press_.reset();
+    curve_start_.clear();
     const auto hit = pick(document_.sketch(), p, pick_tolerance_mm_);
     if (!hit) {
       selected_.clear();
@@ -96,8 +98,23 @@ void ToolSession::press(Position p) {
     std::erase(selected_, *hit);
     selected_.push_back(*hit);
     if (selected_.size() > kMaxSelection) selected_.erase(selected_.begin());
-    if (std::holds_alternative<SketchPoint>(*document_.sketch().entity(*hit)))
+    const Sketch& sk = document_.sketch();
+    const Entity e = *sk.entity(*hit);
+    if (std::holds_alternative<SketchPoint>(e)) {
       dragged_point_ = hit;
+      return;
+    }
+    // A curve moves by its defining points: line ends or the centre.
+    std::vector<EntityId> defining;
+    if (const auto* l = std::get_if<SketchLine>(&e))
+      defining = {l->start, l->end};
+    else if (const auto* c = std::get_if<SketchCircle>(&e))
+      defining = {c->center};
+    else if (const auto* a = std::get_if<SketchArc>(&e))
+      defining = {a->center};
+    for (EntityId id : defining)
+      curve_start_[id] = std::get<SketchPoint>(*sk.entity(id)).position;
+    curve_press_ = p;
     return;
   }
   const SnapResult s = snapped(p);
@@ -221,6 +238,18 @@ void ToolSession::place(const SnapResult& s) {
 }
 
 void ToolSession::drag(Position p) {
+  if (tool_ == Tool::kSelect && curve_press_) {
+    if (!dragging_) dragging_ = document_.begin_gesture("Move curve");
+    if (!dragging_) return;
+    const double dx = p.x - curve_press_->x, dy = p.y - curve_press_->y;
+    std::map<EntityId, Position> targets;
+    for (const auto& [id, start] : curve_start_)
+      targets[id] = {start.x + dx, start.y + dy};
+    document_.gesture_step([&](Sketch& sk) {
+      return drag_points(sk, targets).status == SolveStatus::kSolved;
+    });
+    return;
+  }
   if (tool_ != Tool::kSelect || !dragged_point_) return;
   if (!dragging_) dragging_ = document_.begin_gesture("Move point");
   if (!dragging_) return;
@@ -237,6 +266,8 @@ void ToolSession::release(Position) {
   if (dragging_) document_.end_gesture();
   dragging_ = false;
   dragged_point_.reset();
+  curve_press_.reset();
+  curve_start_.clear();
 }
 
 bool ToolSession::finish() {
@@ -249,6 +280,8 @@ bool ToolSession::cancel() {
     document_.cancel_gesture();
     dragging_ = false;
     dragged_point_.reset();
+    curve_press_.reset();
+    curve_start_.clear();
     return true;
   }
   if (vertices_.empty()) return false;

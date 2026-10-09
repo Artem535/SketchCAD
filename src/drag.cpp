@@ -32,31 +32,42 @@ bool collapsed(const Sketch& before, const Sketch& after) {
 }
 }  // namespace
 
-SolveResult drag_points(Sketch&, const std::map<EntityId, Position>&) {
-  return {SolveStatus::kInvalidInput, {}};
-}
-
-SolveResult drag_point(Sketch& sketch, EntityId point, Position target) {
-  const auto e = sketch.entity(point);
-  if (!e || !std::holds_alternative<SketchPoint>(*e) ||
-      !std::isfinite(target.x) || !std::isfinite(target.y))
-    return {SolveStatus::kInvalidInput, {}};
+SolveResult drag_points(Sketch& sketch,
+                        const std::map<EntityId, Position>& targets) {
+  if (targets.empty()) return {SolveStatus::kInvalidInput, {}};
+  for (const auto& [id, target] : targets) {
+    const auto e = sketch.entity(id);
+    if (!e || !std::holds_alternative<SketchPoint>(*e) ||
+        !std::isfinite(target.x) || !std::isfinite(target.y))
+      return {SolveStatus::kInvalidInput, {}};
+  }
 
   detail::Problem problem(sketch);
   if (!problem.build()) return {SolveStatus::kInvalidInput, {}};
-  if (!problem.has_point(point)) {
-    // No constraint reaches the point: it moves freely.
-    sketch.update_point(point, target);
+  // Points no constraint reaches move freely, exactly to their targets.
+  std::map<EntityId, Position> tied, free;
+  for (const auto& [id, target] : targets)
+    (problem.has_point(id) ? tied : free)[id] = target;
+  const auto move_free = [&](Sketch& s) {
+    for (const auto& [id, target] : free) s.update_point(id, target);
+  };
+  if (tied.empty()) {
+    move_free(sketch);
     return {SolveStatus::kSolved, {}};
   }
-  problem.run_drag(point, target, kHardWeight, kStayWeight, kSoftIterations);
+  problem.run_drag(tied, kHardWeight, kStayWeight, kSoftIterations);
   if (!problem.finite()) return {SolveStatus::kNumericalFailure, {}};
 
   Sketch candidate = problem.apply();
+  move_free(candidate);
   SolveResult result = solve(candidate);
   if (result.status != SolveStatus::kSolved) return result;
   if (collapsed(sketch, candidate)) return {SolveStatus::kDegenerate, {}};
   sketch = std::move(candidate);
   return result;
+}
+
+SolveResult drag_point(Sketch& sketch, EntityId point, Position target) {
+  return drag_points(sketch, {{point, target}});
 }
 }  // namespace sketchcad

@@ -632,6 +632,11 @@ class Snaps : public AutoDims {
       return *s.create_line(*s.create_point(a), *s.create_point(b));
     });
   }
+  EntityId only_circle_id() const {
+    for (const auto& [i, e] : sketch().entities())
+      if (std::holds_alternative<SketchCircle>(e)) return i;
+    return 0;
+  }
   EntityId newest_line() const {
     EntityId id = 0;
     for (const auto& [i, e] : sketch().entities())
@@ -850,4 +855,46 @@ TEST_F(Snaps, CurveDragCancelsAndATapAddsNoHistory) {
   EXPECT_TRUE(session.cancel());
   EXPECT_EQ(point_at(sketch(), ends.start), (Position{0, 0}));
   EXPECT_EQ(doc.revision(), revision);
+}
+
+// The user's scene: two outside lines and a chord ending on a circle with a
+// radius dimension; dragging the outline moves the circle, the far ends stay
+// and every end on the circle stays on it.
+TEST_F(Snaps, UserSceneCircleWithLinesAndAChordIsDraggedByItsOutline) {
+  session.set_auto_dimensions(true);
+  session.set_tool(Tool::kCircle);
+  session.press({0, 0});
+  session.press({17, 0});
+  const EntityId circle = only_circle_id();
+  session.set_tool(Tool::kLine);
+  session.press({-31, 18});
+  session.press({-14.6, -9.7});  // Rim.
+  session.press({-16, 24});
+  session.press({9.9, 14.0});  // Rim, P.
+  session.press({9.7, 13.8});  // P again: point snap.
+  session.press({10.6, -13.8});  // Rim, Q.
+  ASSERT_EQ(of_kind(ConstraintKind::kOnCurve).size(), 3u);
+  ASSERT_TRUE(of_kind(ConstraintKind::kLength).empty());
+  const EntityId centre = only<SketchCircle>(sketch()).center;
+
+  session.set_tool(Tool::kSelect);
+  session.press({0.2, -17.1});  // Bottom of the outline, away from points.
+  ASSERT_EQ(session.selection(), circle);
+  for (int i = 1; i <= 24; ++i) session.drag({0.2 + 0.25 * i, -17.1});
+  session.release({6.2, -17.1});
+  EXPECT_EQ(doc.undo_label(), "Move curve");
+  const Position c = point_at(sketch(), centre);
+  EXPECT_NEAR(c.x, 6, 1e-3);
+  EXPECT_NEAR(c.y, 0, 1e-3);
+  for (const Constraint& on : of_kind(ConstraintKind::kOnCurve)) {
+    const Position p = point_at(sketch(), on.first);
+    EXPECT_NEAR(std::hypot(p.x - c.x, p.y - c.y), 17, 1e-6) << on.first;
+  }
+  for (Position far : {Position{-31, 18}, Position{-16, 24}}) {
+    bool found = false;
+    for (const auto& [id, e] : sketch().entities())
+      if (const auto* pt = std::get_if<SketchPoint>(&e))
+        found |= std::hypot(pt->position.x - far.x, pt->position.y - far.y) < 1e-3;
+    EXPECT_TRUE(found) << far.x << " " << far.y;
+  }
 }
