@@ -789,3 +789,65 @@ TEST_F(Snaps, RectangleCornerOnALineGetsOnCurve) {
   EXPECT_EQ(of_kind(ConstraintKind::kHorizontal).size(), 2u);
   EXPECT_EQ(of_kind(ConstraintKind::kVertical).size(), 2u);
 }
+
+// U03b (constrained-drag.adoc#curves): dragging curves as a whole.
+TEST_F(Snaps, DraggingACircleOutlineMovesItWithAttachedPoints) {
+  const EntityId circle = add([](Sketch& s) {
+    const EntityId c = *s.create_circle(*s.create_point({0, 0}), 10);
+    return s.add_dimension(ConstraintKind::kRadius, c, 0, 10) ? c : 0;
+  });
+  session.set_tool(Tool::kLine);
+  session.press({20, 20});
+  session.press({0.2, 10.3});  // On the rim, at (0, 10).
+  const SketchLine l = std::get<SketchLine>(*sketch().entity(newest_line()));
+  const EntityId centre = only<SketchCircle>(sketch()).center;
+
+  session.set_tool(Tool::kSelect);
+  session.press({-10, 0.2});  // The outline, away from any point.
+  EXPECT_EQ(session.selection(), circle);
+  for (int i = 1; i <= 12; ++i) session.drag({-10 - 0.25 * i, 0.2});
+  session.release({-13, 0.2});
+  EXPECT_EQ(doc.undo_label(), "Move curve");
+  EXPECT_EQ(session.selection(), circle);
+  const Position c = point_at(sketch(), centre);
+  EXPECT_NEAR(c.x, -3, 1e-3);
+  EXPECT_NEAR(c.y, 0, 1e-3);
+  EXPECT_NEAR(only<SketchCircle>(sketch()).radius, 10, 1e-9);
+  const Position end = point_at(sketch(), l.end);
+  EXPECT_NEAR(std::hypot(end.x - c.x, end.y - c.y), 10, 1e-6);
+  EXPECT_NEAR(point_at(sketch(), l.start).x, 20, 1e-3);
+  ASSERT_TRUE(doc.undo());
+  EXPECT_EQ(point_at(sketch(), centre), (Position{0, 0}));
+}
+
+TEST_F(Snaps, DraggingALineTranslatesIt) {
+  const EntityId l = add_line({0, 0}, {10, 0});
+  const SketchLine ends = std::get<SketchLine>(*sketch().entity(l));
+  session.set_tool(Tool::kSelect);
+  session.press({5, 0});
+  for (int i = 1; i <= 8; ++i) session.drag({5 + 0.25 * i, 0.5 * i});
+  session.release({7, 4});
+  EXPECT_EQ(doc.undo_label(), "Move curve");
+  const Position a = point_at(sketch(), ends.start);
+  const Position b = point_at(sketch(), ends.end);
+  EXPECT_NEAR(a.x, 2, 1e-3);
+  EXPECT_NEAR(a.y, 4, 1e-3);
+  EXPECT_NEAR(b.x, 12, 1e-3);
+  EXPECT_NEAR(b.y, 4, 1e-3);
+}
+
+TEST_F(Snaps, CurveDragCancelsAndATapAddsNoHistory) {
+  const EntityId l = add_line({0, 0}, {10, 0});
+  const SketchLine ends = std::get<SketchLine>(*sketch().entity(l));
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kSelect);
+  session.press({5, 0});
+  session.release({5, 0});
+  EXPECT_EQ(doc.revision(), revision);
+  EXPECT_EQ(session.selection(), l);
+  session.press({5, 0});
+  session.drag({6, 2});
+  EXPECT_TRUE(session.cancel());
+  EXPECT_EQ(point_at(sketch(), ends.start), (Position{0, 0}));
+  EXPECT_EQ(doc.revision(), revision);
+}

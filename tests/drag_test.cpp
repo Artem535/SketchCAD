@@ -195,3 +195,38 @@ TEST(Drag, CostOfTwentyRectanglesIsRecorded) {
   expect_satisfied(s);
   expect_at(s, corner, {550, 30});
 }
+
+// U03b (constrained-drag.adoc#curves).
+TEST(DragPoints, BothEndsOfALineTranslateKeepingItsLength) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 0});
+  ASSERT_TRUE(s.add_dimension(K::kLength, l, 0, 10));
+  const auto [a, b] = ends(s, l);
+  const SolveResult r = drag_points(s, {{a, {5, 3}}, {b, {15, 3}}});
+  ASSERT_EQ(r.status, SolveStatus::kSolved);
+  expect_at(s, a, {5, 3});
+  expect_at(s, b, {15, 3});
+  expect_satisfied(s);
+}
+
+TEST(DragPoints, InvalidInputLeavesSketchUnchanged) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {10, 0});
+  ASSERT_TRUE(s.add_constraint(K::kHorizontal, l));
+  const auto [a, b] = ends(s, l);
+  const Sketch before = s;
+  EXPECT_EQ(drag_points(s, {}).status, SolveStatus::kInvalidInput);
+  EXPECT_EQ(drag_points(s, {{l, {1, 1}}}).status, SolveStatus::kInvalidInput);
+  EXPECT_EQ(drag_points(s, {{a, {1, 1}}, {b, {NAN, 0}}}).status,
+            SolveStatus::kInvalidInput);
+  EXPECT_TRUE(s == before);
+}
+
+TEST(DragPoints, UnconstrainedPointsMoveExactly) {
+  Sketch s;
+  const EntityId a = *s.create_point({0, 0}), b = *s.create_point({4, 4});
+  ASSERT_EQ(drag_points(s, {{a, {1, 2}}, {b, {5, 6}}}).status,
+            SolveStatus::kSolved);
+  EXPECT_EQ(at(s, a), (Position{1, 2}));
+  EXPECT_EQ(at(s, b), (Position{5, 6}));
+}

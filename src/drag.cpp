@@ -32,6 +32,10 @@ bool collapsed(const Sketch& before, const Sketch& after) {
 }
 }  // namespace
 
+SolveResult drag_points(Sketch&, const std::map<EntityId, Position>&) {
+  return {SolveStatus::kInvalidInput, {}};
+}
+
 SolveResult drag_point(Sketch& sketch, EntityId point, Position target) {
   const auto e = sketch.entity(point);
   if (!e || !std::holds_alternative<SketchPoint>(*e) ||
