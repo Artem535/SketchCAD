@@ -121,6 +121,11 @@ class QmlTest : public QObject {
     for (const auto& [id, c] : controller.document().sketch().constraints())
       on_curve += c.kind == sketchcad::ConstraintKind::kOnCurve;
     QCOMPARE(on_curve, 2);
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("gridOnCurvesToggle"));
+    click(item("gridOnCurvesToggle"));
+    QTRY_VERIFY(controller.grid_on_curves());
+    QTRY_VERIFY(!shown("gridOnCurvesToggle"));
 
     click(item("tool_select"));
     tap(controller, 20, 20);

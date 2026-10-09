@@ -700,15 +700,43 @@ TEST_F(Snaps, CircleCentreOnALineGetsOnCurve) {
   EXPECT_NEAR(point_at(sketch(), on[0].first).y, 0.3, kLengthTolerance);
 }
 
-TEST_F(Snaps, OnCurveAndAutomaticLengthAreOneUndoStep) {
+TEST_F(Snaps, LineEndingOnACurveGetsNoLengthAndStretchesWithIt) {
   session.set_auto_dimensions(true);
-  add([](Sketch& s) { return *s.create_circle(*s.create_point({0, 0}), 10.3); });
-  const auto revision = doc.revision();
+  add([](Sketch& s) {
+    const EntityId c = *s.create_circle(*s.create_point({0, 0}), 10.3);
+    return s.add_dimension(ConstraintKind::kRadius, c, 0, 10.3) ? c : 0;
+  });
   session.set_tool(Tool::kLine);
   session.press({20, 20});
   session.press({10.5, 0.2});
   EXPECT_EQ(of_kind(ConstraintKind::kOnCurve).size(), 1u);
-  EXPECT_EQ(of_kind(ConstraintKind::kLength).size(), 1u);
+  EXPECT_TRUE(of_kind(ConstraintKind::kLength).empty());
+  const SketchLine l = std::get<SketchLine>(*sketch().entity(newest_line()));
+
+  // Moving the circle stretches the line; its far end stays.
+  session.set_tool(Tool::kSelect);
+  session.press({0, 0});
+  session.drag({-5, 0});
+  session.release({-5, 0});
+  EXPECT_EQ(doc.undo_label(), "Move point");
+  const Position start = point_at(sketch(), l.start);
+  EXPECT_NEAR(start.x, 20, 1e-3);
+  EXPECT_NEAR(start.y, 20, 1e-3);
+  const Position end = point_at(sketch(), l.end);
+  const Position centre = point_at(sketch(), only<SketchCircle>(sketch()).center);
+  EXPECT_NEAR(centre.x, -5, 1e-3);
+  EXPECT_NEAR(std::hypot(end.x - centre.x, end.y - centre.y), 10.3, 1e-6);
+}
+
+TEST_F(Snaps, CircleCentreOnALineKeepsItsRadiusInOneUndoStep) {
+  session.set_auto_dimensions(true);
+  add_line({0, 0.3}, {20, 0.3});
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kCircle);
+  session.press({10.2, 0.1});
+  session.press({10, 5});
+  EXPECT_EQ(of_kind(ConstraintKind::kOnCurve).size(), 1u);
+  EXPECT_EQ(of_kind(ConstraintKind::kRadius).size(), 1u);
   EXPECT_EQ(doc.revision(), revision + 1);
   ASSERT_TRUE(doc.undo());
   EXPECT_TRUE(sketch().constraints().empty());
@@ -744,6 +772,7 @@ TEST_F(Snaps, ConstructionToggleIsOneUndoableCommand) {
 }
 
 TEST_F(Snaps, RectangleCornerOnALineGetsOnCurve) {
+  session.set_auto_dimensions(true);
   const EntityId l = add_line({0, 0.3}, {20, 0.3});
   session.set_tool(Tool::kRectangle);
   session.press({5.2, 0.1});
@@ -754,4 +783,8 @@ TEST_F(Snaps, RectangleCornerOnALineGetsOnCurve) {
   const Position corner = point_at(sketch(), on[0].first);
   EXPECT_NEAR(corner.x, 5.2, kLengthTolerance);
   EXPECT_NEAR(corner.y, 0.3, kLengthTolerance);
+  // Width and height would fight the curve; the sides stay axis-aligned.
+  EXPECT_TRUE(of_kind(ConstraintKind::kLength).empty());
+  EXPECT_EQ(of_kind(ConstraintKind::kHorizontal).size(), 2u);
+  EXPECT_EQ(of_kind(ConstraintKind::kVertical).size(), 2u);
 }

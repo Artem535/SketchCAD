@@ -277,6 +277,16 @@ class SketchControllerTest : public QObject {
     c->hover(p.x(), p.y());
     QCOMPARE(c->snap_kind(), QString("curve"));
     QVERIFY(near(c->snap_y(), c->screen_of(20, 10).y()));
+    // Grid on curves: the default view has a 2 mm grid step.
+    p = c->screen_of(20.6, 10.2);
+    c->hover(p.x(), p.y());
+    QVERIFY(near(c->snap_x(), c->screen_of(20.6, 10).x()));
+    c->set_grid_on_curves(true);
+    QVERIFY(c->grid_on_curves());
+    c->hover(p.x(), p.y());
+    QCOMPARE(c->snap_kind(), QString("curve"));
+    QVERIFY(near(c->snap_x(), c->screen_of(20, 10).x()));
+    c->set_grid_on_curves(false);
     c->cancel();
     c->set_snap_enabled(false);
 

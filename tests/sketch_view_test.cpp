@@ -189,3 +189,21 @@ TEST(Snap, NearestPointOnACircleAndOnAnArc) {
   // Outside the sweep the arc does not attract.
   EXPECT_EQ(snap(t, {-7.2, -7.0}, kOn).kind, SnapKind::kGrid);
 }
+TEST(Snap, GridOnCurvesPicksWhereTheCurveCrossesTheGrid) {
+  Sketch s;
+  const EntityId l = segment(s, {0, 0.3}, {20, 0.3});
+  SnapSettings grid = kOn;
+  grid.grid_on_curves = true;
+  SnapResult r = snap(s, {5.3, 0.4}, grid);
+  EXPECT_EQ(r.kind, SnapKind::kOnCurve);
+  EXPECT_EQ(r.curves, (std::vector<EntityId>{l}));
+  expect_near(r.position, {5, 0.3});
+  expect_near(snap(s, {5.3, 0.4}, kOn).position, {5.3, 0.3});
+
+  Sketch t;
+  const EntityId circle = t.create_circle(point(t, {0, 0}), 10).value();
+  r = snap(t, {6.1, 7.85}, grid);
+  EXPECT_EQ(r.kind, SnapKind::kOnCurve);
+  EXPECT_EQ(r.curves, (std::vector<EntityId>{circle}));
+  expect_near(r.position, {6, 8});
+}

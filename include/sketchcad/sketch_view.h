@@ -53,6 +53,8 @@ struct SnapSettings {
   bool enabled = true;
   double grid_step_mm = 1;
   double point_tolerance_mm = 1;
+  // Curve snaps prefer where the curve crosses a grid line.
+  bool grid_on_curves = false;
 };
 
 struct SnapResult {
