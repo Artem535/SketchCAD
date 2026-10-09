@@ -54,7 +54,8 @@ ApplicationWindow {
         { name: "polyline", label: qsTr("Ломаная") },
         { name: "rectangle", label: qsTr("Прямоуг.") },
         { name: "circle", label: qsTr("Окружн.") },
-        { name: "arc", label: qsTr("Дуга") }
+        { name: "arc", label: qsTr("Дуга") },
+        { name: "dimension", label: qsTr("Размер") }
     ]
 
     readonly property var actionLabels: ({

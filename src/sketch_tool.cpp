@@ -1,6 +1,7 @@
 #include "sketchcad/sketch_tool.h"
 
 #include "sketchcad/diagnostics.h"
+#include "sketchcad/dimension_layout.h"
 #include "sketchcad/drag.h"
 #include "sketchcad/solver.h"
 
@@ -97,6 +98,11 @@ SnapResult ToolSession::snapped(Position p,
 }
 
 void ToolSession::hover(Position p) {
+  if (tool_ == Tool::kDimension) {
+    hover_ = p;
+    update_preview(p);
+    return;
+  }
   last_snap_ = snapped(p);
   hover_ = last_snap_->position;
   update_preview(last_snap_->position);
@@ -148,10 +154,92 @@ void ToolSession::press(Position p) {
     riders_ = riders_of(sk, {*hit});
     return;
   }
+  if (tool_ == Tool::kDimension) {
+    press_dimension(p);
+    return;
+  }
   const SnapResult s = snapped(p);
   last_snap_ = s;
   hover_ = s.position;
   place(s);
+}
+
+std::optional<ToolSession::DimensionPick> ToolSession::dimension_pick() const {
+  const Sketch& sk = document_.sketch();
+  const auto& picks = dimension_picks_;
+  if (picks.size() == 2) return DimensionPick{ConstraintKind::kDistance, picks[0], picks[1]};
+  if (picks.size() != 1) return std::nullopt;
+  const Entity e = *sk.entity(picks[0]);
+  if (std::holds_alternative<SketchLine>(e))
+    return DimensionPick{ConstraintKind::kLength, picks[0], 0};
+  if (!std::holds_alternative<SketchPoint>(e))
+    return DimensionPick{ConstraintKind::kRadius, picks[0], 0};
+  return std::nullopt;
+}
+
+void ToolSession::press_dimension(Position p) {
+  std::erase_if(dimension_picks_,
+                [&](EntityId id) { return !document_.sketch().entity(id); });
+  if (const auto d = dimension_pick()) {
+    // Complete: this tap places the reference through `p`.
+    if (document_.execute("Reference dimension", [&](Sketch& sk) {
+          const auto value = measure(sk, d->kind, d->first, d->second);
+          const auto id = value ? sk.add_dimension(d->kind, d->first,
+                                                   d->second, *value, true)
+                                : std::nullopt;
+          if (!id) return false;
+          const auto placement =
+              dimension_placement_at(sk, *sk.constraint(*id), p);
+          return !placement || sk.set_dimension_placement(*id, *placement);
+        }))
+      dimension_picks_.clear();
+    update_preview(std::nullopt);
+    return;
+  }
+  const auto hit = pick(document_.sketch(), p, pick_tolerance_mm_);
+  if (!hit) return;
+  const bool point =
+      std::holds_alternative<SketchPoint>(*document_.sketch().entity(*hit));
+  if (dimension_picks_.empty() ||
+      (point && dimension_picks_.front() != *hit))
+    dimension_picks_.push_back(*hit);
+  update_preview(p);
+}
+
+// The picked geometry copied into the preview with the reference laid
+// through `cursor`.
+void ToolSession::preview_reference(Position cursor) {
+  const Sketch& sk = document_.sketch();
+  const auto at = [&](EntityId id) {
+    return std::get<SketchPoint>(*sk.entity(id)).position;
+  };
+  const auto d = dimension_pick();
+  if (!d) return;
+  std::optional<EntityId> first, second;
+  const Entity e = *sk.entity(d->first);
+  if (d->kind == ConstraintKind::kDistance) {
+    first = preview_.create_point(at(d->first));
+    second = preview_.create_point(at(d->second));
+  } else if (const auto* l = std::get_if<SketchLine>(&e)) {
+    first = preview_.create_line(*preview_.create_point(at(l->start)),
+                                 *preview_.create_point(at(l->end)));
+  } else if (const auto* c = std::get_if<SketchCircle>(&e)) {
+    first = preview_.create_circle(*preview_.create_point(at(c->center)),
+                                   c->radius);
+  } else if (const auto* a = std::get_if<SketchArc>(&e)) {
+    first = preview_.create_arc(*preview_.create_point(at(a->center)),
+                                a->radius, a->start_angle, a->sweep_angle);
+  }
+  if (!first) return;
+  const auto value = measure(preview_, d->kind, *first, second.value_or(0));
+  const auto id = value ? preview_.add_dimension(d->kind, *first,
+                                                 second.value_or(0), *value,
+                                                 true)
+                        : std::nullopt;
+  if (!id) return;
+  if (const auto placement =
+          dimension_placement_at(preview_, *preview_.constraint(*id), cursor))
+    preview_.set_dimension_placement(*id, *placement);
 }
 
 // One drawing step at `s`, from a tap or from an entered value.
@@ -323,8 +411,9 @@ bool ToolSession::cancel() {
     riders_.clear();
     return true;
   }
-  if (vertices_.empty()) return false;
+  if (vertices_.empty() && dimension_picks_.empty()) return false;
   vertices_.clear();
+  dimension_picks_.clear();
   update_preview(std::nullopt);
   return true;
 }
@@ -437,6 +526,10 @@ bool ToolSession::commit_polyline(bool closed) {
 
 void ToolSession::update_preview(std::optional<Position> cursor) {
   preview_ = Sketch();
+  if (tool_ == Tool::kDimension) {
+    if (cursor) preview_reference(*cursor);
+    return;
+  }
   if (vertices_.empty()) {
     locked_width_.reset();
     return;

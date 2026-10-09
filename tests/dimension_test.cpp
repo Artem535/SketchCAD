@@ -412,3 +412,14 @@ TEST(ReferenceDimension, IsNotSolverInput) {
   EXPECT_EQ(solve(s).status, SolveStatus::kSolved);
   EXPECT_TRUE(s == before);
 }
+
+TEST(ReferenceDimension, OnlyReferencesLeaveEveryFreedom) {
+  Sketch s;
+  const EntityId l = *s.create_line(*s.create_point({0, 0}),
+                                    *s.create_point({50, 0}));
+  ASSERT_TRUE(s.add_dimension(K::kLength, l, 0, 50, true));
+  const Diagnosis d = diagnose(s);
+  EXPECT_EQ(d.status, DiagnosisStatus::kConsistent);
+  EXPECT_EQ(d.dof, 4);
+  EXPECT_EQ(solve(s).status, SolveStatus::kSolved);
+}

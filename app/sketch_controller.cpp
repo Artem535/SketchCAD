@@ -414,6 +414,7 @@ QVariantList SketchController::dimensions() const {
           {"kind", QString(name)},
           {"value", angle ? c.value / kDegree : c.value},
           {"placed", c.placement.has_value()},
+          {"reference", c.reference},
       });
     }
   }
@@ -595,11 +596,18 @@ QVariantList SketchController::constraints() const {
                                   QVariant::fromValue<qulonglong>(c.second)}},
         {"dependent", has(d.dependent, id)},
         {"violated", has(d.violated, id)},
+        {"reference", c.reference},
     };
+    // A reference shows its current measurement (U10).
+    const double value =
+        c.reference ? sketchcad::measure(document_.sketch(), c.kind, c.first,
+                                         c.second)
+                          .value_or(c.value)
+                    : c.value;
     if (sketchcad::is_dimension(c.kind))
       entry["value"] = c.kind == sketchcad::ConstraintKind::kAngle
-                           ? c.value / kDegree
-                           : c.value;
+                           ? value / kDegree
+                           : value;
     list.append(entry);
   }
   return list;
@@ -661,13 +669,17 @@ QVariantList SketchController::dimension_labels() const {
         text = format_value(g.value);
         break;
     }
+    // ESKD marks reference dimensions with an asterisk (U10).
+    if (g.reference) text += QStringLiteral("*");
     list.append(QVariantMap{
         {"id", QVariant::fromValue<qulonglong>(g.id)},
         {"x", g.text_position.x},
         {"y", g.text_position.y},
         {"angle", g.text_angle / kDegree},
         {"text", text},
-        {"bad", has(diagnosis_.dependent, g.id) || has(diagnosis_.violated, g.id)}});
+        {"reference", g.reference},
+        {"bad", !g.reference && (has(diagnosis_.dependent, g.id) ||
+                                 has(diagnosis_.violated, g.id))}});
   }
   return list;
 }
@@ -853,9 +865,10 @@ bool SketchController::enter_value(double value) {
 QVariantList SketchController::preview_dimension_labels() const {
   QVariantList list;
   for (const auto& g : sketchcad::layout_dimensions(session_.preview(), view_)) {
-    const QString text = g.kind == sketchcad::ConstraintKind::kRadius
-                             ? QStringLiteral("R") + format_value(g.value)
-                             : format_value(g.value);
+    const QString text = (g.kind == sketchcad::ConstraintKind::kRadius
+                              ? QStringLiteral("R") + format_value(g.value)
+                              : format_value(g.value)) +
+                         (g.reference ? QStringLiteral("*") : QString());
     list.append(QVariantMap{{"x", g.text_position.x},
                             {"y", g.text_position.y},
                             {"angle", g.text_angle / kDegree},
@@ -884,39 +897,14 @@ void SketchController::drag_dimension(double x, double y) {
   const auto c = sketch.constraint(dragged_dimension_);
   if (!c) return;
   const Position p = world(x, y);
-  const auto at = [&](EntityId id) {
-    return std::get<SketchPoint>(*sketch.entity(id)).position;
-  };
   sketchcad::DimensionPlacement placement;
   switch (c->kind) {
     case sketchcad::ConstraintKind::kLength:
-    case sketchcad::ConstraintKind::kDistance: {
-      Position a, b;
-      if (c->kind == sketchcad::ConstraintKind::kLength) {
-        const auto l = std::get<sketchcad::SketchLine>(*sketch.entity(c->first));
-        a = at(l.start);
-        b = at(l.end);
-      } else {
-        a = at(c->first);
-        b = at(c->second);
-      }
-      const double dx = b.x - a.x, dy = b.y - a.y;
-      const double length2 = dx * dx + dy * dy;
-      if (!(length2 > 0)) return;
-      const double length = std::sqrt(length2);
-      placement.offset = ((p.x - a.x) * -dy + (p.y - a.y) * dx) / length;
-      placement.along = std::clamp(
-          ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2, 0.0, 1.0);
-      break;
-    }
+    case sketchcad::ConstraintKind::kDistance:
     case sketchcad::ConstraintKind::kRadius: {
-      const Entity e = *sketch.entity(c->first);
-      const auto* circle = std::get_if<sketchcad::SketchCircle>(&e);
-      const Position centre =
-          at(circle ? circle->center : std::get<sketchcad::SketchArc>(e).center);
-      placement.angle = std::atan2(p.y - centre.y, p.x - centre.x);
-      placement.offset =
-          std::max(std::hypot(p.x - centre.x, p.y - centre.y), 0.5);
+      const auto at = sketchcad::dimension_placement_at(sketch, *c, p);
+      if (!at) return;
+      placement = *at;
       break;
     }
     case sketchcad::ConstraintKind::kAngle: {

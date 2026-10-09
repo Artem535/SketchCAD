@@ -65,3 +65,25 @@ editor flag is not raised by a tap on it; DOF is unchanged.
 QML (`qml_test`): click `tool_dimension`, tap two line ends and a placement point; a label ending with `*` appears;
 screenshot `sketch_u10_reference.png`.
 Desktop only.
+
+== Execution record
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; `build/ubuntu` (Release) and `build/werror` (Debug, `-Werror`,
+ASan/UBSan). Baseline: 166/166 on `main` after #47.
+
+RED (`build/issue49-red.log`): 8 of 173 checks failed against stubs (the `reference` field ignored,
+`dimension_placement_at` returning nullopt, `Tool::kDimension` falling through to the drawing path), all on
+assertions. `Snaps.DimensionToolEscapeDropsThePicks` passed against the stub, because the drawing path also starts
+and cancels a shape.
+Found during GREEN:
+
+* `diagnose` crashed (SIGSEGV inside Ceres) on a sketch whose only constraints are references: the problem had no
+  residuals. It now treats "no solver constraints" like "no constraints".
+  `ReferenceDimension.OnlyReferencesLeaveEveryFreedom` was added and crashed without the fix (exit 139,
+  `build/issue49-diag-red.log`).
+* In the app the placing tap never reached the tool: the preview label follows the pointer, and the U08 live-label
+  rule handed presses on it to the label. The rule is off for the dimension tool; the QML scenario caught it.
+* The help test's entry count changed from 25 to 26 by this spec (`reference`).
+
+GREEN: Release 174/174 (`build/issue49-green.log`); Debug `-Werror` + ASan/UBSan 174/174 (`build/issue49-werror.log`).
+Screenshot `sketch_u10_reference.png` inspected: a muted "50*" above a 50 mm line, DOF unchanged at 4.
+Desktop only.

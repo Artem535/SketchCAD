@@ -4,6 +4,8 @@
 #include <cmath>
 #include <map>
 
+#include "sketchcad/solver.h"
+
 namespace sketchcad {
 namespace {
 constexpr double kPi = std::numbers::pi;
@@ -137,10 +139,45 @@ std::map<EntityId, P> group_centres(const Sketch& sketch,
 }
 }  // namespace
 
-std::optional<DimensionPlacement> dimension_placement_at(const Sketch&,
-                                                         const Constraint&,
-                                                         Position) {
-  return std::nullopt;
+std::optional<DimensionPlacement> dimension_placement_at(const Sketch& sketch,
+                                                         const Constraint& c,
+                                                         Position at) {
+  const auto point = [&](EntityId id) -> std::optional<Position> {
+    const auto e = sketch.entity(id);
+    if (!e || !std::holds_alternative<SketchPoint>(*e)) return std::nullopt;
+    return std::get<SketchPoint>(*e).position;
+  };
+  const auto e = sketch.entity(c.first);
+  if (!e) return std::nullopt;
+  if (c.kind == ConstraintKind::kRadius) {
+    EntityId centre = 0;
+    if (const auto* k = std::get_if<SketchCircle>(&*e)) centre = k->center;
+    if (const auto* k = std::get_if<SketchArc>(&*e)) centre = k->center;
+    const auto o = point(centre);
+    if (!o) return std::nullopt;
+    const double dx = at.x - o->x, dy = at.y - o->y;
+    return DimensionPlacement{std::max(std::hypot(dx, dy), 0.5), 0.5,
+                              std::atan2(dy, dx)};
+  }
+  std::optional<Position> a, b;
+  if (c.kind == ConstraintKind::kLength) {
+    const auto* l = std::get_if<SketchLine>(&*e);
+    if (!l) return std::nullopt;
+    a = point(l->start);
+    b = point(l->end);
+  } else if (c.kind == ConstraintKind::kDistance) {
+    a = point(c.first);
+    b = point(c.second);
+  }
+  if (!a || !b) return std::nullopt;
+  const double dx = b->x - a->x, dy = b->y - a->y;
+  const double length2 = dx * dx + dy * dy;
+  if (length2 <= 0) return std::nullopt;
+  const double px = at.x - a->x, py = at.y - a->y;
+  // Signed distance along the left normal of a -> b; position along a -> b.
+  return DimensionPlacement{(px * -dy + py * dx) / std::sqrt(length2),
+                            std::clamp((px * dx + py * dy) / length2, 0.0, 1.0),
+                            0};
 }
 
 std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
@@ -182,6 +219,9 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
     g.id = id;
     g.kind = c.kind;
     g.value = c.value;
+    g.reference = c.reference;
+    if (c.reference)
+      g.value = measure(sketch, c.kind, c.first, c.second).value_or(c.value);
     Builder b(style, g);
     switch (c.kind) {
       case ConstraintKind::kLength: {

@@ -42,7 +42,9 @@ std::vector<EntityId> sorted_unique(std::vector<EntityId> ids) {
 Diagnosis diagnose(const Sketch& sketch) {
   Diagnosis d;
   d.parameters = parameter_count(sketch);
-  if (sketch.constraints().empty()) {
+  // Reference dimensions (U10) are not solver input.
+  if (std::none_of(sketch.constraints().begin(), sketch.constraints().end(),
+                   [](const auto& entry) { return !entry.second.reference; })) {
     d.status = DiagnosisStatus::kConsistent;
     d.dof = d.parameters;
     d.rank = 0;
