@@ -236,12 +236,16 @@ class Problem {
           new ceres::AutoDiffCostFunction<Anchor<1>, 1, 1>(
               new Anchor<1>{{r}, stay}),
           nullptr, &r);
-    return minimize(problem, max_iterations);
+    return minimize(problem, max_iterations, /*uniform_damping=*/true);
   }
 
  private:
-  ceres::TerminationType minimize(ceres::Problem& problem,
-                                  int max_iterations) {
+  // `uniform_damping` (U03c, constrained-drag.adoc#damping): every variable is
+  // a length in mm and is damped equally. Ceres' default damps each variable
+  // by its own Jacobian column, so a coordinate a constraint barely touches
+  // looks free and LM swings it far along a curve, out of the linear model.
+  ceres::TerminationType minimize(ceres::Problem& problem, int max_iterations,
+                                  bool uniform_damping = false) {
     for (auto& [id, r] : radii_)
       if (problem.HasParameterBlock(&r))
         problem.SetParameterLowerBound(&r, 0, kMinRadius);
@@ -252,6 +256,10 @@ class Problem {
     options.gradient_tolerance = 1e-16;
     options.parameter_tolerance = 1e-16;
     options.logging_type = ceres::SILENT;
+    if (uniform_damping) {
+      options.jacobi_scaling = false;
+      options.min_lm_diagonal = options.max_lm_diagonal = 1;
+    }
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     return summary.termination_type;

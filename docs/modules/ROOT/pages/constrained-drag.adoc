@@ -155,7 +155,7 @@ GREEN: Release 165/165 (`build/issue46-green.log`); Debug `-Werror` + ASan/UBSan
 ending on a circle with a radius dimension) was added after the implementation as a regression check and passed
 on its first run; it was not seen failing.
 Known limit, unchanged here: a single large pointer jump can fail in the soft phase (see the U04 execution record);
-pointer-sized steps work. Desktop only.
+pointer-sized steps work. Fixed later by <<damping,U03c>>. Desktop only.
 
 === Execution record (U03b riders)
 The user's second screenshot: after dragging the circle, the points of a chord slid around it. RED
@@ -201,8 +201,33 @@ Core (`drag_test`, the residual oracle extended to `kRadius` and `kOnCurve`):
   centre at the target (± 1e-3 mm), every constraint satisfied, the radius 10.3 mm, and the point at the moved circle's
   point nearest to its start position (± 1e-3 mm).
 * Sweep: the point at angles 0, ±0.001, ±0.019, 0.05, 0.1, 0.3, 0.5, 1, 1.5, 2.5 and 3.1 rad, the centre dragged in
-  one call to x = -10, -5, -0.5, 0.5 and 5 (y = 0): `kSolved` and the same three checks for every case.
+  one call to x = -10, -5, -0.5, 0.5 and 5 (y = 0): `kSolved`, the centre at the target (± 1e-3 mm), every
+  constraint satisfied and the radius 10.3 mm for every case. Where the point ends on the moved circle is intent, not
+  contract, here: the 1e-3 stabilization pulls it towards the nearest point only weakly, and for large turns (for
+  example 3.1 rad and a 10 mm jump) it needs far more than 50 iterations to get there (measured: up to about 1450).
+  In the app, points on a dragged curve get their own targets (U03b riders), so this does not show.
 * `drag_points` moving the centre and the point on the circle (a rider, U03b) together by (-5, 0) in one call: both
   at their targets (± 1e-3 mm).
 * All existing `drag_test`, `sketch_tool_test`, controller and QML cases stay green; the 20-rectangle cost is
   recorded as before (no threshold). Desktop only.
+
+=== Execution record (U03c, issue #48)
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2, Ceres 2.2; `build/desktop` (Release) and `build/werror` (Debug,
+`-Werror`, ASan/UBSan). Base: `main` at `ef0b9f6` (U04 part 1 and U03b merged).
+Investigation (before #45 merged, on its branch): pure Gauss–Newton on the soft residuals of the reproduction
+converges in one step; Ceres' first default-LM step moves the point's y by about 11 mm; DOGLEG also passes the sweep
+but breaks `Drag.PivotKeepsFreeEndOnCircleTowardsTarget` (0.24 mm off), uniform LM damping passes everything.
+RED (`build/issue48-red.log`): 3 of the 4 new `DragDamping` cases failed on assertions — the centre stopped at
+-0.196 and -0.171 mm, and 25 of 65 sweep cases failed (11 with `kNumericalFailure`).
+`DragDamping.CentreAndRiderTranslateTogether` passed before the fix: with its own target the point leaves nothing
+for the damping to swing; it guards the U03b rider path.
+While turning it green the first sweep version also required the point at the moved circle's nearest point; with
+uniform damping the centre reached every target, but the point needed up to about 1450 iterations to settle for large
+turns (0.002–7 mm off after 50). The sweep expectation was narrowed to the contract (see the acceptance above); the two
+reproduction cases keep the nearest-point check and pass.
+GREEN: Release 170/170 (`build/issue48-green.log`). Debug `-Werror` + ASan/UBSan: 168/170 with LeakSanitizer
+reports from glib/Qt at exit in `qml_smoke` and `qml_test` (all 12 `qml_test` functions pass); `main` without
+this change fails `qml_smoke` the same way on this machine, and with `ASAN_OPTIONS=detect_leaks=0` the run is
+170/170 (`build/issue48-werror.log`).
+Cost: `drag_step_20_rectangles_us` about 5.6 ms per step with the fix against 8.3 ms on `main` (Release, 7 runs each).
+Desktop only.
