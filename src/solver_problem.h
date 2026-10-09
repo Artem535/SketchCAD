@@ -217,16 +217,17 @@ class Problem {
   // Soft drag phase (U03): hard residuals weighted `hard`, `point` pulled
   // to `target` with weight 1 and every other variable held at its current
   // value with weight `stay`. The result still needs a hard projection.
-  ceres::TerminationType run_drag(EntityId point, Position target,
+  ceres::TerminationType run_drag(const std::map<EntityId, Position>& targets,
                                   double hard, double stay,
                                   int max_iterations) {
     ceres::Problem problem;
     populate(problem, hard);
     for (auto& [id, p] : points_) {
-      const bool dragged = id == point;
+      const auto target = targets.find(id);
+      const bool dragged = target != targets.end();
       problem.AddResidualBlock(
           new ceres::AutoDiffCostFunction<Anchor<2>, 2, 2>(new Anchor<2>{
-              dragged ? std::array{target.x, target.y} : p,
+              dragged ? std::array{target->second.x, target->second.y} : p,
               dragged ? 1.0 : stay}),
           nullptr, p.data());
     }

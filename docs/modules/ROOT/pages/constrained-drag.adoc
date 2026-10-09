@@ -8,7 +8,8 @@ uses the degenerate-solution rule of issue #29.
 Fixes user remark 1 from U02 testing: dragging one endpoint of a horizontal line moved both endpoints by half the
 pointer movement, because the dragged point was only an initial guess and the solver spread the correction evenly.
 
-Not in this increment: dragging lines, circles or arcs as a whole (only points are dragged, as in U01),
+Not in this increment: dragging lines, circles or arcs as a whole (only points are dragged, as in U01; added later as
+<<curves,U03b>>),
 pointer-cancel handling beyond Escape, constraint-creating snaps (U04), device latency on a tablet (P01).
 
 == Core: `drag_point`
@@ -105,3 +106,61 @@ Cost: 20 constrained rectangles (160 point parameters), one corner dragged in 20
 development machine (`drag_step_20_rectangles_us`, Release, one run). The whole sketch is solved on every step;
 solving only the connected component of the dragged point is a possible later optimization. No target is claimed.
 Not claimed: touch drag and latency on a tablet (P01), pointer-cancel from the platform (only Escape is tested).
+
+[[curves]]
+== Dragging curves as a whole (U03b)
+Issue: https://github.com/Artem535/SketchCAD/issues/46[#46]. User remark after U04 part 1 testing: dragging a circle by its outline did nothing (only points could be
+dragged), and grabbing it near a point lying on it dragged that point instead, which rebuilt the attached geometry
+around it.
+
+* Core: `SolveResult drag_points(Sketch&, const std::map<EntityId, Position>& targets)` generalizes `drag_point` to
+  several dragged points (each drag residual weighted 1, everything else as above, same projection and acceptance).
+  `drag_point(s, p, t)` is `drag_points(s, {{p, t}})`. An empty map, a non-point ID or a non-finite target →
+  `kInvalidInput`, unchanged. Points not referenced by any constraint move exactly to their targets.
+* `ToolSession`: with the select tool, a press on a line, circle or arc (picked as today: a point within the pick
+  tolerance still wins and is dragged as a point) arms a curve drag. The pointer displacement d from the press moves
+  a line's two endpoints, or a circle's / arc's centre, to their start positions + d, as one gesture
+  "Move curve" with the U03 lifecycle (warm start, rejected steps keep the last valid geometry, Escape cancels, one undo
+  step). Radii are not targeted; constraints decide what else follows: a point kept on the circle by `kOnCurve` moves
+  with it, and a line ending there stretches (U04). No snapping during a curve drag: the displacement is used raw.
+* Riders (user remark after the first U03b build: points on a dragged circle slid around it instead of moving with
+  it, because the soft phase keeps other points where they were): points held on the moved curve by `kOnCurve` are
+  dragged with it, to their start positions + d, so they keep their place on the curve while lines ending there
+  stretch. The same applies when a circle's or arc's centre point is dragged directly (d is then the centre's
+  displacement to the snapped pointer position). Riders are soft targets like the dragged points: other constraints
+  still win.
+* A press without movement only selects, as before; the selection stays on the curve after a drag.
+
+=== Acceptance / test cases (U03b)
+Core (`drag_test`): `drag_points` translating both endpoints of a 10 mm line with a length dimension keeps the
+length and moves both by the displacement (± 1e-3 mm); invalid input as above; `drag_point` behaviour is unchanged
+(existing cases).
+`sketch_tool_test`: dragging a circle's outline moves its centre by the pointer displacement, keeps the radius, is one
+"Move curve" undo step, and a point on it (`kOnCurve`) follows; in the user's second scene (a chord P–Q on a circle and
+a long line ending at Q) P and Q move by the displacement (± 1e-3 mm), by the outline and by the centre point; dragging a line translates it; Escape restores; a tap
+on the outline adds no history.
+Qt (`sketch_controller_test`): a press-drag-release on a circle's outline through the controller moves its centre.
+QML (`qml_test`): draw a circle, drag its outline with the mouse; the centre moves by the pointer displacement.
+Desktop only.
+
+=== Execution record (U03b, issue #46)
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; `build/ubuntu` (Release) and `build/werror` (Debug, `-Werror`,
+ASan/UBSan). Baseline: 158/158 on `feature/12-snaps-construction`.
+RED (`build/issue46-red.log`): 7 of 164 checks failed against a `drag_points` stub returning `kInvalidInput` — two
+`DragPoints` cases, three `Snaps` curve-drag cases, `sketch_controller_test` and `qml_test`, all on assertions.
+`DragPoints.InvalidInputLeavesSketchUnchanged` passed against the stub, as expected.
+GREEN: Release 165/165 (`build/issue46-green.log`); Debug `-Werror` + ASan/UBSan 165/165 (`build/issue46-werror.log`).
+`Snaps.UserSceneCircleWithLinesAndAChordIsDraggedByItsOutline` (the user's screenshot: two outside lines and a chord
+ending on a circle with a radius dimension) was added after the implementation as a regression check and passed
+on its first run; it was not seen failing.
+Known limit, unchanged here: a single large pointer jump can fail in the soft phase (see the U04 execution record);
+pointer-sized steps work. Desktop only.
+
+=== Execution record (U03b riders)
+The user's second screenshot: after dragging the circle, the points of a chord slid around it. RED
+(`build/issue46-riders-red.log`): `Snaps.PointsOnADraggedCircleRideAlong` failed in both variants (P about 6 mm off).
+While turning it green the centre-point variant still missed by 0.4 mm: the dragged centre snapped onto the long line
+it passed, because the U04 curve snaps also ran during drags, contrary to the U04 page ("U03 drags keep the U01 snap
+behaviour"). `SnapSettings::curves` now lets drags snap to points and the grid only; the test was not changed.
+GREEN: Release 166/166 (`build/issue46-riders-green.log`); Debug `-Werror` + ASan/UBSan 166/166
+(`build/issue46-riders-werror.log`).

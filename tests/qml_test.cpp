@@ -103,6 +103,30 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void circle_is_dragged_by_its_outline() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("snapToggle"));
+    click(item("tool_circle"));
+    tap(controller, 50, 50);
+    tap(controller, 70, 50);
+    click(item("tool_select"));
+    const QPoint from = scene_of(controller, 50, 30);
+    const QPoint to = scene_of(controller, 56, 30);
+    QTest::mousePress(window_, Qt::LeftButton, Qt::NoModifier, from);
+    for (int i = 1; i <= 8; ++i)
+      QTest::mouseMove(window_, from + (to - from) * i / 8);
+    QTest::mouseRelease(window_, Qt::LeftButton, Qt::NoModifier, to);
+    const auto& s = controller.document().sketch();
+    for (const auto& [id, e] : s.entities())
+      if (const auto* k = std::get_if<sketchcad::SketchCircle>(&e)) {
+        const auto c = std::get<sketchcad::SketchPoint>(*s.entity(k->center));
+        QVERIFY2(std::abs(c.position.x - 56) < 0.5, qPrintable(QString::number(c.position.x)));
+        QVERIFY(std::abs(c.position.y - 50) < 0.5);
+      }
+    QCOMPARE(controller.document().undo_label(), std::string("Move curve"));
+  }
   void snaps_create_on_curve_and_construction() {
     SketchController controller;
     QQmlApplicationEngine engine;

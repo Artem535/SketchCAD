@@ -424,6 +424,26 @@ class SketchControllerTest : public QObject {
     QVERIFY(std::abs(point_of(s, l.end).x - 60) < 1e-3);
     QCOMPARE(c->diagnosis(), QString("consistent"));
   }
+  void dragging_a_circle_outline_moves_it() {
+    auto* c = make();
+    c->set_tool("circle");
+    tap(c, 50, 50);
+    tap(c, 70, 50);
+    c->set_tool("select");
+    const auto& s = c->document().sketch();
+    sketchcad::EntityId centre = 0;
+    for (const auto& [id, e] : s.entities())
+      if (const auto* k = std::get_if<sketchcad::SketchCircle>(&e)) centre = k->center;
+    const QPointF from = c->screen_of(50, 30), to = c->screen_of(55, 26);
+    c->press(from.x(), from.y());
+    for (int i = 1; i <= 10; ++i)
+      c->drag(from.x() + (to.x() - from.x()) * i / 10,
+              from.y() + (to.y() - from.y()) * i / 10);
+    c->release(to.x(), to.y());
+    QVERIFY(std::abs(point_of(s, centre).x - 55) < 1e-3);
+    QVERIFY(std::abs(point_of(s, centre).y - 46) < 1e-3);
+    QCOMPARE(c->document().undo_label(), std::string("Move curve"));
+  }
   // Inspector rows as "label=value unit" strings.
   QStringList rows(SketchController* c) {
     QStringList out;

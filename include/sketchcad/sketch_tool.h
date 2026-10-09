@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -93,6 +94,13 @@ class ToolSession {
   std::vector<Vertex> vertices_;
   std::vector<EntityId> selected_;
   std::optional<EntityId> dragged_point_;
+  // Curve drag (U03b): press position and the defining points' starts.
+  std::optional<Position> curve_press_;
+  std::map<EntityId, Position> curve_start_;
+  // Points on the moved curve (kOnCurve) that ride along, with the dragged
+  // point's or curve's start for their displacement.
+  std::map<EntityId, Position> riders_;
+  Position point_start_{0, 0};
   bool dragging_ = false;
   bool auto_dimensions_ = true;
   std::optional<Position> hover_;
