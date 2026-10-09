@@ -181,7 +181,8 @@ Not in this increment: choosing cutting edges, fence or crossing selection, exte
   The tool stays active for the next tap.
 * Hover shows the piece that a tap would remove (trim, drawn in `err`) or add (extend, drawn in `primary`, dashed) as
   `edit_preview_path`.
-* The tool rail scrolls vertically when its buttons do not fit the window height.
+* The tool buttons of the rail scroll vertically when they do not fit the window height; the snap and finger
+  toggles, "Связи" and "Справка" below them stay visible.
 * Help (U07) gains `trim` and `extend`.
 
 === Acceptance / test cases (part 2)
@@ -207,4 +208,22 @@ Qt (`sketch_controller_test`): `set_tool("trim")`, hover over a piece gives a no
 trims; `extend` likewise.
 QML (`qml_test`): draw two crossing lines, choose `tool_trim`, tap one line's end piece, the line now ends at the
 crossing; screenshot `sketch_u04_trim.png`; the rail shows `tool_extend` (scrolling if needed).
+Desktop only.
+
+=== Execution record (part 2)
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; `build/ubuntu` (Release) and `build/werror` (Debug, `-Werror`,
+ASan/UBSan). Baseline: 178/178 on `main` after #50 and #51.
+While writing the tests the spec gained one rule before any code: extending a line a second time must drop the
+end's `kOnCurve` on the first boundary, which would otherwise hold it back.
+RED (`build/issue12-trim-red.log`): 12 of 189 checks failed against stubs, all on assertions;
+`Extend.NothingAheadOrASharedEndIsRejected` passed against the stub (it expects false and no change).
+One test defect, fixed before GREEN without changing the behaviour checked: the tool test expected the revision
+counter to stay after Undo, but Undo restores the earlier state's revision.
+The intersection geometry of the U04 snaps moved to the internal `src/curve_geometry.h` and is shared with
+`sketch_edit.cpp`; the snap tests stayed green.
+The first rail layout scrolled everything, and `qml_test` could not reach "Справка" below the fold; now only the tool
+buttons scroll, with a visible scroll indicator.
+GREEN: Release 189/189 (`build/issue12-trim-green.log`); Debug `-Werror` + ASan/UBSan 189/189
+(`build/issue12-trim-werror.log`). Screenshot `sketch_u04_trim.png` inspected: the horizontal line ends at the
+crossing after the trim tap; the rail shows the scroll indicator.
 Desktop only.

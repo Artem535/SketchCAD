@@ -345,7 +345,15 @@ std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
   constraints_.emplace(*id, c);
   return id;
 }
-bool Sketch::circle_to_arc(EntityId, double, double) { return false; }
+bool Sketch::circle_to_arc(EntityId id, double start, double sweep) {
+  auto it = entities_.find(id);
+  if (it == entities_.end()) return false;
+  const auto* circle = std::get_if<SketchCircle>(&it->second);
+  if (!circle || !valid_arc(circle->radius, start, sweep)) return false;
+  it->second = SketchArc{id, circle->center, circle->radius, start, sweep,
+                         circle->construction};
+  return true;
+}
 bool Sketch::set_dimension(EntityId id, double value) {
   auto it = constraints_.find(id);
   if (it == constraints_.end() || !is_dimension(it->second.kind) ||

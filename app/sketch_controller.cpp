@@ -349,6 +349,19 @@ void SketchController::refresh_scene() {
   conflict_path_.clear();
   for (EntityId id : conflict_entities_)
     conflict_path_ += entity_path(sketch, id, kSelectedMarkerPx);
+  // Trim/extend: the piece the next tap removes or adds (U04 part 2).
+  edit_preview_path_.clear();
+  if (const auto& piece = session_.edit_preview()) {
+    if (piece->is_arc) {
+      edit_preview_path_ = arc_path(view_, piece->center, piece->radius,
+                                    piece->start, piece->sweep);
+    } else {
+      const ScreenPoint a = view_.to_screen(piece->a);
+      const ScreenPoint b = view_.to_screen(piece->b);
+      edit_preview_path_ = QStringLiteral("M %1 %2 L %3 %4 ")
+                               .arg(num(a.x), num(a.y), num(b.x), num(b.y));
+    }
+  }
   preview_path_.clear();
   const Sketch& preview = session_.preview();
   for (const auto& [id, entity] : preview.entities())

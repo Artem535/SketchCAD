@@ -1048,7 +1048,7 @@ TEST_F(Snaps, TrimAndExtendTapsAreSingleUndoSteps) {
 
   session.set_tool(Tool::kExtend);
   session.press({1, 0});  // Start end: nothing ahead.
-  EXPECT_EQ(doc.revision(), revision + 1);  // Undone trim keeps the counter.
+  EXPECT_EQ(doc.revision(), revision);  // Undo restored the earlier state.
   const auto m = add_line({0, 10}, {5, 10});
   add_line({20, 0}, {20, 20});
   const auto r = doc.revision();

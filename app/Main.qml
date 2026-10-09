@@ -55,7 +55,9 @@ ApplicationWindow {
         { name: "rectangle", label: qsTr("Прямоуг.") },
         { name: "circle", label: qsTr("Окружн.") },
         { name: "arc", label: qsTr("Дуга") },
-        { name: "dimension", label: qsTr("Размер") }
+        { name: "dimension", label: qsTr("Размер") },
+        { name: "trim", label: qsTr("Обрезать") },
+        { name: "extend", label: qsTr("Удлинить") }
     ]
 
     readonly property var actionLabels: ({
@@ -404,6 +406,25 @@ ApplicationWindow {
             anchors.topMargin: 6
             anchors.bottomMargin: 6
             spacing: 2
+        // The tools scroll when they do not fit the window height; the
+        // toggles and help below stay visible (U04 part 2).
+        Flickable {
+            id: railFlick
+            objectName: "toolRailFlick"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredHeight: toolColumn.implicitHeight
+            contentHeight: toolColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            // Always shown while some tools are out of view.
+            ScrollIndicator.vertical: ScrollIndicator {
+                active: railFlick.contentHeight > railFlick.height
+            }
+        ColumnLayout {
+            id: toolColumn
+            width: railFlick.width
+            spacing: 2
             Repeater {
                 model: window.tools
                 delegate: RailButton {
@@ -415,6 +436,8 @@ ApplicationWindow {
                     onClicked: sketch.tool = modelData.name
                 }
             }
+        }
+        }
             Rectangle {
                 Layout.preferredWidth: 40
                 Layout.preferredHeight: 1
@@ -471,7 +494,6 @@ ApplicationWindow {
                 ToolTip.delay: 600
                 ToolTip.text: qsTr("Что означают термины и действия")
             }
-            Item { Layout.fillHeight: true }
         }
     }
 

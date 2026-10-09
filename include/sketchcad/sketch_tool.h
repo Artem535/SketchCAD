@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "sketchcad/document.h"
+#include "sketchcad/sketch_edit.h"
 #include "sketchcad/sketch_view.h"
 
 namespace sketchcad {
@@ -84,6 +85,8 @@ class ToolSession {
   // Unfinished shape plus the rubber band to the last hover position.
   const Sketch& preview() const { return preview_; }
   const std::optional<SnapResult>& last_snap() const { return last_snap_; }
+  // Trim/extend: the piece the next tap would remove or add.
+  const std::optional<CurvePiece>& edit_preview() const { return edit_preview_; }
 
  private:
   struct Vertex {
@@ -131,6 +134,7 @@ class ToolSession {
   std::optional<double> locked_width_;  // Rectangle, signed.
   std::optional<SnapResult> last_snap_;
   std::vector<EntityId> dimension_picks_;
+  std::optional<CurvePiece> edit_preview_;
   Sketch preview_;
 };
 }  // namespace sketchcad
