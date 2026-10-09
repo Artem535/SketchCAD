@@ -109,7 +109,7 @@ Not claimed: touch drag and latency on a tablet (P01), pointer-cancel from the p
 
 [[curves]]
 == Dragging curves as a whole (U03b)
-Issue: TBD. User remark after U04 part 1 testing: dragging a circle by its outline did nothing (only points could be
+Issue: https://github.com/Artem535/SketchCAD/issues/46[#46]. User remark after U04 part 1 testing: dragging a circle by its outline did nothing (only points could be
 dragged), and grabbing it near a point lying on it dragged that point instead, which rebuilt the attached geometry
 around it.
 
