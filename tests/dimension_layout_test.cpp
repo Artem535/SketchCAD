@@ -214,3 +214,36 @@ TEST(DimensionLayout, ClosedContourDimensionsStayOutsideWithGeometryNearby) {
     EXPECT_GT(distance(mid, centre), distance(edge, centre)) << "side " << i;
   }
 }
+
+// U09: placed dimensions follow their stored position.
+TEST(DimensionLayout, PlacedLengthUsesOffsetAndAlong) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {50, 0});
+  const EntityId id = *s.add_dimension(K::kLength, l, 0, 50);
+  // Left normal of +X is +Y (world): a negative offset goes below.
+  ASSERT_TRUE(s.set_dimension_placement(id, DimensionPlacement{-10, 0.25, 0}));
+  const DimensionGraphic g = only(layout_dimensions(s, ViewTransform{}));
+  EXPECT_TRUE(has_segment(g, {0, 40}, {200, 40}));
+  EXPECT_TRUE(has_segment(g, {0, 0}, {0, 46}));
+  EXPECT_TRUE(has_segment(g, {200, 0}, {200, 46}));
+  EXPECT_TRUE(same(g.text_position, {50, 36}));
+}
+
+TEST(DimensionLayout, PlacedRadiusOutsideAndPlacedAngle) {
+  Sketch s;
+  const EntityId c = *s.create_circle(*s.create_point({0, 0}), 10);  // 40 px.
+  const EntityId r = *s.add_dimension(K::kRadius, c, 0, 10);
+  ASSERT_TRUE(s.set_dimension_placement(r, DimensionPlacement{20, 0.5, kPi / 2}));
+  const EntityId corner = *s.create_point({100, 0});
+  const EntityId a = *s.create_line(corner, *s.create_point({130, 0}));
+  const EntityId b = *s.create_line(corner, *s.create_point({100, 20}));
+  const EntityId angle = *s.add_dimension(K::kAngle, a, b, kPi / 2);
+  ASSERT_TRUE(s.set_dimension_placement(angle, DimensionPlacement{15, 0.5, 0}));
+  const auto all = layout_dimensions(s, ViewTransform{});
+  ASSERT_EQ(all.size(), 2u);
+  // Leader straight up from the circle to the text 80 px from the centre.
+  EXPECT_TRUE(has_segment(all[0], {0, -40}, {0, -80}));
+  EXPECT_TRUE(has_arrow(all[0], {0, -40}, {0, 1}));
+  ASSERT_EQ(all[1].arcs.size(), 1u);
+  EXPECT_NEAR(all[1].arcs[0].radius, 60, kEps);
+}

@@ -225,7 +225,10 @@ std::optional<EntityId> Sketch::add_constraint(ConstraintKind kind,
                  std::holds_alternative<SketchArc>(*e));
   };
   const bool pair = second != 0 && first != second;
-  Constraint c{0, kind, first, second};
+  Constraint c{};
+  c.kind = kind;
+  c.first = first;
+  c.second = second;
   switch (kind) {
     case ConstraintKind::kCoincident:
       if (!pair || !point(first) || !point(second)) return std::nullopt;
@@ -289,7 +292,10 @@ std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
     return e && (std::holds_alternative<SketchCircle>(*e) ||
                  std::holds_alternative<SketchArc>(*e));
   };
-  Constraint c{0, kind, first, second};
+  Constraint c{};
+  c.kind = kind;
+  c.first = first;
+  c.second = second;
   c.value = value;
   switch (kind) {
     case ConstraintKind::kLength:
@@ -334,6 +340,26 @@ bool Sketch::set_dimension(EntityId id, double value) {
       !valid_dimension(it->second, value))
     return false;
   it->second.value = value;
+  return true;
+}
+bool Sketch::set_dimension_placement(
+    EntityId id, std::optional<DimensionPlacement> placement) {
+  auto it = constraints_.find(id);
+  if (it == constraints_.end() || !is_dimension(it->second.kind)) return false;
+  Constraint& c = it->second;
+  // Point-line distances stay automatic (dimension-placement.adoc).
+  if (c.kind == ConstraintKind::kDistance && !is_point(c.second)) return false;
+  if (placement) {
+    const auto& [offset, along, angle] = *placement;
+    if (!std::isfinite(offset) || !std::isfinite(along) ||
+        !std::isfinite(angle) || along < 0 || along > 1)
+      return false;
+    if ((c.kind == ConstraintKind::kRadius ||
+         c.kind == ConstraintKind::kAngle) &&
+        offset <= 0)
+      return false;
+  }
+  c.placement = placement;
   return true;
 }
 bool Sketch::valid_dimension(const Constraint& c, double value) const {

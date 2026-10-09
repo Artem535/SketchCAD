@@ -328,3 +328,47 @@ TEST_F(Dimensions, PrototypeRectangleScenario) {
   EXPECT_FALSE(change(height, std::numeric_limits<double>::quiet_NaN()));
   EXPECT_TRUE(doc.sketch() == before);
 }
+
+// U09: manual placement (dimension-placement.adoc).
+TEST(Dimension, PlacementIsValidatedAtomicallyAndPartOfEquality) {
+  Sketch s;
+  const EntityId p = *s.create_point({0, 0}), q = *s.create_point({10, 0});
+  const EntityId l = *s.create_line(p, q);
+  const EntityId other = *s.create_point({5, 5});
+  const EntityId c = *s.create_circle(*s.create_point({50, 0}), 5);
+  const EntityId l2 = *s.create_line(*s.create_point({0, 20}), *s.create_point({5, 30}));
+  const EntityId length = *s.add_dimension(K::kLength, l, 0, 10);
+  const EntityId pp = *s.add_dimension(K::kDistance, p, other, std::hypot(5, 5));
+  const EntityId pl = *s.add_dimension(K::kDistance, other, l, 5);
+  const EntityId radius = *s.add_dimension(K::kRadius, c, 0, 5);
+  const EntityId angle = *s.add_dimension(K::kAngle, l, l2, *measure(s, K::kAngle, l, l2));
+  const EntityId axis = *s.add_constraint(K::kHorizontal, l);
+
+  const Sketch before = s;
+  for (const auto& [id, placement] :
+       std::vector<std::pair<EntityId, DimensionPlacement>>{
+           {pl, {3, 0.5, 0}},         // Point-line distances stay automatic.
+           {axis, {3, 0.5, 0}},       // Not a dimension.
+           {999, {3, 0.5, 0}},        // Unknown.
+           {length, {kNaN, 0.5, 0}},
+           {length, {3, 1.5, 0}},
+           {length, {3, -0.1, 0}},
+           {radius, {0, 0.5, 0}},
+           {radius, {3, 0.5, kInf}},
+           {angle, {-1, 0.5, 0}}}) {
+    EXPECT_FALSE(s.set_dimension_placement(id, placement)) << id;
+    EXPECT_TRUE(s == before) << id;
+  }
+  ASSERT_TRUE(s.set_dimension_placement(length, DimensionPlacement{-6, 0.25, 0}));
+  EXPECT_FALSE(s == before);
+  EXPECT_EQ(s.constraint(length)->placement, (DimensionPlacement{-6, 0.25, 0}));
+  EXPECT_TRUE(s.set_dimension_placement(pp, DimensionPlacement{4, 0, 0}));
+  EXPECT_TRUE(s.set_dimension_placement(radius, DimensionPlacement{9, 0.5, 1}));
+  EXPECT_TRUE(s.set_dimension_placement(angle, DimensionPlacement{12, 0.5, 0}));
+  // Placement never changes the solve.
+  Sketch solved = s;
+  EXPECT_EQ(solve(solved).status, SolveStatus::kSolved);
+  EXPECT_EQ(solved.constraint(length)->placement, s.constraint(length)->placement);
+  EXPECT_TRUE(s.set_dimension_placement(length, std::nullopt));
+  EXPECT_FALSE(s.constraint(length)->placement);
+}

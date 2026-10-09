@@ -333,6 +333,28 @@ Qt Test с реальными кликами offscreen, снимок окна с
 === Verification
 GoogleTest для ToolSession, Qt Test контроллера и QML с реальным вводом, снимок рисования.
 
+[[u09]]
+== U09: Move dimensions
+
+* Requirements: S01-DIM, S01-UI.
+* Dependencies: S02, U06.
+* Initial status: ready.
+* Specification: xref:dimension-placement.adoc[].
+
+=== Deliverable
+Перетаскивание размеров: сторона и отступ размерной линии, положение текста, направление выноски радиуса, радиус дуги
+угла; одно действие отмены.
+
+=== Scope
+Добавлено по запросу пользователя после сравнения с LibreCAD. Без авторазнесения и без перетаскивания расстояния от
+точки до линии.
+
+=== Acceptance
+Размер двигается за текст, касание по-прежнему открывает ввод, Undo и Escape возвращают положение.
+
+=== Verification
+GoogleTest модели и раскладки, Qt Test контроллера и QML с реальным перетаскиванием, снимок.
+
 [[f01]]
 == F01: Define a versioned project format and implement save/open
 

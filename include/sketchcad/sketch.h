@@ -84,6 +84,9 @@ class Sketch {
                                         EntityId second, double value);
   // Changes a dimension's value without solving.
   bool set_dimension(EntityId id, double value);
+  // Moves a dimension (U09); nullopt returns it to automatic placement.
+  bool set_dimension_placement(EntityId id,
+                               std::optional<DimensionPlacement> placement);
   std::optional<Constraint> constraint(EntityId) const;
   const std::map<EntityId, Constraint>& constraints() const {
     return constraints_;

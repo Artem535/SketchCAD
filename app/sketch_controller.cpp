@@ -188,6 +188,10 @@ bool SketchController::finish() {
 }
 
 bool SketchController::cancel() {
+  if (dragged_dimension_) {
+    cancel_dimension_drag();
+    return true;
+  }
   const bool ok = session_.cancel();
   snap_hint_ = false;
   refresh_scene();
@@ -389,6 +393,7 @@ QVariantList SketchController::dimensions() const {
           {"id", QVariant::fromValue<qulonglong>(id)},
           {"kind", QString(name)},
           {"value", angle ? c.value / kDegree : c.value},
+          {"placed", c.placement.has_value()},
       });
     }
   }
@@ -818,4 +823,95 @@ QVariantList SketchController::preview_dimension_labels() const {
                             {"text", text}});
   }
   return list;
+}
+
+bool SketchController::begin_dimension_drag(qulonglong id) {
+  if (dragged_dimension_ || document_.gesture_active()) return false;
+  // Probe: only dimensions that can be placed start a gesture.
+  Sketch probe = document_.sketch();
+  const auto c = probe.constraint(id);
+  if (!c || !probe.set_dimension_placement(
+                id, c->placement.value_or(sketchcad::DimensionPlacement{1})))
+    return false;
+  if (!document_.begin_gesture("Move dimension")) return false;
+  dragged_dimension_ = id;
+  return true;
+}
+
+// Pointer position to placement (dimension-placement.adoc).
+void SketchController::drag_dimension(double x, double y) {
+  if (!dragged_dimension_) return;
+  const Sketch& sketch = document_.sketch();
+  const auto c = sketch.constraint(dragged_dimension_);
+  if (!c) return;
+  const Position p = world(x, y);
+  const auto at = [&](EntityId id) {
+    return std::get<SketchPoint>(*sketch.entity(id)).position;
+  };
+  sketchcad::DimensionPlacement placement;
+  switch (c->kind) {
+    case sketchcad::ConstraintKind::kLength:
+    case sketchcad::ConstraintKind::kDistance: {
+      Position a, b;
+      if (c->kind == sketchcad::ConstraintKind::kLength) {
+        const auto l = std::get<sketchcad::SketchLine>(*sketch.entity(c->first));
+        a = at(l.start);
+        b = at(l.end);
+      } else {
+        a = at(c->first);
+        b = at(c->second);
+      }
+      const double dx = b.x - a.x, dy = b.y - a.y;
+      const double length2 = dx * dx + dy * dy;
+      if (!(length2 > 0)) return;
+      const double length = std::sqrt(length2);
+      placement.offset = ((p.x - a.x) * -dy + (p.y - a.y) * dx) / length;
+      placement.along = std::clamp(
+          ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2, 0.0, 1.0);
+      break;
+    }
+    case sketchcad::ConstraintKind::kRadius: {
+      const Entity e = *sketch.entity(c->first);
+      const auto* circle = std::get_if<sketchcad::SketchCircle>(&e);
+      const Position centre =
+          at(circle ? circle->center : std::get<sketchcad::SketchArc>(e).center);
+      placement.angle = std::atan2(p.y - centre.y, p.x - centre.x);
+      placement.offset =
+          std::max(std::hypot(p.x - centre.x, p.y - centre.y), 0.5);
+      break;
+    }
+    case sketchcad::ConstraintKind::kAngle: {
+      // The arc centre of this dimension, from the current layout.
+      for (const auto& g : sketchcad::layout_dimensions(sketch, view_))
+        if (g.id == dragged_dimension_ && !g.arcs.empty()) {
+          const Position v = view_.to_world(g.arcs.front().center);
+          placement.offset = std::max(std::hypot(p.x - v.x, p.y - v.y), 1.0);
+        }
+      if (placement.offset <= 0) return;
+      break;
+    }
+    default:
+      return;
+  }
+  const EntityId id = dragged_dimension_;
+  document_.gesture_step(
+      [&](Sketch& s) { return s.set_dimension_placement(id, placement); });
+  refresh_scene();
+  emit changed();
+}
+
+void SketchController::end_dimension_drag() {
+  if (!dragged_dimension_) return;
+  dragged_dimension_ = 0;
+  document_.end_gesture();
+  refresh_scene();
+  emit changed();
+}
+
+void SketchController::cancel_dimension_drag() {
+  if (!dragged_dimension_) return;
+  dragged_dimension_ = 0;
+  document_.cancel_gesture();
+  refresh_scene();
+  emit changed();
 }

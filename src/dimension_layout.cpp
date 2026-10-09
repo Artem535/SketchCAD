@@ -56,7 +56,7 @@ class Builder {
 
   // Dimension line between a and b with arrows at both ends; outside
   // arrows pointing inward when there is no room between them.
-  void dimension_line(P a, P b) {
+  void dimension_line(P a, P b, double along = 0.5) {
     const double length = norm(b - a);
     if (length < kEps) {
       text(a, 0);
@@ -73,15 +73,15 @@ class Builder {
       arrow(a, u);
       arrow(b, u * -1);
     }
-    text(mid(a, b), std::atan2(u.y, u.x));
+    text(a + (b - a) * along, std::atan2(u.y, u.x));
   }
 
-  // Aligned linear dimension of a-b offset along the unit normal n.
-  void linear(P a, P b, P n) {
-    const double reach = style_.offset + style_.overshoot;
+  // Aligned linear dimension of a-b, `offset` px along the unit normal n.
+  void linear(P a, P b, P n, double offset, double along = 0.5) {
+    const double reach = offset + style_.overshoot;
     segment(a, a + n * reach);
     segment(b, b + n * reach);
-    dimension_line(a + n * style_.offset, b + n * style_.offset);
+    dimension_line(a + n * offset, b + n * offset, along);
   }
 
   // Extension along `ray` from the segment's farthest point on it to just
@@ -152,6 +152,23 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
   const auto is_line = [&](EntityId id) {
     return std::holds_alternative<SketchLine>(*sketch.entity(id));
   };
+  // Screen direction of a world vector.
+  const auto screen_direction = [&](Position v) {
+    return unit(view.to_screen(v) - view.to_screen({0, 0}));
+  };
+  // Linear dimension of a-b, placed (U09) or automatic (U06).
+  const auto linear = [&](Builder& b, const Constraint& c, P a, P e,
+                          P centre) {
+    if (!c.placement) {
+      b.linear(a, e, outward(a, e, centre), style.offset);
+      return;
+    }
+    const Position wa = view.to_world(a), we = view.to_world(e);
+    const P n = screen_direction({-(we.y - wa.y), we.x - wa.x});
+    const double offset = c.placement->offset * view.scale();
+    b.linear(a, e, offset < 0 ? n * -1 : n, std::abs(offset),
+             c.placement->along);
+  };
 
   for (const auto& [id, c] : sketch.constraints()) {
     if (!is_dimension(c.kind)) continue;
@@ -166,7 +183,7 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
         const P centre =
             centres.at(std::get<SketchLine>(*sketch.entity(c.first)).start);
         if (norm(e - s) < kEps) b.text(s, 0);
-        else b.linear(s, e, outward(s, e, centre));
+        else linear(b, c, s, e, centre);
         break;
       }
       case ConstraintKind::kDistance: {
@@ -174,7 +191,7 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
         if (!is_line(c.second)) {
           const P q = point(c.second);
           if (norm(q - p) < kEps) b.text(p, 0);
-          else b.linear(p, q, outward(p, q, centres.at(c.first)));
+          else linear(b, c, p, q, centres.at(c.first));
           break;
         }
         const auto [s, e] = ends(c.second);
@@ -195,12 +212,25 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
         const P centre_px = point(circle ? circle->center : arc->center);
         const double r = (circle ? circle->radius : arc->radius) * view.scale();
         // World angles are counter-clockwise; screen Y is flipped.
-        const double world = circle ? kPi / 4
-                                    : arc->start_angle + arc->sweep_angle / 2;
+        const double world =
+            c.placement ? c.placement->angle
+            : circle    ? kPi / 4
+                        : arc->start_angle + arc->sweep_angle / 2;
         const P u{std::cos(world), -std::sin(world)};
         const P tip = centre_px + u * r;
         const double direction = std::atan2(u.y, u.x);
-        if (r >= 2 * style.arrow_length) {
+        if (c.placement) {
+          // The text sits `offset` from the centre, inside or outside.
+          const P text = centre_px + u * (c.placement->offset * view.scale());
+          if (norm(text - centre_px) <= r) {
+            b.segment(centre_px, tip);
+            b.arrow(tip, u);
+          } else {
+            b.segment(tip, text);
+            b.arrow(tip, u * -1);
+          }
+          b.text(text, direction);
+        } else if (r >= 2 * style.arrow_length) {
           b.segment(centre_px, tip);
           b.arrow(tip, u);
           b.text(mid(centre_px, tip), direction);
@@ -233,9 +263,11 @@ std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
         const double reach1 = std::max(dot(a1 - vertex, r1), dot(b1 - vertex, r1));
         const double reach2 = std::max(dot(a2 - vertex, r2), dot(b2 - vertex, r2));
         const double shorter = std::min(std::max(reach1, 0.0), std::max(reach2, 0.0));
-        const double radius = std::clamp(kRadiusShare * shorter,
-                                         style.angle_radius_min,
-                                         style.angle_radius_max);
+        const double radius =
+            c.placement ? c.placement->offset * view.scale()
+                        : std::clamp(kRadiusShare * shorter,
+                                     style.angle_radius_min,
+                                     style.angle_radius_max);
         const double start = std::atan2(r1.y, r1.x);
         double sweep = std::atan2(r2.y, r2.x) - start;
         while (sweep > kPi) sweep -= 2 * kPi;
