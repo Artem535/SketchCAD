@@ -170,6 +170,35 @@ std::optional<Position> nearest_on(const Curve& k, Position p) {
   if (!on_extent(k, q)) return std::nullopt;
   return q;
 }
+
+// Points where the curve's extent crosses grid lines near `p`.
+std::vector<Position> grid_crossings(const Curve& k, Position p, double step,
+                                     double tolerance) {
+  std::vector<Position> out;
+  for (int axis = 0; axis < 2; ++axis) {
+    const double at = axis == 0 ? p.x : p.y;
+    for (double i = std::floor((at - tolerance) / step);
+         i <= std::ceil((at + tolerance) / step); ++i) {
+      const double g = i * step;
+      if (k.is_line) {
+        const double from = axis == 0 ? k.a.x : k.a.y;
+        const double d = axis == 0 ? k.b.x - k.a.x : k.b.y - k.a.y;
+        if (d == 0) continue;
+        const double t = (g - from) / d;
+        out.push_back({k.a.x + t * (k.b.x - k.a.x), k.a.y + t * (k.b.y - k.a.y)});
+      } else {
+        const double offset = g - (axis == 0 ? k.c.x : k.c.y);
+        if (std::abs(offset) > k.r) continue;
+        const double h = std::sqrt(k.r * k.r - offset * offset);
+        for (double sign : {-1.0, 1.0})
+          out.push_back(axis == 0 ? Position{g, k.c.y + sign * h}
+                                  : Position{k.c.x + sign * h, g});
+      }
+    }
+  }
+  std::erase_if(out, [&](Position q) { return !on_extent(k, q); });
+  return out;
+}
 }  // namespace
 
 ScreenPoint ViewTransform::to_screen(Position p) const {
@@ -281,13 +310,19 @@ SnapResult snap(const Sketch& s, Position p, const SnapSettings& settings,
         if (on_extent(all[i], q) && on_extent(all[j], q))
           consider(q, SnapKind::kIntersection, {all[i].id, all[j].id});
   if (best) return *best;
+  const double step = settings.grid_step_mm;
+  const bool grid = std::isfinite(step) && step > 0;
+  if (settings.grid_on_curves && grid) {
+    for (const Curve& k : all)
+      for (Position q : grid_crossings(k, p, step, tolerance))
+        consider(q, SnapKind::kOnCurve, {k.id});
+    if (best) return *best;
+  }
   for (const Curve& k : all)
     if (const auto q = nearest_on(k, p))
       consider(*q, SnapKind::kOnCurve, {k.id});
   if (best) return *best;
-  const double step = settings.grid_step_mm;
-  if (!std::isfinite(step) || step <= 0)
-    return {p, SnapKind::kNone, std::nullopt};
+  if (!grid) return {p, SnapKind::kNone, std::nullopt};
   return {{std::round(p.x / step) * step, std::round(p.y / step) * step},
           SnapKind::kGrid,
           std::nullopt};

@@ -125,7 +125,8 @@ void ToolSession::place(const SnapResult& s) {
           auto b = vertex_point(sk, s.position, s.point, s.curves);
           const auto line = a && b ? sk.create_line(*a, *b) : std::nullopt;
           if (!line) return false;
-          if (auto_dimensions_)
+          // An end on a curve stretches with it, so no length (U04).
+          if (auto_dimensions_ && start.curves.empty() && s.curves.empty())
             add_auto_dimensions(sk, {{ConstraintKind::kLength, *line}});
           return true;
         }))
@@ -163,6 +164,8 @@ void ToolSession::place(const SnapResult& s) {
           if (!snap_corner(a, vertices_.front().curves) ||
               (!locked_width_ && !snap_corner(b, s.curves)))
             return false;
+          const bool on_curve = !vertices_.front().curves.empty() ||
+                                (!locked_width_ && !s.curves.empty());
           if (auto_dimensions_) {
             // Sides run bottom, right, top, left.
             if (!sk.add_constraint(ConstraintKind::kHorizontal, r->lines[0]) ||
@@ -170,8 +173,10 @@ void ToolSession::place(const SnapResult& s) {
                 !sk.add_constraint(ConstraintKind::kHorizontal, r->lines[2]) ||
                 !sk.add_constraint(ConstraintKind::kVertical, r->lines[3]))
               return false;
-            add_auto_dimensions(sk, {{ConstraintKind::kLength, r->lines[0]},
-                                     {ConstraintKind::kLength, r->lines[1]}});
+            if (!on_curve)
+              add_auto_dimensions(sk,
+                                  {{ConstraintKind::kLength, r->lines[0]},
+                                   {ConstraintKind::kLength, r->lines[1]}});
           }
           return true;
         }))
@@ -344,11 +349,14 @@ bool ToolSession::commit_polyline(bool closed) {
       ids.push_back(*id);
     }
     if (closed) ids.push_back(ids.front());
+    const auto free = [&](std::size_t i) {
+      return vertices[i % vertices.size()].curves.empty();
+    };
     std::vector<std::pair<ConstraintKind, EntityId>> dims;
     for (std::size_t i = 1; i < ids.size(); ++i) {
       const auto line = sk.create_line(ids[i - 1], ids[i]);
       if (!line) return false;
-      dims.push_back({ConstraintKind::kLength, *line});
+      if (free(i - 1) && free(i)) dims.push_back({ConstraintKind::kLength, *line});
     }
     if (auto_dimensions_) add_auto_dimensions(sk, dims);
     return true;

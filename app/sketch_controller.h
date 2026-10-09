@@ -107,7 +107,7 @@ class SketchController : public QObject {
   void set_snap_enabled(bool enabled);
   bool finger_draws() const { return finger_draws_; }
   bool grid_on_curves() const { return grid_on_curves_; }
-  void set_grid_on_curves(bool enabled) { (void)enabled; }
+  void set_grid_on_curves(bool enabled);
   void set_finger_draws(bool enabled);
   bool can_undo() const { return document_.can_undo(); }
   bool can_redo() const { return document_.can_redo(); }

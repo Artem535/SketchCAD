@@ -356,6 +356,16 @@ ApplicationWindow {
                         onTriggered: sketch.auto_dimensions = !sketch.auto_dimensions
                     }
                     MenuItem {
+                        objectName: "gridOnCurvesToggle"
+                        text: qsTr("Сетка на линиях")
+                        checkable: true
+                        checked: sketch.grid_on_curves
+                        onTriggered: sketch.grid_on_curves = !sketch.grid_on_curves
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Точка на линии прыгает туда, где линия пересекает сетку")
+                    }
+                    MenuItem {
                         objectName: "fingerMenuToggle"
                         text: qsTr("Палец рисует")
                         checkable: true

@@ -716,7 +716,8 @@ TEST_F(Snaps, LineEndingOnACurveGetsNoLengthAndStretchesWithIt) {
   // Moving the circle stretches the line; its far end stays.
   session.set_tool(Tool::kSelect);
   session.press({0, 0});
-  session.drag({-5, 0});
+  // In pointer-sized steps, as a real drag arrives.
+  for (int i = 1; i <= 20; ++i) session.drag({-0.25 * i, 0});
   session.release({-5, 0});
   EXPECT_EQ(doc.undo_label(), "Move point");
   const Position start = point_at(sketch(), l.start);

@@ -112,6 +112,13 @@ void SketchController::set_snap_enabled(bool enabled) {
   emit changed();
 }
 
+void SketchController::set_grid_on_curves(bool enabled) {
+  if (enabled == grid_on_curves_) return;
+  grid_on_curves_ = enabled;
+  sync_tolerances();
+  emit changed();
+}
+
 void SketchController::set_finger_draws(bool enabled) {
   if (enabled == finger_draws_) return;
   finger_draws_ = enabled;
@@ -260,7 +267,7 @@ void SketchController::sync_tolerances() {
   const double s = view_.scale();
   session_.set_pick_tolerance(kPickPx / s);
   session_.set_snap({snap_enabled_, sketchcad::grid_step_for_scale(s),
-                     kSnapPx / s});
+                     kSnapPx / s, grid_on_curves_});
 }
 
 // Arcs are split into pieces of at most half a turn so SVG never has to
