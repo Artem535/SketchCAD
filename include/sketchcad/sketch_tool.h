@@ -8,7 +8,16 @@
 #include "sketchcad/sketch_view.h"
 
 namespace sketchcad {
-enum class Tool { kSelect, kLine, kPolyline, kRectangle, kCircle, kArc };
+enum class Tool {
+  kSelect,
+  kLine,
+  kPolyline,
+  kRectangle,
+  kCircle,
+  kArc,
+  // Reference dimensions (U10).
+  kDimension,
+};
 
 enum class DeleteResult { kDeleted, kNothingSelected, kPointInUse };
 
@@ -49,7 +58,9 @@ class ToolSession {
   InputField input_field() const;
   double input_value() const;
   bool enter_value(double value);
-  bool in_progress() const { return !vertices_.empty(); }
+  bool in_progress() const {
+    return !vertices_.empty() || !dimension_picks_.empty();
+  }
 
   // Most recently selected entity.
   std::optional<EntityId> selection() const {
@@ -79,6 +90,16 @@ class ToolSession {
     std::vector<EntityId> curves = {};
   };
 
+  // Dimension tool (U10): the reference to add once the picks are complete.
+  struct DimensionPick {
+    ConstraintKind kind;
+    EntityId first;
+    EntityId second;
+  };
+  std::optional<DimensionPick> dimension_pick() const;
+  void press_dimension(Position);
+  void preview_reference(Position cursor);
+
   SnapResult snapped(Position, std::optional<EntityId> exclude = {}) const;
   void place(const SnapResult&);
   void preview_dimension(ConstraintKind kind, EntityId id);
@@ -106,6 +127,7 @@ class ToolSession {
   std::optional<Position> hover_;
   std::optional<double> locked_width_;  // Rectangle, signed.
   std::optional<SnapResult> last_snap_;
+  std::vector<EntityId> dimension_picks_;
   Sketch preview_;
 };
 }  // namespace sketchcad

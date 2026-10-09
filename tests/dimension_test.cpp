@@ -4,6 +4,7 @@
 #include <limits>
 #include <numbers>
 
+#include "sketchcad/diagnostics.h"
 #include "sketchcad/solver.h"
 using namespace sketchcad;
 using K = ConstraintKind;
@@ -371,4 +372,54 @@ TEST(Dimension, PlacementIsValidatedAtomicallyAndPartOfEquality) {
   EXPECT_EQ(solved.constraint(length)->placement, s.constraint(length)->placement);
   EXPECT_TRUE(s.set_dimension_placement(length, std::nullopt));
   EXPECT_FALSE(s.constraint(length)->placement);
+}
+
+// U10 (reference-dimensions.adoc).
+TEST(ReferenceDimension, KindsAreValidatedAndValueIsNotAnInput) {
+  Sketch s;
+  const EntityId a = *s.create_point({0, 0}), b = *s.create_point({30, 40});
+  const EntityId l = *s.create_line(a, b);
+  const EntityId other = *s.create_line(*s.create_point({0, 10}),
+                                        *s.create_point({10, 20}));
+  const EntityId c = *s.create_circle(a, 5);
+  const EntityId length = *s.add_dimension(K::kLength, l, 0, 50, true);
+  EXPECT_TRUE(s.constraint(length)->reference);
+  EXPECT_TRUE(s.add_dimension(K::kDistance, a, b, 50, true));
+  EXPECT_TRUE(s.add_dimension(K::kRadius, c, 0, 5, true));
+  const Sketch before = s;
+  EXPECT_FALSE(s.add_dimension(K::kDistance, a, other, 5, true));
+  EXPECT_FALSE(s.add_dimension(K::kAngle, l, other, 0.3, true));
+  EXPECT_FALSE(s.set_dimension(length, 60));
+  EXPECT_TRUE(s == before);
+  EXPECT_TRUE(s.set_dimension_placement(length, DimensionPlacement{5, 0.5, 0}));
+  // Driving dimensions are unchanged.
+  EXPECT_FALSE(s.constraint(*s.add_dimension(K::kLength, other, 0, 14))->reference);
+}
+
+TEST(ReferenceDimension, IsNotSolverInput) {
+  Sketch s;
+  const EntityId l = *s.create_line(*s.create_point({0, 0}),
+                                    *s.create_point({50, 0}));
+  ASSERT_TRUE(s.add_dimension(K::kLength, l, 0, 50));
+  const int dof = *diagnose(s).dof;
+  // A reference contradicting the driving length changes nothing.
+  ASSERT_TRUE(s.add_dimension(K::kLength, l, 0, 70, true));
+  const Diagnosis d = diagnose(s);
+  EXPECT_EQ(d.status, DiagnosisStatus::kConsistent);
+  EXPECT_EQ(*d.dof, dof);
+  EXPECT_TRUE(d.dependent.empty());
+  const Sketch before = s;
+  EXPECT_EQ(solve(s).status, SolveStatus::kSolved);
+  EXPECT_TRUE(s == before);
+}
+
+TEST(ReferenceDimension, OnlyReferencesLeaveEveryFreedom) {
+  Sketch s;
+  const EntityId l = *s.create_line(*s.create_point({0, 0}),
+                                    *s.create_point({50, 0}));
+  ASSERT_TRUE(s.add_dimension(K::kLength, l, 0, 50, true));
+  const Diagnosis d = diagnose(s);
+  EXPECT_EQ(d.status, DiagnosisStatus::kConsistent);
+  EXPECT_EQ(d.dof, 4);
+  EXPECT_EQ(solve(s).status, SolveStatus::kSolved);
 }

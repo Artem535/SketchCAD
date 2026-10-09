@@ -172,8 +172,9 @@ class Problem {
   // Translates every constraint; false if a residual is undefined for the
   // current geometry (degenerate line or concentric curves).
   bool build() {
+    // Reference dimensions (U10) are shown, never solved.
     for (const auto& [id, c] : sketch_.constraints())
-      if (!add(c)) return false;
+      if (!c.reference && !add(c)) return false;
     return true;
   }
 

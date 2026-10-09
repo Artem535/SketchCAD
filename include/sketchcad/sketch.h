@@ -80,8 +80,11 @@ class Sketch {
 
   std::optional<EntityId> add_constraint(ConstraintKind kind, EntityId first,
                                          EntityId second = 0);
+  // `reference` adds a reference dimension (U10): length, point-point
+  // distance or radius only; not solver input.
   std::optional<EntityId> add_dimension(ConstraintKind kind, EntityId first,
-                                        EntityId second, double value);
+                                        EntityId second, double value,
+                                        bool reference = false);
   // Changes a dimension's value without solving.
   bool set_dimension(EntityId id, double value);
   // Moves a dimension (U09); nullopt returns it to automatic placement.

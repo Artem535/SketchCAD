@@ -284,7 +284,7 @@ std::optional<EntityId> Sketch::add_constraint(ConstraintKind kind,
 }
 std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
                                               EntityId first, EntityId second,
-                                              double value) {
+                                              double value, bool reference) {
   const auto get = [&](EntityId id) -> const Entity* {
     auto it = entities_.find(id);
     return it == entities_.end() ? nullptr : &it->second;
@@ -334,6 +334,11 @@ std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
       return std::nullopt;
   }
   if (!valid_dimension(c, value)) return std::nullopt;
+  // References: length, point-point distance and radius only (U10).
+  if (reference && (kind == ConstraintKind::kAngle ||
+                    (kind == ConstraintKind::kDistance && !is_point(c.second))))
+    return std::nullopt;
+  c.reference = reference;
   const auto id = allocate();
   if (!id) return std::nullopt;
   c.id = *id;
@@ -343,7 +348,7 @@ std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
 bool Sketch::set_dimension(EntityId id, double value) {
   auto it = constraints_.find(id);
   if (it == constraints_.end() || !is_dimension(it->second.kind) ||
-      !valid_dimension(it->second, value))
+      it->second.reference || !valid_dimension(it->second, value))
     return false;
   it->second.value = value;
   return true;

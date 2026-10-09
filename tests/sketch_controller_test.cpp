@@ -444,6 +444,27 @@ class SketchControllerTest : public QObject {
     QVERIFY(std::abs(point_of(s, centre).y - 46) < 1e-3);
     QCOMPARE(c->document().undo_label(), std::string("Move curve"));
   }
+  void dimension_tool_adds_a_reference() {
+    auto* c = make();
+    line(c);  // (10, 10) - (60, 10)
+    const int dof = c->dof();
+    c->set_tool("dimension");
+    tap(c, 10, 10);
+    QVERIFY(c->in_progress());
+    tap(c, 60, 10);
+    tap(c, 35, 2);
+    QVERIFY(!c->in_progress());
+    QCOMPARE(c->dimensions().size(), 1);
+    QVERIFY(dimension(c)["reference"].toBool());
+    const auto label = c->dimension_labels().front().toMap();
+    QCOMPARE(label["text"].toString(), QString("50*"));
+    QVERIFY(label["reference"].toBool());
+    QVERIFY(!label["bad"].toBool());
+    QCOMPARE(c->dof(), dof);
+    QCOMPARE(c->document().undo_label(), std::string("Reference dimension"));
+    // Not an input: the controller refuses to change it.
+    QVERIFY(!c->set_dimension(dimension(c)["id"].toULongLong(), 70));
+  }
   // Inspector rows as "label=value unit" strings.
   QStringList rows(SketchController* c) {
     QStringList out;

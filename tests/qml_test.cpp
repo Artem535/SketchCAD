@@ -103,6 +103,27 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void dimension_tool_draws_a_reference() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    click(item("tool_dimension"));
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    tap(controller, 35, 70);
+    QTRY_VERIFY(item("dimensionLabel_0"));
+    const QVariantMap label = controller.dimension_labels().front().toMap();
+    QVERIFY(label["text"].toString().endsWith('*'));
+    click(item("tool_select"));
+    click(item("dimensionLabel_0"));
+    QTest::qWait(300);
+    QVERIFY(!shown("dimensionEditor"));
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u10_reference.png"));
+  }
   void circle_is_dragged_by_its_outline() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -260,12 +281,12 @@ class QmlTest : public QObject {
                               "angle", "radius", "on_curve",
                               "construction"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 25);
+    QCOMPARE(keys.size(), 26);
     for (const QString& key : actions + QStringList{"constraint", "dimension",
                                                      "dof", "defined",
                                                      "redundant", "conflict",
                                                      "snap", "finger", "autodim",
-                                                     "input", "modes"}) {
+                                                     "input", "modes", "reference"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",

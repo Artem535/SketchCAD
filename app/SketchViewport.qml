@@ -168,11 +168,22 @@ Item {
                 id: text
                 anchors.centerIn: parent
                 text: label.modelData.text
-                color: label.modelData.bad ? root.theme.err : root.accent
+                // Reference dimensions (U10) are muted: they show, not drive.
+                color: label.modelData.bad ? root.theme.err
+                     : label.modelData.reference ? root.theme.muted : root.accent
                 font.pixelSize: 15
                 font.weight: Font.Medium
             }
         }
+    }
+
+    // Reference dimensions have no value to edit (U10).
+    function isReference(id) {
+        for (let i = 0; i < dimensionLabels.count; ++i) {
+            const label = dimensionLabels.itemAt(i)
+            if (label && label.modelData.id === id) return label.modelData.reference === true
+        }
+        return false
     }
 
     // ID of the committed dimension whose text is at `p` (canvas px), or 0.
@@ -188,6 +199,9 @@ Item {
     // True when `p` (canvas px) is on a live dimension: the drawing tool
     // leaves such presses to the label.
     function onLiveLabel(p) {
+        // The dimension tool's preview follows the pointer by design (U10):
+        // its label is placed, not clicked.
+        if (root.controller.tool === "dimension") return false
         for (let i = 0; i < liveLabels.count; ++i) {
             const label = liveLabels.itemAt(i)
             if (label && label.contains(label.mapFromItem(root, p.x, p.y))) return true
@@ -297,7 +311,7 @@ Item {
                 if (dimensionId === 0 && !onLabel) root.controller.press(last.x, last.y)
             } else if (dimensionId !== 0) {
                 if (moved) root.controller.end_dimension_drag()
-                else root.dimensionClicked(dimensionId)
+                else if (!root.isReference(dimensionId)) root.dimensionClicked(dimensionId)
                 dimensionId = 0
             } else if (onLabel) {
                 onLabel = false

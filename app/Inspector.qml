@@ -192,6 +192,7 @@ Rectangle {
                         Layout.fillWidth: true
                         Label {
                             text: panel.labelOf(row.modelData.kind)
+                                  + (row.modelData.reference ? qsTr(" (справочный)") : "")
                                   + (row.modelData.value !== undefined
                                      ? " · " + Number(row.modelData.value.toFixed(3))
                                        + (row.modelData.kind === "angle" ? "°" : qsTr(" мм"))
