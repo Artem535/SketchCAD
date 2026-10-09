@@ -465,6 +465,29 @@ class SketchControllerTest : public QObject {
     // Not an input: the controller refuses to change it.
     QVERIFY(!c->set_dimension(dimension(c)["id"].toULongLong(), 70));
   }
+  void trim_and_extend_tools() {
+    auto* c = make();
+    line(c);  // (10, 10) - (60, 10)
+    c->set_tool("line");
+    tap(c, 30, 0);
+    tap(c, 30, 20);
+    c->set_tool("trim");
+    QCOMPARE(c->tool(), QString("trim"));
+    QPointF p = c->screen_of(50, 10);
+    c->hover(p.x(), p.y());
+    QVERIFY(!c->edit_preview_path().isEmpty());
+    tap(c, 50, 10);
+    QCOMPARE(c->document().undo_label(), std::string("Trim"));
+    const auto& s = c->document().sketch();
+    const auto first = std::get<SketchLine>(*s.entity(lines(c).front()));
+    QVERIFY(near(point_of(s, first.end).x, 30));
+
+    c->set_tool("extend");
+    p = c->screen_of(30, 18);
+    c->hover(p.x(), p.y());
+    // Nothing lies ahead of that end.
+    QVERIFY(c->edit_preview_path().isEmpty());
+  }
   // Inspector rows as "label=value unit" strings.
   QStringList rows(SketchController* c) {
     QStringList out;

@@ -88,6 +88,7 @@ ToolSession::ToolSession(Document& document) : document_(document) {}
 
 void ToolSession::set_tool(Tool tool) {
   cancel();
+  edit_preview_.reset();
   if (tool != Tool::kSelect) selected_.clear();
   tool_ = tool;
 }
@@ -98,6 +99,14 @@ SnapResult ToolSession::snapped(Position p,
 }
 
 void ToolSession::hover(Position p) {
+  if (tool_ == Tool::kTrim || tool_ == Tool::kExtend) {
+    edit_preview_.reset();
+    if (const auto hit = pick_curve(document_.sketch(), p, pick_tolerance_mm_))
+      edit_preview_ = tool_ == Tool::kTrim
+                          ? trim_preview(document_.sketch(), *hit, p)
+                          : extend_preview(document_.sketch(), *hit, p);
+    return;
+  }
   if (tool_ == Tool::kDimension) {
     hover_ = p;
     update_preview(p);
@@ -156,6 +165,17 @@ void ToolSession::press(Position p) {
   }
   if (tool_ == Tool::kDimension) {
     press_dimension(p);
+    return;
+  }
+  if (tool_ == Tool::kTrim || tool_ == Tool::kExtend) {
+    // One command per tap; the tool stays for the next one.
+    edit_preview_.reset();
+    const auto hit = pick_curve(document_.sketch(), p, pick_tolerance_mm_);
+    if (!hit) return;
+    const bool trimming = tool_ == Tool::kTrim;
+    document_.execute(trimming ? "Trim" : "Extend", [&](Sketch& sk) {
+      return trimming ? trim(sk, *hit, p) : extend(sk, *hit, p);
+    });
     return;
   }
   const SnapResult s = snapped(p);
@@ -587,6 +607,8 @@ void ToolSession::update_preview(std::optional<Position> cursor) {
       break;
     case Tool::kSelect:
     case Tool::kDimension:
+    case Tool::kTrim:
+    case Tool::kExtend:
       break;
   }
 }
@@ -614,6 +636,8 @@ InputField ToolSession::input_field() const {
       return vertices_.size() == 1 ? InputField::kRadius : InputField::kNone;
     case Tool::kSelect:
     case Tool::kDimension:
+    case Tool::kTrim:
+    case Tool::kExtend:
       break;
   }
   return InputField::kNone;

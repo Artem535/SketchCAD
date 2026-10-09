@@ -1028,3 +1028,34 @@ TEST_F(Snaps, DimensionToolEscapeDropsThePicks) {
   EXPECT_FALSE(session.in_progress());
   EXPECT_TRUE(references(sketch()).empty());
 }
+
+// U04 part 2: trim and extend tools.
+TEST_F(Snaps, TrimAndExtendTapsAreSingleUndoSteps) {
+  const EntityId l = add_line({0, 0}, {30, 0});
+  add_line({10, -5}, {10, 5});
+  const Sketch before = sketch();
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kTrim);
+  session.press({50, 50});  // Nothing there.
+  EXPECT_EQ(doc.revision(), revision);
+  session.press({25, 0.2});
+  EXPECT_EQ(doc.undo_label(), "Trim");
+  EXPECT_EQ(doc.revision(), revision + 1);
+  EXPECT_NEAR(point_at(sketch(), std::get<SketchLine>(*sketch().entity(l)).end).x,
+              10, 1e-9);
+  ASSERT_TRUE(doc.undo());
+  EXPECT_TRUE(sketch() == before);
+
+  session.set_tool(Tool::kExtend);
+  session.press({1, 0});  // Start end: nothing ahead.
+  EXPECT_EQ(doc.revision(), revision);  // Undo restored the earlier state.
+  const auto m = add_line({0, 10}, {5, 10});
+  add_line({20, 0}, {20, 20});
+  const auto r = doc.revision();
+  session.press({4.5, 10.1});
+  EXPECT_EQ(doc.undo_label(), "Extend");
+  EXPECT_EQ(doc.revision(), r + 1);
+  EXPECT_NEAR(point_at(sketch(), std::get<SketchLine>(*sketch().entity(m)).end).x,
+              20, 1e-9);
+  EXPECT_EQ(session.tool(), Tool::kExtend) << "the tool stays for the next tap";
+}

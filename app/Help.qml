@@ -5,7 +5,7 @@ QtObject {
     // Glossary order: concepts first, then the actions in context-bar order.
     readonly property var keys: [
         "constraint", "dimension", "dof", "defined", "redundant", "conflict",
-        "snap", "finger", "autodim", "input", "modes", "reference",
+        "snap", "finger", "autodim", "input", "modes", "reference", "trim", "extend",
         "coincident", "on_curve", "horizontal", "vertical", "parallel", "perpendicular",
         "tangent", "equal", "fix", "length", "distance", "angle", "radius", "construction"
     ]
@@ -87,6 +87,21 @@ QtObject {
             title: qsTr("Деталь, Сборка, Чертёж"),
             hint: qsTr("Появится в версии 1.0"),
             text: qsTr("Сейчас доступен только эскиз. Объёмные детали, сборки и чертёжные листы появятся в версии 1.0.")
+        },
+        trim: {
+            title: qsTr("Обрезать"),
+            hint: qsTr("Коснитесь куска линии — он удалится до ближайших пересечений"),
+            text: qsTr("Как «Обрезать» в nanoCAD, только без выбора режущих кромок: режут все линии и окружности. "
+                       + "Коснитесь куска — он удалится до ближайших пересечений с обеих сторон; кусок, который удалится, "
+                       + "подсвечивается красным при наведении. Окружность становится дугой, линия без пересечений "
+                       + "удаляется целиком. Новый конец остаётся «На кривой», размер длины принимает новое значение.")
+        },
+        extend: {
+            title: qsTr("Удлинить"),
+            hint: qsTr("Коснитесь линии у конца — она продлится до следующей линии"),
+            text: qsTr("Как «Удлинить» в nanoCAD: коснитесь линии или дуги возле конца — она продлится до ближайшей "
+                       + "линии или окружности на пути (пунктир при наведении показывает, куда). Конец остаётся «На кривой», "
+                       + "размер длины принимает новое значение. Конец, к которому присоединена другая линия, не удлиняется.")
         },
         reference: {
             title: qsTr("Справочный размер"),
