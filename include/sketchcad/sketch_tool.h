@@ -59,6 +59,9 @@ class ToolSession {
   const std::vector<EntityId>& selected() const { return selected_; }
   void clear_selection() { selected_.clear(); }
   DeleteResult delete_selection();
+  // Toggles the construction flag of the selected curves in one command:
+  // on if any of them was off (sketch-editing.adoc). False without curves.
+  bool toggle_construction();
 
   bool undo();
   bool redo();
@@ -71,6 +74,8 @@ class ToolSession {
   struct Vertex {
     Position position;
     std::optional<EntityId> point;
+    // Curves the vertex was snapped onto: a new point gets kOnCurve on each.
+    std::vector<EntityId> curves = {};
   };
 
   SnapResult snapped(Position, std::optional<EntityId> exclude = {}) const;

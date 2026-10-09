@@ -58,11 +58,13 @@ ApplicationWindow {
     ]
 
     readonly property var actionLabels: ({
-        coincident: qsTr("Совпадение"), horizontal: qsTr("Горизонтально"),
+        coincident: qsTr("Совпадение"), on_curve: qsTr("На кривой"),
+        horizontal: qsTr("Горизонтально"),
         vertical: qsTr("Вертикально"), parallel: qsTr("Параллельно"),
         perpendicular: qsTr("Перпендикулярно"), tangent: qsTr("Касание"),
         equal: qsTr("Равенство"), fix: qsTr("Фиксация"), length: qsTr("Длина"),
-        distance: qsTr("Расстояние"), angle: qsTr("Угол"), radius: qsTr("Радиус")
+        distance: qsTr("Расстояние"), angle: qsTr("Угол"), radius: qsTr("Радиус"),
+        construction: qsTr("Вспомогательная")
     })
     readonly property var dimensionKeys: ["length", "distance", "angle", "radius"]
 
@@ -352,6 +354,16 @@ ApplicationWindow {
                         checkable: true
                         checked: sketch.auto_dimensions
                         onTriggered: sketch.auto_dimensions = !sketch.auto_dimensions
+                    }
+                    MenuItem {
+                        objectName: "gridOnCurvesToggle"
+                        text: qsTr("Сетка на линиях")
+                        checkable: true
+                        checked: sketch.grid_on_curves
+                        onTriggered: sketch.grid_on_curves = !sketch.grid_on_curves
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Точка на линии прыгает туда, где линия пересекает сетку")
                     }
                     MenuItem {
                         objectName: "fingerMenuToggle"

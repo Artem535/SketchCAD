@@ -20,6 +20,8 @@ class SketchController : public QObject {
   Q_PROPERTY(QString geometry_path READ geometry_path NOTIFY changed)
   Q_PROPERTY(QString selected_path READ selected_path NOTIFY changed)
   Q_PROPERTY(QString preview_path READ preview_path NOTIFY changed)
+  // Construction curves (U04), drawn dashed.
+  Q_PROPERTY(QString construction_path READ construction_path NOTIFY changed)
   Q_PROPERTY(QString points_path READ points_path NOTIFY changed)
   Q_PROPERTY(QString grid_minor_path READ grid_minor_path NOTIFY changed)
   Q_PROPERTY(QString grid_major_path READ grid_major_path NOTIFY changed)
@@ -32,6 +34,9 @@ class SketchController : public QObject {
                  changed)
   Q_PROPERTY(bool finger_draws READ finger_draws WRITE set_finger_draws NOTIFY
                  changed)
+  // U04: curve snaps land on grid crossings.
+  Q_PROPERTY(bool grid_on_curves READ grid_on_curves WRITE set_grid_on_curves
+                 NOTIFY changed)
   Q_PROPERTY(bool can_undo READ can_undo NOTIFY changed)
   Q_PROPERTY(bool can_redo READ can_redo NOTIFY changed)
   Q_PROPERTY(int entity_count READ entity_count NOTIFY changed)
@@ -89,6 +94,7 @@ class SketchController : public QObject {
   QString geometry_path() const { return geometry_path_; }
   QString selected_path() const { return selected_path_; }
   QString preview_path() const { return preview_path_; }
+  QString construction_path() const { return construction_path_; }
   QString points_path() const { return points_path_; }
   QString grid_minor_path() const { return grid_minor_path_; }
   QString grid_major_path() const { return grid_major_path_; }
@@ -100,6 +106,8 @@ class SketchController : public QObject {
   bool snap_enabled() const { return snap_enabled_; }
   void set_snap_enabled(bool enabled);
   bool finger_draws() const { return finger_draws_; }
+  bool grid_on_curves() const { return grid_on_curves_; }
+  void set_grid_on_curves(bool enabled);
   void set_finger_draws(bool enabled);
   bool can_undo() const { return document_.can_undo(); }
   bool can_redo() const { return document_.can_redo(); }
@@ -184,6 +192,8 @@ class SketchController : public QObject {
   QString curve_path(const sketchcad::Sketch& sketch,
                      const sketchcad::Entity& entity) const;
   QString marker_path(sketchcad::Position p, double radius_px) const;
+  // First selected line, circle or arc; 0 if none.
+  sketchcad::EntityId first_curve() const;
   QString entity_path(const sketchcad::Sketch& sketch, sketchcad::EntityId id,
                       double marker_px) const;
   std::optional<sketchcad::EntityId> add_action(sketchcad::Sketch& sketch,
@@ -200,12 +210,14 @@ class SketchController : public QObject {
   double height_ = 0;
   bool snap_enabled_ = true;
   bool finger_draws_ = true;
+  bool grid_on_curves_ = false;
   bool snap_hint_ = false;
   sketchcad::SolveStatus last_status_ = sketchcad::SolveStatus::kSolved;
   QString message_;
   QString geometry_path_;
   QString selected_path_;
   QString preview_path_;
+  QString construction_path_;
   QString points_path_;
   QString grid_minor_path_;
   QString grid_major_path_;

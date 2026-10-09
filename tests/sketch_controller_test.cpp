@@ -247,16 +247,62 @@ class SketchControllerTest : public QObject {
     scene(c);
     using L = QStringList;
     QCOMPARE(pick(c, {}), L{});
-    QCOMPARE(pick(c, {{35, 10}}), (L{"horizontal", "vertical", "length"}));
+    // U04: "construction" for any curve, "on_curve" for a point and a curve.
+    QCOMPARE(pick(c, {{35, 10}}),
+             (L{"horizontal", "vertical", "length", "construction"}));
     QCOMPARE(pick(c, {{35, 10}, {25, 45}}),
-             (L{"parallel", "perpendicular", "equal", "angle"}));
+             (L{"parallel", "perpendicular", "equal", "angle", "construction"}));
     QCOMPARE(pick(c, {{10, 10}}), L{"fix"});
     // Coincident ends of one line would collapse it, so it is not offered.
     QCOMPARE(pick(c, {{10, 10}, {60, 10}}),
              (L{"horizontal", "vertical", "distance"}));
-    QCOMPARE(pick(c, {{10, 30}, {35, 10}}), L{"distance"});
-    QCOMPARE(pick(c, {{90, 40}}), L{"radius"});
-    QCOMPARE(pick(c, {{90, 40}, {35, 10}}), L{"tangent"});
+    QCOMPARE(pick(c, {{10, 30}, {35, 10}}),
+             (L{"on_curve", "distance", "construction"}));
+    QCOMPARE(pick(c, {{35, 10}, {10, 30}}),
+             (L{"on_curve", "distance", "construction"}));
+    QCOMPARE(pick(c, {{90, 40}}), (L{"radius", "construction"}));
+    QCOMPARE(pick(c, {{90, 40}, {35, 10}}), (L{"tangent", "construction"}));
+  }
+  void curve_snaps_and_construction_layer() {
+    auto* c = make();
+    line(c);  // (10, 10) - (60, 10)
+    c->set_tool("line");
+    tap(c, 35, -10);
+    tap(c, 35, 30);
+    c->set_snap_enabled(true);
+    QPointF p = c->screen_of(35.3, 10.2);
+    c->hover(p.x(), p.y());
+    QCOMPARE(c->snap_kind(), QString("intersection"));
+    p = c->screen_of(20, 10.3);
+    c->hover(p.x(), p.y());
+    QCOMPARE(c->snap_kind(), QString("curve"));
+    QVERIFY(near(c->snap_y(), c->screen_of(20, 10).y()));
+    // Grid on curves: the default view has a 2 mm grid step.
+    p = c->screen_of(20.6, 10.2);
+    c->hover(p.x(), p.y());
+    QVERIFY(near(c->snap_x(), c->screen_of(20.6, 10).x()));
+    c->set_grid_on_curves(true);
+    QVERIFY(c->grid_on_curves());
+    c->hover(p.x(), p.y());
+    QCOMPARE(c->snap_kind(), QString("curve"));
+    QVERIFY(near(c->snap_x(), c->screen_of(20, 10).x()));
+    c->set_grid_on_curves(false);
+    c->cancel();
+    c->set_snap_enabled(false);
+
+    c->set_tool("select");
+    tap(c, 20, 10);
+    QVERIFY(c->applicable().contains("construction"));
+    const QString before = c->geometry_path();
+    QVERIFY(c->construction_path().isEmpty());
+    QVERIFY(c->apply("construction") != 0);
+    QCOMPARE(c->document().undo_label(), QString("Construction"));
+    QVERIFY(!c->construction_path().isEmpty());
+    QVERIFY(before.contains(c->construction_path()));
+    QVERIFY(!c->geometry_path().contains(c->construction_path()));
+    QVERIFY(c->undo());
+    QVERIFY(c->construction_path().isEmpty());
+    QCOMPARE(c->geometry_path(), before);
   }
   void apply_adds_constraint_and_updates_diagnosis() {
     auto* c = make();

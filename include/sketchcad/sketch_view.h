@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 
 #include "sketchcad/sketch.h"
 
@@ -46,22 +47,27 @@ std::optional<Bounds> bounds(const Sketch&);
 // Nearest entity within tolerance; points win over curves, ties by lower ID.
 std::optional<EntityId> pick(const Sketch&, Position, double tolerance_mm);
 
-enum class SnapKind { kNone, kGrid, kPoint };
+enum class SnapKind { kNone, kGrid, kPoint, kIntersection, kOnCurve };
 
 struct SnapSettings {
   bool enabled = true;
   double grid_step_mm = 1;
   double point_tolerance_mm = 1;
+  // Curve snaps prefer where the curve crosses a grid line.
+  bool grid_on_curves = false;
 };
 
 struct SnapResult {
   Position position;
   SnapKind kind;
   std::optional<EntityId> point;
+  // kIntersection, kOnCurve: the one or two curves the position lies on.
+  std::vector<EntityId> curves = {};
   bool operator==(const SnapResult&) const = default;
 };
 
-// Simple snapping without constraints: existing points first, then the grid.
+// Existing points first, then curve intersections, the nearest curve point
+// and the grid (sketch-editing.adoc).
 // `exclude` is skipped, e.g. the point being dragged.
 SnapResult snap(const Sketch&, Position, const SnapSettings&,
                 std::optional<EntityId> exclude = std::nullopt);

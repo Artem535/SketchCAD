@@ -93,12 +93,28 @@ double SketchController::snap_y() const {
 
 QString SketchController::snap_kind() const {
   if (!snap_visible()) return {};
-  return session_.last_snap()->kind == SnapKind::kPoint ? "point" : "grid";
+  switch (session_.last_snap()->kind) {
+    case SnapKind::kPoint:
+      return QStringLiteral("point");
+    case SnapKind::kIntersection:
+      return QStringLiteral("intersection");
+    case SnapKind::kOnCurve:
+      return QStringLiteral("curve");
+    default:
+      return QStringLiteral("grid");
+  }
 }
 
 void SketchController::set_snap_enabled(bool enabled) {
   if (enabled == snap_enabled_) return;
   snap_enabled_ = enabled;
+  sync_tolerances();
+  emit changed();
+}
+
+void SketchController::set_grid_on_curves(bool enabled) {
+  if (enabled == grid_on_curves_) return;
+  grid_on_curves_ = enabled;
   sync_tolerances();
   emit changed();
 }
@@ -251,7 +267,7 @@ void SketchController::sync_tolerances() {
   const double s = view_.scale();
   session_.set_pick_tolerance(kPickPx / s);
   session_.set_snap({snap_enabled_, sketchcad::grid_step_for_scale(s),
-                     kSnapPx / s});
+                     kSnapPx / s, grid_on_curves_});
 }
 
 // Arcs are split into pieces of at most half a turn so SVG never has to
@@ -302,10 +318,13 @@ QString SketchController::marker_path(Position p, double radius_px) const {
 void SketchController::refresh_scene() {
   const Sketch& sketch = document_.sketch();
   geometry_path_.clear();
+  construction_path_.clear();
   points_path_.clear();
   for (const auto& [id, entity] : sketch.entities()) {
     if (const auto* p = std::get_if<SketchPoint>(&entity))
       points_path_ += marker_path(p->position, kPointMarkerPx);
+    else if (std::visit([](const auto& e) { return e.construction; }, entity))
+      construction_path_ += curve_path(sketch, entity);
     else
       geometry_path_ += curve_path(sketch, entity);
   }
@@ -456,8 +475,9 @@ struct Action {
   const char* key;
   sketchcad::ConstraintKind kind;
 };
-constexpr std::array<Action, 12> kActions{{
+constexpr std::array<Action, 13> kActions{{
     {"coincident", sketchcad::ConstraintKind::kCoincident},
+    {"on_curve", sketchcad::ConstraintKind::kOnCurve},
     {"horizontal", sketchcad::ConstraintKind::kHorizontal},
     {"vertical", sketchcad::ConstraintKind::kVertical},
     {"parallel", sketchcad::ConstraintKind::kParallel},
@@ -489,9 +509,14 @@ std::optional<EntityId> SketchController::add_action(Sketch& sketch,
                                                      const QString& key) const {
   const auto& sel = session_.selected();
   if (sel.empty()) return std::nullopt;
-  const EntityId first = sel[0], second = sel.size() > 1 ? sel[1] : 0;
+  EntityId first = sel[0], second = sel.size() > 1 ? sel[1] : 0;
   for (const auto& a : kActions) {
     if (key != a.key) continue;
+    // Either selection order; the point goes first.
+    if (a.kind == sketchcad::ConstraintKind::kOnCurve && second &&
+        std::holds_alternative<SketchPoint>(
+            sketch.entity(second).value_or(SketchPoint{})))
+      std::swap(first, second);
     if (!sketchcad::is_dimension(a.kind))
       return sketch.add_constraint(a.kind, first, second);
     const auto value = sketchcad::measure(sketch, a.kind, first, second);
@@ -519,6 +544,7 @@ void SketchController::refresh_analysis() {
           sketchcad::solve(probe).status != sketchcad::SolveStatus::kDegenerate)
         applicable_.append(a.key);
     }
+    if (first_curve()) applicable_.append(QStringLiteral("construction"));
     applicable_selection_ = session_.selected();
   }
 }
@@ -545,6 +571,14 @@ QString SketchController::entity_path(const Sketch& sketch, EntityId id,
 }
 
 QStringList SketchController::applicable() const { return applicable_; }
+
+EntityId SketchController::first_curve() const {
+  for (EntityId id : session_.selected())
+    if (const auto e = document_.sketch().entity(id);
+        e && !std::holds_alternative<SketchPoint>(*e))
+      return id;
+  return 0;
+}
 
 QVariantList SketchController::constraints() const {
   QVariantList list;
@@ -641,6 +675,10 @@ qulonglong SketchController::apply(const QString& key) {
   qulonglong result = 0;
   if (!applicable_.contains(key)) {
     message_ = QStringLiteral("invalid_action");
+  } else if (key == QStringLiteral("construction")) {
+    const EntityId curve = first_curve();
+    message_.clear();
+    if (session_.toggle_construction()) result = curve;
   } else {
     Sketch probe = document_.sketch();
     add_action(probe, key);

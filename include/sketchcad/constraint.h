@@ -21,6 +21,8 @@ enum class ConstraintKind {
   kTangent,
   kEqual,
   kFix,
+  // A point on a line (infinite), circle or arc (its full circle).
+  kOnCurve,
   // Driving dimensions (dimensions.adoc): constraints with a value.
   kLength,
   kDistance,

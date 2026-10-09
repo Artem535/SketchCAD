@@ -103,6 +103,41 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void snaps_create_on_curve_and_construction() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("tool_line"));
+    tap(controller, 10, 10);
+    tap(controller, 60, 60);
+    tap(controller, 10, 60);
+    tap(controller, 60, 10);
+    tap(controller, 80, 20);
+    QTest::mouseMove(window_, scene_of(controller, 35.4, 35.3));
+    QTRY_COMPARE(controller.snap_kind(), QString("intersection"));
+    QVERIFY(shown("snapIndicator"));
+    tap(controller, 35.4, 35.3);
+    int on_curve = 0;
+    for (const auto& [id, c] : controller.document().sketch().constraints())
+      on_curve += c.kind == sketchcad::ConstraintKind::kOnCurve;
+    QCOMPARE(on_curve, 2);
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("gridOnCurvesToggle"));
+    click(item("gridOnCurvesToggle"));
+    QTRY_VERIFY(controller.grid_on_curves());
+    QTRY_VERIFY(!shown("gridOnCurvesToggle"));
+
+    click(item("tool_select"));
+    tap(controller, 20, 20);
+    QTRY_VERIFY(shown("action_construction"));
+    click(item("action_construction"));
+    QTRY_VERIFY(!controller.construction_path().isEmpty());
+    QCOMPARE(controller.document().undo_label(), QString("Construction"));
+    controller.clear_selection();
+    QTRY_VERIFY(!shown("action_construction"));
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u04_snaps.png"));
+  }
   void dimension_is_moved_with_the_mouse() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -198,9 +233,10 @@ class QmlTest : public QObject {
     const QStringList actions{"coincident", "horizontal", "vertical",
                               "parallel", "perpendicular", "tangent",
                               "equal", "fix", "length", "distance",
-                              "angle", "radius"};
+                              "angle", "radius", "on_curve",
+                              "construction"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 23);
+    QCOMPARE(keys.size(), 25);
     for (const QString& key : actions + QStringList{"constraint", "dimension",
                                                      "dof", "defined",
                                                      "redundant", "conflict",

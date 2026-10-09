@@ -29,3 +29,4 @@
 ** xref:dimension-placement.adoc[Moving dimensions]
 ** xref:ui-help.adoc[Term help]
 ** xref:default-dimensions.adoc[Default dimensions]
+** xref:sketch-editing.adoc[Snaps, construction, trim]

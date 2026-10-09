@@ -85,6 +85,15 @@ Item {
             joinStyle: ShapePath.RoundJoin
             PathSvg { path: root.controller.geometry_path }
         }
+        // Construction geometry (U04): thin dashed, not part of the outline.
+        ShapePath {
+            strokeColor: root.theme.muted
+            strokeWidth: 2
+            strokeStyle: ShapePath.DashLine
+            dashPattern: [6, 4]
+            fillColor: "transparent"
+            PathSvg { path: root.controller.construction_path }
+        }
         ShapePath {
             strokeColor: root.accent
             strokeWidth: 2
@@ -219,19 +228,38 @@ Item {
         }
     }
 
-    // Snap indicator: ring on a point, small cross on the grid.
-    Rectangle {
+    // Snap indicator: ring on a point, small ring on a curve, × on an
+    // intersection, small diamond on the grid.
+    Item {
+        id: snapIndicator
         objectName: "snapIndicator"
+        readonly property string kind: root.controller.snap_kind
         visible: root.controller.snap_visible
-        width: root.controller.snap_kind === "point" ? 18 : 10
+        width: kind === "point" ? 18 : kind === "intersection" ? 16 : 10
         height: width
-        radius: root.controller.snap_kind === "point" ? width / 2 : 0
         x: root.controller.snap_x - width / 2
         y: root.controller.snap_y - height / 2
-        color: "transparent"
-        border.color: root.accent
-        border.width: 2
-        rotation: root.controller.snap_kind === "point" ? 0 : 45
+        Rectangle {
+            visible: snapIndicator.kind !== "intersection"
+            anchors.fill: parent
+            radius: snapIndicator.kind === "grid" ? 0 : width / 2
+            rotation: snapIndicator.kind === "grid" ? 45 : 0
+            color: "transparent"
+            border.color: root.accent
+            border.width: 2
+        }
+        Repeater {
+            model: snapIndicator.kind === "intersection" ? [45, -45] : []
+            Rectangle {
+                required property int modelData
+                anchors.centerIn: parent
+                width: parent.width
+                height: 2.5
+                radius: 1
+                color: root.accent
+                rotation: modelData
+            }
+        }
     }
 
     HoverHandler {

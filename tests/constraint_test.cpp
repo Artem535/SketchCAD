@@ -158,3 +158,33 @@ TEST(Constraint, IdsAreNotReusedAfterErase) {
   const EntityId again = *f.s.add_constraint(K::kFix, f.p);
   EXPECT_GT(again, id);
 }
+
+// U04 (sketch-editing.adoc): point on a line, circle or arc.
+TEST(Constraint, OnCurveTakesAPointThenALineCircleOrArc) {
+  Fixture f;
+  const EntityId free = *f.s.create_point({5, 5});
+  std::vector<EntityId> ids;
+  for (EntityId curve : {f.line, f.circle, f.arc}) {
+    const auto id = f.s.add_constraint(K::kOnCurve, free, curve);
+    ASSERT_TRUE(id) << curve;
+    EXPECT_EQ(f.s.constraint(*id)->first, free);
+    EXPECT_EQ(f.s.constraint(*id)->second, curve);
+    ids.push_back(*id);
+  }
+  const Sketch before = f.s;
+  const EntityId expected_next = next_id(f.s);
+  const std::pair<EntityId, EntityId> rejected[] = {
+      {f.p, f.line},   {f.q, f.line},   {f.r, f.circle}, {f.p, f.arc},
+      {f.line, free},  {f.circle, free}, {free, f.q},    {free, 0},
+      {free, free},    {free, 9999},    {f.line, f.circle},
+  };
+  for (const auto& [first, second] : rejected)
+    EXPECT_FALSE(f.s.add_constraint(K::kOnCurve, first, second))
+        << first << " " << second;
+  EXPECT_TRUE(f.s == before);
+  EXPECT_EQ(next_id(f.s), expected_next);
+
+  EXPECT_FALSE(f.s.erase(f.circle)) << "referenced by on-curve";
+  ASSERT_TRUE(f.s.erase(ids[1]));
+  EXPECT_TRUE(f.s.erase(f.circle));
+}
