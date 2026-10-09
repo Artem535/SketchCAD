@@ -22,7 +22,8 @@ pointer-cancel handling beyond Escape, constraint-creating snaps (U04), device l
 * A point not referenced by any constraint (directly, through a line or as a curve center) moves exactly to `target`
   without running the solver.
 * Otherwise two phases:
-  . *Soft phase* (bounded, at most 50 Levenberg–Marquardt iterations): hard residuals weighted 10, the drag residual
+  . *Soft phase* (bounded, at most 50 Levenberg–Marquardt iterations with uniform damping in millimetres, see
+    <<damping,U03c>>): hard residuals weighted 10, the drag residual
     `point − target` [mm] weighted 1, and stabilization residuals `q − q₀` [mm] for every other solver variable
     (point coordinates, radii) weighted 1e-3. These soft residuals exist only inside `drag_point`;
     they are never part of `solve`, `diagnose` or the DOF count (ADR-0003).
@@ -154,7 +155,7 @@ GREEN: Release 165/165 (`build/issue46-green.log`); Debug `-Werror` + ASan/UBSan
 ending on a circle with a radius dimension) was added after the implementation as a regression check and passed
 on its first run; it was not seen failing.
 Known limit, unchanged here: a single large pointer jump can fail in the soft phase (see the U04 execution record);
-pointer-sized steps work. Desktop only.
+pointer-sized steps work. Fixed later by <<damping,U03c>>. Desktop only.
 
 === Execution record (U03b riders)
 The user's second screenshot: after dragging the circle, the points of a chord slid around it. RED
@@ -164,3 +165,69 @@ it passed, because the U04 curve snaps also ran during drags, contrary to the U0
 behaviour"). `SnapSettings::curves` now lets drags snap to points and the grid only; the test was not changed.
 GREEN: Release 166/166 (`build/issue46-riders-green.log`); Debug `-Werror` + ASan/UBSan 166/166
 (`build/issue46-riders-werror.log`).
+
+[[damping]]
+== Large single steps (U03c)
+Issue: https://github.com/Artem535/SketchCAD/issues/48[#48]. Follow-up recorded in the U04 execution record
+(xref:sketch-editing.adoc[]) and as the U03b known limit: a single large pointer jump could fail in the soft phase.
+
+Reproduction: centre (0, 0), circle of radius 10.3 mm with a radius dimension 10.3, a point on the circle at angle
+0.019 rad held by `kOnCurve`. `drag_point(centre, {-0.5, 0})` left the centre at about -0.2 mm after the 50 soft
+iterations (1000 iterations reach only -0.3), and `drag_point(centre, {-5, 0})` stopped near -0.17 mm or returned
+`kNumericalFailure`. Angle 0 and angles of 1 rad and more converged. A sweep of 13 angles and 5 jumps failed in 22 of 65
+cases, including 5–10 mm jumps at 0.3–0.5 rad.
+
+Cause: Ceres' default Levenberg–Marquardt damps every variable by its own Jacobian column (`diag(JᵀJ)`, with Jacobi
+scaling). The point's y coordinate enters the on-curve residual only through `10·sin 0.019 ≈ 0.19` plus its 1e-3
+stabilization, so the damping treats moving it as almost free: the first step swings the point about 11 mm along the
+circle instead of 0.5 mm radially. The distance to the centre changes quadratically with that swing, the linear model
+is wrong (cost 0.125 → 1274), and the trust region shrinks until every step is tiny. The undamped Gauss–Newton step
+on the same residuals is exact (model ratio 1.0, condition number 1.8e4), so the residuals and weights are not the
+problem; the same mechanism is the likely cause of the creep seen with hard weight 1e3 (implementation notes above).
+
+Behaviour:
+
+* The soft phase of `drag_points` (and so `drag_point`) uses uniform Levenberg–Marquardt damping: every solver
+  variable is a length in millimetres and is damped equally (no Jacobi scaling, constant unit damping diagonal).
+  Weights (10, 1, 1e-3), the 50-iteration bound, the projection and the acceptance rules are unchanged.
+* `solve` (the projection and every app command) and `diagnose` keep their current settings.
+* Intent is unchanged: a point on a curve whose centre is dragged moves to the point of the moved curve nearest to
+  where it was (it stays, as far as the constraints allow).
+
+=== Acceptance / test cases (U03c)
+Core (`drag_test`, the residual oracle extended to `kRadius` and `kOnCurve`):
+
+* The reproduction, `drag_point(centre, {-0.5, 0})` and `drag_point(centre, {-5, 0})` in one call: `kSolved`, the
+  centre at the target (± 1e-3 mm), every constraint satisfied, the radius 10.3 mm, and the point at the moved circle's
+  point nearest to its start position (± 1e-3 mm).
+* Sweep: the point at angles 0, ±0.001, ±0.019, 0.05, 0.1, 0.3, 0.5, 1, 1.5, 2.5 and 3.1 rad, the centre dragged in
+  one call to x = -10, -5, -0.5, 0.5 and 5 (y = 0): `kSolved`, the centre at the target (± 1e-3 mm), every
+  constraint satisfied and the radius 10.3 mm for every case. Where the point ends on the moved circle is intent, not
+  contract, here: the 1e-3 stabilization pulls it towards the nearest point only weakly, and for large turns (for
+  example 3.1 rad and a 10 mm jump) it needs far more than 50 iterations to get there (measured: up to about 1450).
+  In the app, points on a dragged curve get their own targets (U03b riders), so this does not show.
+* `drag_points` moving the centre and the point on the circle (a rider, U03b) together by (-5, 0) in one call: both
+  at their targets (± 1e-3 mm).
+* All existing `drag_test`, `sketch_tool_test`, controller and QML cases stay green; the 20-rectangle cost is
+  recorded as before (no threshold). Desktop only.
+
+=== Execution record (U03c, issue #48)
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2, Ceres 2.2; `build/desktop` (Release) and `build/werror` (Debug,
+`-Werror`, ASan/UBSan). Base: `main` at `ef0b9f6` (U04 part 1 and U03b merged).
+Investigation (before #45 merged, on its branch): pure Gauss–Newton on the soft residuals of the reproduction
+converges in one step; Ceres' first default-LM step moves the point's y by about 11 mm; DOGLEG also passes the sweep
+but breaks `Drag.PivotKeepsFreeEndOnCircleTowardsTarget` (0.24 mm off), uniform LM damping passes everything.
+RED (`build/issue48-red.log`): 3 of the 4 new `DragDamping` cases failed on assertions — the centre stopped at
+-0.196 and -0.171 mm, and 25 of 65 sweep cases failed (11 with `kNumericalFailure`).
+`DragDamping.CentreAndRiderTranslateTogether` passed before the fix: with its own target the point leaves nothing
+for the damping to swing; it guards the U03b rider path.
+While turning it green the first sweep version also required the point at the moved circle's nearest point; with
+uniform damping the centre reached every target, but the point needed up to about 1450 iterations to settle for large
+turns (0.002–7 mm off after 50). The sweep expectation was narrowed to the contract (see the acceptance above); the two
+reproduction cases keep the nearest-point check and pass.
+GREEN: Release 170/170 (`build/issue48-green.log`). Debug `-Werror` + ASan/UBSan: 168/170 with LeakSanitizer
+reports from glib/Qt at exit in `qml_smoke` and `qml_test` (all 12 `qml_test` functions pass); `main` without
+this change fails `qml_smoke` the same way on this machine, and with `ASAN_OPTIONS=detect_leaks=0` the run is
+170/170 (`build/issue48-werror.log`).
+Cost: `drag_step_20_rectangles_us` about 5.6 ms per step with the fix against 8.3 ms on `main` (Release, 7 runs each).
+Desktop only.
