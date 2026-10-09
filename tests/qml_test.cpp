@@ -128,6 +128,8 @@ class QmlTest : public QObject {
     click(item("action_construction"));
     QTRY_VERIFY(!controller.construction_path().isEmpty());
     QCOMPARE(controller.document().undo_label(), QString("Construction"));
+    controller.clear_selection();
+    QTRY_VERIFY(!shown("action_construction"));
     QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
                                        "/sketch_u04_snaps.png"));
   }

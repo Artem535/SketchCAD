@@ -187,6 +187,8 @@ class SketchController : public QObject {
   QString curve_path(const sketchcad::Sketch& sketch,
                      const sketchcad::Entity& entity) const;
   QString marker_path(sketchcad::Position p, double radius_px) const;
+  // First selected line, circle or arc; 0 if none.
+  sketchcad::EntityId first_curve() const;
   QString entity_path(const sketchcad::Sketch& sketch, sketchcad::EntityId id,
                       double marker_px) const;
   std::optional<sketchcad::EntityId> add_action(sketchcad::Sketch& sketch,

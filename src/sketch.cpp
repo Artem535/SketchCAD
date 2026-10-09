@@ -263,6 +263,12 @@ std::optional<EntityId> Sketch::add_constraint(ConstraintKind kind,
                      (curve(first) && curve(second))))
         return std::nullopt;
       break;
+    case ConstraintKind::kOnCurve:
+      // A point onto a curve it does not define.
+      if (!pair || !point(first) || !(line(second) || curve(second)) ||
+          references_point(*get(second), first))
+        return std::nullopt;
+      break;
     case ConstraintKind::kFix:
       if (second != 0 || !point(first)) return std::nullopt;
       c.target = std::get<SketchPoint>(*get(first)).position;

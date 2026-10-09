@@ -73,6 +73,22 @@ QML (`qml_test`): draw two crossing lines, draw a third line ending on the cross
 `kOnCurve`; select a line, click `action_construction`, the line moves to the construction layer; screenshot
 `sketch_u04_snaps.png`.
 
+=== Execution record (part 1)
+Environment: Ubuntu 26.04, GCC 15.2, Qt 6.10.2; build directories `build/ubuntu` (Release) and `build/werror`
+(Debug, `-Wall -Wextra -Werror`, ASan/UBSan). Baseline: 141/141 on `main` after U09.
+
+RED (`build/issue12-red.log`): 15 of 155 checks failed against stubs (new enum values, an empty `construction_path`,
+`toggle_construction()` returning false) — all on assertions, no crashes. `Snaps.PointSnapReusesThePointWithoutOnCurve`
+passed as expected (it pins existing behaviour). One test defect was found during GREEN: the circle/arc case of
+`Solver.OnCurveMovesAPointOntoALineACircleAndAnArc` fixed the radius with a dimension, which the solver test's generic
+oracle does not cover (it reports infinity for dimensions); the check was changed to the solve status plus the direct
+distance assertion, the expectation itself is unchanged. The rectangle-corner rule was added to this page together
+with `Snaps.RectangleCornerOnALineGetsOnCurve`, which failed with the corner constraint disabled before it passed.
+GREEN: Release 156/156 (`build/issue12-green.log`); Debug `-Werror` + ASan/UBSan 156/156 (`build/issue12-werror.log`).
+Screenshot `sketch_u04_snaps.png` inspected: two crossing lines, one of them dashed (construction), a third line ending
+exactly on the crossing.
+Not claimed: Android, trim/extend (part 2).
+
 [[part2]]
 == Part 2: trim/extend
 To be specified before implementation (cases: line/line, line/arc, circle split into an arc, extend a line to the next

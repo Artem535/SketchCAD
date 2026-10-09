@@ -74,6 +74,8 @@ class ToolSession {
   struct Vertex {
     Position position;
     std::optional<EntityId> point;
+    // Curves the vertex was snapped onto: a new point gets kOnCurve on each.
+    std::vector<EntityId> curves = {};
   };
 
   SnapResult snapped(Position, std::optional<EntityId> exclude = {}) const;

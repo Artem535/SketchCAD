@@ -58,11 +58,13 @@ ApplicationWindow {
     ]
 
     readonly property var actionLabels: ({
-        coincident: qsTr("Совпадение"), horizontal: qsTr("Горизонтально"),
+        coincident: qsTr("Совпадение"), on_curve: qsTr("На кривой"),
+        horizontal: qsTr("Горизонтально"),
         vertical: qsTr("Вертикально"), parallel: qsTr("Параллельно"),
         perpendicular: qsTr("Перпендикулярно"), tangent: qsTr("Касание"),
         equal: qsTr("Равенство"), fix: qsTr("Фиксация"), length: qsTr("Длина"),
-        distance: qsTr("Расстояние"), angle: qsTr("Угол"), radius: qsTr("Радиус")
+        distance: qsTr("Расстояние"), angle: qsTr("Угол"), radius: qsTr("Радиус"),
+        construction: qsTr("Вспомогательная")
     })
     readonly property var dimensionKeys: ["length", "distance", "angle", "radius"]
 

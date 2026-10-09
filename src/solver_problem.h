@@ -35,6 +35,8 @@ enum class Shape {
   kPointLine,
   kAngle,
   kRadius,
+  kPointOnLine,
+  kPointOnCircle,
 };
 
 inline int residual_count(Shape shape) {
@@ -129,6 +131,16 @@ struct Cost {
       }
       case Shape::kRadius:
         r[0] = rad(0) - T(value);
+        break;
+      case Shape::kPointOnLine: {
+        // Slots: the point, then the line's endpoints.
+        const T ux = x(2) - x(1), uy = y(2) - y(1);
+        r[0] = (ux * (y(0) - y(1)) - uy * (x(0) - x(1))) / len(ux, uy);
+        break;
+      }
+      case Shape::kPointOnCircle:
+        // Slots: the point, then the centre; an arc counts as its circle.
+        r[0] = len(x(0) - x(1), y(0) - y(1)) - rad(0);
         break;
     }
     return true;
@@ -434,6 +446,14 @@ class Problem {
         }
         break;
       case ConstraintKind::kOnCurve:
+        add_point(term, c.first);
+        if (is_line(c.second)) {
+          term.cost.shape = Shape::kPointOnLine;
+          defined = add_line(term, c.second);
+        } else {
+          term.cost.shape = Shape::kPointOnCircle;
+          add_curve(term, c.second);
+        }
         break;
       case ConstraintKind::kFix:
         term.cost.shape = Shape::kFix;

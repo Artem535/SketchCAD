@@ -436,7 +436,8 @@ TEST(Solver, OnCurveMovesAPointOntoALineACircleAndAnArc) {
     // Outside the arc's sweep: the arc counts as its full circle.
     const EntityId q = *t.create_point({-1, -2});
     ASSERT_TRUE(t.add_constraint(K::kOnCurve, q, curve));
-    expect_solved(t);
+    // The radius dimension is outside this oracle; check the point directly.
+    EXPECT_EQ(solve(t).status, SolveStatus::kSolved) << arc;
     EXPECT_NEAR(length(at(t, q), {0, 0}), 5, kLengthTolerance) << arc;
   }
 }

@@ -45,11 +45,22 @@ void add_auto_dimensions(
   }
 }
 
-// Reuses a snapped point that still exists, otherwise creates one.
+// Constrains `point` onto each of `curves` (U04 snaps).
+bool put_on(Sketch& s, EntityId point, const std::vector<EntityId>& curves) {
+  for (EntityId curve : curves)
+    if (!s.add_constraint(ConstraintKind::kOnCurve, point, curve)) return false;
+  return true;
+}
+
+// Reuses a snapped point that still exists, otherwise creates one, on the
+// curves it was snapped onto.
 std::optional<EntityId> vertex_point(Sketch& s, Position p,
-                                     std::optional<EntityId> existing) {
+                                     std::optional<EntityId> existing,
+                                     const std::vector<EntityId>& curves) {
   if (existing && s.entity(*existing)) return existing;
-  return s.create_point(p);
+  const auto id = s.create_point(p);
+  if (!id || !put_on(s, *id, curves)) return std::nullopt;
+  return id;
 }
 }  // namespace
 
@@ -110,8 +121,8 @@ void ToolSession::place(const SnapResult& s) {
     const Vertex start = vertices_.front();
     if (start.position != s.position &&
         document_.execute("Line", [&](Sketch& sk) {
-          auto a = vertex_point(sk, start.position, start.point);
-          auto b = vertex_point(sk, s.position, s.point);
+          auto a = vertex_point(sk, start.position, start.point, start.curves);
+          auto b = vertex_point(sk, s.position, s.point, s.curves);
           const auto line = a && b ? sk.create_line(*a, *b) : std::nullopt;
           if (!line) return false;
           if (auto_dimensions_)
@@ -136,6 +147,22 @@ void ToolSession::place(const SnapResult& s) {
           const auto r = sk.create_rectangle(
               {std::min(a.x, b.x), std::min(a.y, b.y)}, w, h);
           if (!r) return false;
+          // Corners snapped onto curves (a locked width moves the second).
+          const auto corner = [&](Position at) -> std::optional<EntityId> {
+            for (EntityId id : r->points)
+              if (distance(std::get<SketchPoint>(*sk.entity(id)).position,
+                           at) < 1e-9)
+                return id;
+            return std::nullopt;
+          };
+          const auto snap_corner = [&](Position at,
+                                       const std::vector<EntityId>& on) {
+            const auto id = corner(at);
+            return !id || put_on(sk, *id, on);
+          };
+          if (!snap_corner(a, vertices_.front().curves) ||
+              (!locked_width_ && !snap_corner(b, s.curves)))
+            return false;
           if (auto_dimensions_) {
             // Sides run bottom, right, top, left.
             if (!sk.add_constraint(ConstraintKind::kHorizontal, r->lines[0]) ||
@@ -153,7 +180,7 @@ void ToolSession::place(const SnapResult& s) {
     const Vertex center = vertices_.front();
     const double r = distance(center.position, s.position);
     if (r > 0 && document_.execute("Circle", [&](Sketch& sk) {
-          auto c = vertex_point(sk, center.position, center.point);
+          auto c = vertex_point(sk, center.position, center.point, center.curves);
           const auto circle = c ? sk.create_circle(*c, r) : std::nullopt;
           if (!circle) return false;
           if (auto_dimensions_)
@@ -173,7 +200,7 @@ void ToolSession::place(const SnapResult& s) {
       if (distance(c, s.position) > 0 && sweep > kMinSweep &&
           sweep < kTwoPi - kMinSweep &&
           document_.execute("Arc", [&](Sketch& sk) {
-            auto id = vertex_point(sk, c, center.point);
+            auto id = vertex_point(sk, c, center.point, center.curves);
             const auto arc =
                 id ? sk.create_arc(*id, distance(c, a), start, sweep)
                    : std::nullopt;
@@ -269,7 +296,23 @@ DeleteResult ToolSession::delete_selection() {
   return DeleteResult::kDeleted;
 }
 
-bool ToolSession::toggle_construction() { return false; }
+bool ToolSession::toggle_construction() {
+  drop_stale_selection();
+  std::vector<EntityId> curves;
+  bool any_off = false;
+  for (EntityId id : selected_) {
+    const Entity e = *document_.sketch().entity(id);
+    if (std::holds_alternative<SketchPoint>(e)) continue;
+    curves.push_back(id);
+    any_off |= !std::visit([](const auto& c) { return c.construction; }, e);
+  }
+  if (curves.empty()) return false;
+  return document_.execute("Construction", [&](Sketch& sk) {
+    for (EntityId id : curves)
+      if (!sk.set_construction(id, any_off)) return false;
+    return true;
+  });
+}
 
 bool ToolSession::undo() {
   cancel();
@@ -286,7 +329,7 @@ bool ToolSession::redo() {
 }
 
 void ToolSession::add_vertex(const SnapResult& s) {
-  vertices_.push_back({s.position, s.point});
+  vertices_.push_back({s.position, s.point, s.curves});
 }
 
 bool ToolSession::commit_polyline(bool closed) {
@@ -296,7 +339,7 @@ bool ToolSession::commit_polyline(bool closed) {
   return document_.execute("Polyline", [&](Sketch& sk) {
     std::vector<EntityId> ids;
     for (const Vertex& v : vertices) {
-      auto id = vertex_point(sk, v.position, v.point);
+      auto id = vertex_point(sk, v.position, v.point, v.curves);
       if (!id) return false;
       ids.push_back(*id);
     }

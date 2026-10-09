@@ -742,3 +742,16 @@ TEST_F(Snaps, ConstructionToggleIsOneUndoableCommand) {
   EXPECT_TRUE(construction(l));
   EXPECT_FALSE(construction(circle));
 }
+
+TEST_F(Snaps, RectangleCornerOnALineGetsOnCurve) {
+  const EntityId l = add_line({0, 0.3}, {20, 0.3});
+  session.set_tool(Tool::kRectangle);
+  session.press({5.2, 0.1});
+  session.press({12, 8});
+  const auto on = of_kind(ConstraintKind::kOnCurve);
+  ASSERT_EQ(on.size(), 1u);
+  EXPECT_EQ(on[0].second, l);
+  const Position corner = point_at(sketch(), on[0].first);
+  EXPECT_NEAR(corner.x, 5.2, kLengthTolerance);
+  EXPECT_NEAR(corner.y, 0.3, kLengthTolerance);
+}
