@@ -496,6 +496,41 @@ class SketchControllerTest : public QObject {
     line(c);
     QVERIFY(c->dimensions().isEmpty());
   }
+  void dimensions_are_moved_by_dragging() {
+    auto* c = make();
+    line(c);  // (10,10)-(60,10)
+    c->set_tool("select");
+    tap(c, 35, 10);
+    const qulonglong id = c->apply("length");
+    QVERIFY(id != 0);
+    QCOMPARE(dimension(c)["placed"].toBool(), false);
+    const auto revision = c->document().revision();
+    QVERIFY(!c->begin_dimension_drag(999));
+    QVERIFY(c->begin_dimension_drag(id));
+    const QPointF below = c->screen_of(30, 2), further = c->screen_of(20, 0);
+    c->drag_dimension(below.x(), below.y());
+    c->drag_dimension(further.x(), further.y());
+    c->end_dimension_drag();
+    const auto placement = c->document().sketch().constraint(id)->placement;
+    QVERIFY(placement);
+    QVERIFY(std::abs(std::abs(placement->offset) - 10) < 1e-6);
+    QVERIFY(std::abs(placement->along - 0.2) < 1e-6);
+    QCOMPARE(dimension(c)["placed"].toBool(), true);
+    QVERIFY(c->document().revision() != revision);
+    QVERIFY(c->undo());
+    QVERIFY(!c->document().sketch().constraint(id)->placement);
+    QVERIFY(c->redo());
+
+    // Cancel restores the previous placement and adds no step.
+    const auto before = c->document().sketch().constraint(id)->placement;
+    const auto steps = c->document().revision();
+    QVERIFY(c->begin_dimension_drag(id));
+    const QPointF above = c->screen_of(50, 30);
+    c->drag_dimension(above.x(), above.y());
+    c->cancel_dimension_drag();
+    QCOMPARE(c->document().sketch().constraint(id)->placement, before);
+    QCOMPARE(c->document().revision(), steps);
+  }
   void unknown_tool_name_is_ignored() {
     auto* c = make();
     c->set_tool("rectangle");

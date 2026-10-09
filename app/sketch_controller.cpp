@@ -819,3 +819,11 @@ QVariantList SketchController::preview_dimension_labels() const {
   }
   return list;
 }
+
+bool SketchController::begin_dimension_drag(qulonglong) { return false; }
+
+void SketchController::drag_dimension(double, double) {}
+
+void SketchController::end_dimension_drag() {}
+
+void SketchController::cancel_dimension_drag() {}

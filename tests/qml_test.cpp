@@ -103,6 +103,51 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void dimension_is_moved_with_the_mouse() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("snapToggle"));
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    tap(controller, 60, 60);
+    click(item("tool_select"));
+    tap(controller, 35, 60);
+    click(item("action_length"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("cancelDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QTest::keyClick(window_, Qt::Key_Escape);
+    const qulonglong id =
+        controller.dimensions().front().toMap()["id"].toULongLong();
+
+    // Drag the number below the line.
+    QQuickItem* label = item("dimensionLabel_0");
+    QVERIFY(label);
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    const QPoint from =
+        label->mapToScene({label->width() / 2, label->height() / 2}).toPoint();
+    const QPoint to = scene_of(controller, 35, 50);
+    QTest::mousePress(window_, Qt::LeftButton, Qt::NoModifier, from);
+    for (int i = 1; i <= 8; ++i)
+      QTest::mouseMove(window_, from + (to - from) * i / 8);
+    QTest::mouseRelease(window_, Qt::LeftButton, Qt::NoModifier, to);
+    const auto placement =
+        controller.document().sketch().constraint(id)->placement;
+    QVERIFY2(placement, "dimension placed");
+    QVERIFY(placement->offset < -5);
+    QCOMPARE(controller.document().undo_label(), std::optional<std::string>("Move dimension"));
+    QVERIFY(!shown("dimensionEditor"));
+    QCOMPARE(controller.entity_count(), 3);  // Nothing selected or drawn.
+
+    // A plain click still opens the editor.
+    click(item("dimensionLabel_0"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("cancelDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u09_moved.png"));
+  }
   void live_and_automatic_dimensions() {
     SketchController controller;
     QQmlApplicationEngine engine;

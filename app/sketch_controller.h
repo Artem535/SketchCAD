@@ -160,6 +160,11 @@ class SketchController : public QObject {
   Q_INVOKABLE qulonglong apply(const QString& key);
   Q_INVOKABLE bool remove_constraint(qulonglong id);
   Q_INVOKABLE bool enter_value(double value);
+  // U09: moving a dimension by its text, as one gesture.
+  Q_INVOKABLE bool begin_dimension_drag(qulonglong id);
+  Q_INVOKABLE void drag_dimension(double x, double y);
+  Q_INVOKABLE void end_dimension_drag();
+  Q_INVOKABLE void cancel_dimension_drag();
   // Highlights the constraints the diagnosis lists as dependent.
   Q_INVOKABLE void highlight_dependent();
   Q_INVOKABLE QPointF screen_of(double x_mm, double y_mm) const;
@@ -211,6 +216,7 @@ class SketchController : public QObject {
   QString dimension_path_;
   QString dimension_arrows_path_;
   QString preview_dimension_path_;
+  sketchcad::EntityId dragged_dimension_ = 0;
   QString preview_dimension_arrows_path_;
   qulonglong selected_constraint_ = 0;
   std::vector<sketchcad::EntityId> conflict_entities_;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 namespace sketchcad {
 using EntityId = std::uint64_t;
@@ -32,6 +33,17 @@ constexpr bool is_dimension(ConstraintKind kind) {
          kind == ConstraintKind::kAngle || kind == ConstraintKind::kRadius;
 }
 
+// Manual position of a dimension (dimension-placement.adoc), world units.
+// Linear: signed offset along the left normal of first -> second and the
+// text position `along` in [0, 1]. Radius: leader `angle` and text distance
+// `offset` from the centre. Angle: arc radius `offset`.
+struct DimensionPlacement {
+  double offset = 0;
+  double along = 0.5;
+  double angle = 0;
+  bool operator==(const DimensionPlacement&) const = default;
+};
+
 struct Constraint {
   EntityId id;
   ConstraintKind kind;
@@ -46,6 +58,8 @@ struct Constraint {
   double value = 0;
   // Point-line kDistance: side of the line at creation (+1 or -1).
   int side = 1;
+  // Dimensions: set when the user moved the dimension; automatic otherwise.
+  std::optional<DimensionPlacement> placement;
   bool operator==(const Constraint&) const = default;
 };
 }  // namespace sketchcad

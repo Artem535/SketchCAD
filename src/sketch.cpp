@@ -336,6 +336,10 @@ bool Sketch::set_dimension(EntityId id, double value) {
   it->second.value = value;
   return true;
 }
+bool Sketch::set_dimension_placement(EntityId,
+                                     std::optional<DimensionPlacement>) {
+  return false;
+}
 bool Sketch::valid_dimension(const Constraint& c, double value) const {
   if (!std::isfinite(value)) return false;
   switch (c.kind) {

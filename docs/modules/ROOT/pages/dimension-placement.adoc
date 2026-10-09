@@ -1,7 +1,7 @@
 = U09: Moving dimensions
 :toc:
 
-Requirements: S01-DIM, S01-UI. Depends on S02 (xref:dimensions.adoc[]), U06 (xref:dimension-style.adoc[],
+Issue: https://github.com/Artem535/SketchCAD/issues/43[#43]. Requirements: S01-DIM, S01-UI. Depends on S02 (xref:dimensions.adoc[]), U06 (xref:dimension-style.adoc[],
 xref:adr-0004-dimension-style.adoc[ADR-0004]) and the side fix of issue #41.
 
 Origin: after U08 the user compared the automatic placement with LibreCAD and asked to be able to move dimensions.
