@@ -18,6 +18,12 @@ std::pair<EntityId, EntityId> ends(const Sketch& s, EntityId line) {
   return {l.start, l.end};
 }
 double distance(Position a, Position b) { return std::hypot(b.x - a.x, b.y - a.y); }
+EntityId center(const Sketch& s, EntityId circle) {
+  return std::get<SketchCircle>(*s.entity(circle)).center;
+}
+double radius(const Sketch& s, EntityId circle) {
+  return std::get<SketchCircle>(*s.entity(circle)).radius;
+}
 double residual(const Sketch& s, const Constraint& c) {
   switch (c.kind) {
     case K::kCoincident:
@@ -34,6 +40,11 @@ double residual(const Sketch& s, const Constraint& c) {
       const auto [p, q] = ends(s, c.first);
       return distance(at(s, p), at(s, q)) - c.value;
     }
+    case K::kRadius:
+      return radius(s, c.first) - c.value;
+    case K::kOnCurve:  // Circles only in these fixtures.
+      return distance(at(s, c.first), at(s, center(s, c.second))) -
+             radius(s, c.second);
     default:
       return INFINITY;  // Not used by these fixtures.
   }
@@ -229,4 +240,68 @@ TEST(DragPoints, UnconstrainedPointsMoveExactly) {
             SolveStatus::kSolved);
   EXPECT_EQ(at(s, a), (Position{1, 2}));
   EXPECT_EQ(at(s, b), (Position{5, 6}));
+}
+
+// U03c (constrained-drag.adoc#damping): a circle of radius 10.3 mm with a radius
+// dimension and a point on it at `angle`, held by kOnCurve.
+namespace {
+struct PointOnCircle {
+  EntityId centre, circle, point;
+};
+PointOnCircle point_on_circle(Sketch& s, double angle) {
+  const EntityId centre = *s.create_point({0, 0});
+  const EntityId circle = *s.create_circle(centre, 10.3);
+  const EntityId point =
+      *s.create_point({10.3 * std::cos(angle), 10.3 * std::sin(angle)});
+  EXPECT_TRUE(s.add_dimension(K::kRadius, circle, 0, 10.3));
+  EXPECT_TRUE(s.add_constraint(K::kOnCurve, point, circle));
+  return {centre, circle, point};
+}
+// The centre reached `target` in one call, the radius is kept and the point
+// stays as close to where it was as the moved circle allows.
+void expect_centre_dragged(Sketch& s, double angle, Position target) {
+  const PointOnCircle c = point_on_circle(s, angle);
+  const Position start = at(s, c.point);
+  ASSERT_EQ(drag_point(s, c.centre, target).status, SolveStatus::kSolved);
+  expect_satisfied(s);
+  expect_at(s, c.centre, target);
+  EXPECT_NEAR(radius(s, c.circle), 10.3, kLengthTolerance);
+  const double d = distance(target, start);
+  expect_at(s, c.point,
+            {target.x + 10.3 * (start.x - target.x) / d,
+             target.y + 10.3 * (start.y - target.y) / d});
+}
+}  // namespace
+
+TEST(DragDamping, CentreReachesHalfMillimetreJumpInOneCall) {
+  Sketch s;
+  expect_centre_dragged(s, 0.019, {-0.5, 0});
+}
+
+TEST(DragDamping, CentreReachesFiveMillimetreJumpInOneCall) {
+  Sketch s;
+  expect_centre_dragged(s, 0.019, {-5, 0});
+}
+
+TEST(DragDamping, AngleAndJumpSweep) {
+  for (const double angle :
+       {0.0, 0.001, -0.001, 0.019, -0.019, 0.05, 0.1, 0.3, 0.5, 1.0, 1.5, 2.5,
+        3.1})
+    for (const double x : {-10.0, -5.0, -0.5, 0.5, 5.0}) {
+      SCOPED_TRACE(testing::Message() << "angle " << angle << " x " << x);
+      Sketch s;
+      expect_centre_dragged(s, angle, {x, 0});
+    }
+}
+
+TEST(DragDamping, CentreAndRiderTranslateTogether) {
+  Sketch s;
+  const PointOnCircle c = point_on_circle(s, 0.019);
+  const Position p = at(s, c.point);
+  ASSERT_EQ(drag_points(s, {{c.centre, {-5, 0}}, {c.point, {p.x - 5, p.y}}})
+                .status,
+            SolveStatus::kSolved);
+  expect_satisfied(s);
+  expect_at(s, c.centre, {-5, 0});
+  expect_at(s, c.point, {p.x - 5, p.y});
 }
