@@ -33,12 +33,14 @@ endpoint points in the C01 model); creating constraints while dragging (U03 drag
 * A drawing vertex taken from a `kIntersection` or `kOnCurve` snap becomes a new point with one `kOnCurve` per curve,
   added in the same command as the shape (before the automatic dimensions of U08, so redundancy is judged with them).
   A `kPoint` snap keeps reusing the existing point (U01), which already makes the shapes share it.
-* Circle and arc centres and arc start points behave the same (the centre may sit on a curve).
+* Circle and arc centres behave the same (the centre may sit on a curve). An arc's start and end are not points in
+  the C01 model, so they get no constraint; rectangle corners do (the corner point at the snapped position).
 * Constraints that the solver rejects make the whole command fail as before; nothing partial is committed.
 
 == Construction geometry
 * Context action `construction` ("Вспомогательная") for selected lines, circles and arcs: toggles their construction
-  flag in one undoable command (all selected curves get the new state: on if any was off).
+  flag in one undoable command "Construction" (all selected curves get the new state: on if any was off), via
+  `ToolSession::toggle_construction()` (false when no curve is selected).
 * Construction curves are drawn dashed in `muted` (`construction_path`), not in `geometry_path`; they can be selected,
   constrained, dimensioned and snapped to. Automatic dimensions (U08) are not added to construction shapes; a drawing
   toggle for construction mode is out of scope (toggle after drawing).
@@ -46,8 +48,9 @@ endpoint points in the C01 model); creating constraints while dragging (U03 drag
 
 == Controller and QML
 * `snap_kind` adds `intersection` (an × marker) and `curve` (a small ring on the curve).
-* `applicable` includes `on_curve` (point + line/circle/arc, after `coincident`) and `construction` (any selection
-  containing a curve, last before Delete); `apply("construction")` toggles.
+* `applicable` includes `on_curve` (point + line/circle/arc in either selection order, after `coincident`; the
+  controller passes the point first) and `construction` (any selection containing a curve, last before Delete);
+  `apply("construction")` toggles and returns the first selected curve's ID.
 * `construction_path` layer, dashed `muted`, 2 px.
 
 == Acceptance / test cases (part 1)
