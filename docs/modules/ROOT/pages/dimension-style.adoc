@@ -20,8 +20,10 @@ diameter dimensions, paper-space units (1.0 drawings).
 * `DimensionStyle` defaults (px): `offset` 32, `overshoot` 6, `arrow_length` 12, `arrow_half_angle` 10°, `text_gap` 4,
   `angle_radius` 0.6 × the shorter ray clamped to [32, 120].
 * *Side*: for linear dimensions the dimension line goes to the side of the measured segment that faces away from the
-  centre of the sketch bounds (screen); if the centre lies on the segment's line, the side whose normal points up
-  (screen −Y), or left for a vertical segment.
+  centroid (mean of the point positions, screen) of the measured geometry's connected group — the points and curves
+  linked to it through shared points and line endpoints; if that centroid lies on the segment's line, the side whose
+  normal points up (screen −Y), or left for a vertical segment. (Changed by issue #41: the first version used the
+  bounds of the whole sketch, so other geometry nearby could push a dimension inside its own contour.)
 * *Length / point–point distance* between screen points A and B with unit normal n on the chosen side:
   extension lines A → A + n·(offset + overshoot) and B → B + n·(offset + overshoot); dimension line
   A + n·offset → B + n·offset; arrows with tips at both ends of the dimension line, pointing outward along it.
@@ -95,3 +97,11 @@ GREEN: Release 127/127 (`build/issue34-green.log`); Debug `-Wall -Wextra -Werror
 Screenshots `sketch_u06_light.png` and `sketch_u06_dark.png` (rectangle with width and height) inspected: extension
 lines, dimension lines with arrows, text above the line, the vertical text reading bottom to top.
 Not claimed: overlap handling between dimensions, Android, the GOST paper values (only proportions are used, ADR-0004).
+
+=== Execution record (issue #41)
+Reported by the user with a screenshot: on a closed pentagon the right side's length was drawn inside the contour.
+Cause reproduced in isolation (the pentagon alone lays out correctly) and with an unrelated line to the right of it,
+which moved the centre of the sketch bounds. RED: `ClosedContourDimensionsStayOutsideWithGeometryNearby` failed for
+two sides (`build/issue41-red.log`). The side now comes from the centroid of the dimension's connected point group.
+GREEN: Release 138/138 (`build/issue41-green.log`); Debug `-Werror` + ASan/UBSan 138/138. Existing layout tests
+unchanged and green (for a lone rectangle the centroid equals the bounds centre).
