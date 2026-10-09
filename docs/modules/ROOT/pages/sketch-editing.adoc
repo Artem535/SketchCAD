@@ -120,7 +120,89 @@ GREEN: Release 158/158 (`build/issue12-remarks-green.log`); Debug `-Werror` + AS
 (`build/issue12-remarks-werror.log`).
 
 [[part2]]
-== Part 2: trim/extend
-To be specified before implementation (cases: line/line, line/arc, circle split into an arc, extend a line to the next
-curve; constraints on trimmed geometry kept, moved or removed with stable IDs, no dangling references; invalid
-edits rolled back).
+== Part 2: trim and extend
+Behaviour follows nanoCAD's TRIM and EXTEND (the AutoCAD model), adapted for a tablet as the user agreed:
+no edge-selection step (every other line, circle and arc of the sketch is a cutting edge or boundary, as Enter at the
+edge prompt in nanoCAD), and two separate tools instead of Shift switching between them. nanoCAD has no
+constraints, so the constraint rules below are this project's.
+
+Not in this increment: choosing cutting edges, fence or crossing selection, extending to the extension of a boundary
+("edge mode"), trimming points or polylines as a whole, preview of several pieces at once.
+
+=== Core (`sketch_edit.h`, Qt-free)
+* `bool trim(Sketch&, EntityId curve, Position at)` and `bool extend(Sketch&, EntityId curve, Position at)` edit the
+  sketch in place (used inside one `Document` command); false and unchanged when nothing applies.
+* `std::optional<CurvePiece> trim_preview(const Sketch&, EntityId, Position)` and `extend_preview(...)` describe the
+  piece that would be removed or added (`CurvePiece`: a segment `a`–`b`, or an arc `center`, `radius`, `start`,
+  `sweep`), for display only.
+* `pick_curve(const Sketch&, Position, double tolerance)` (`sketch_view.h`): the nearest line, circle or arc, ignoring
+  points (ties by lower ID).
+* Cuts: the intersections of `curve` with every other curve of the sketch (segments and arc sweeps limited as for the
+  U04 intersection snaps, construction curves included). On a line or an arc, cuts at its own ends (within 1e-9 of
+  the parameter range) are ignored.
+
+==== Trim
+* Line, parameter t of `at` along it: the nearest cut below (t₁) and above (t₂).
+  ** No cut: the line is deleted like the select-tool Delete (its constraints, and its end points if nothing else
+     uses them, with theirs).
+  ** Only t₂ (or only t₁): the piece from the start to t₂ (or from t₁ to the end) is removed: a new point at the cut
+     becomes the line's start (or end).
+  ** Both: the middle piece is removed and the line splits: the original line (same ID) keeps start → t₁, a new line
+     runs t₂ → the old end.
+* Arc: the same in angle along its sweep (start → end); a split keeps the original arc (same ID) for the first piece
+  and adds a new arc on the same centre point with `kEqual` to the original, so both stay on one circle.
+* Circle: the cut angles around it; fewer than two distinct cuts → no cut leaves the circle deleted (as for a line),
+  one cut rejects (false, unchanged). Otherwise the piece between the nearest cuts on either side of `at` is removed and
+  the circle becomes an arc with the same ID, centre point, radius and construction flag, from the cut after the piece
+  to the cut before it (counter-clockwise); `Sketch::circle_to_arc(id, start, sweep)` does that in place.
+* Constraints:
+  ** a new cut end gets `kOnCurve` on each cutting curve through it (one, or two at a crossing of cutters), so it stays
+     on the edge it was cut at, like a U04 snap;
+  ** constraints on the trimmed curve stay on the piece that keeps its ID; a driving `kLength` on it takes the new
+     length; radii and reference dimensions are unchanged (references show the new measurement);
+  ** an end point no longer used by any entity is erased with its constraints; points kept on the curve by `kOnCurve`
+     keep their constraint (it treats the curve as infinite or as its full circle);
+  ** the result must solve (`kSolved` with the commit step), otherwise the whole command fails and nothing changes.
+
+==== Extend
+* Line: the end nearer to `at` moves along the line, beyond that end, to the nearest intersection with another curve
+  (its segment or sweep). The end point keeps its ID and gets `kOnCurve` on the boundary; a driving `kLength` takes the
+  new length. Rejected (false) when nothing lies ahead or when the end point is also used by another entity (moving it
+  would drag that geometry along).
+* Arc: the end nearer to `at` grows along the circle (sweep below a full turn) to the nearest intersection ahead;
+  arc ends are not points, so nothing is constrained there.
+* As for trim, the result must solve.
+
+=== Tools (`ToolSession`), controller and QML
+* `Tool::kTrim` ("Обрезать", icon `trim.svg`) and `Tool::kExtend` ("Удлинить", icon `extend.svg`), names `trim` and
+  `extend`, rail buttons `tool_trim`, `tool_extend` after "Размер". A tap picks the curve with `pick_curve` and runs
+  `trim` or `extend` as one command "Trim" or "Extend" (one undo step); a tap that changes nothing adds no history.
+  The tool stays active for the next tap.
+* Hover shows the piece that a tap would remove (trim, drawn in `err`) or add (extend, drawn in `primary`, dashed) as
+  `edit_preview_path`.
+* The tool rail scrolls vertically when its buttons do not fit the window height.
+* Help (U07) gains `trim` and `extend`.
+
+=== Acceptance / test cases (part 2)
+Core (`sketch_edit_test`):
+
+* a line crossed by two lines: a tap between the crossings splits it; both pieces end exactly on the cutters with one
+  `kOnCurve` each; the original ID keeps the first piece; a driving length on it takes the new length; the sketch
+  solves;
+* a tap on the end piece beyond the last crossing moves that end to the crossing and erases the old end point when
+  unused; a corner point shared with another line stays;
+* a line without crossings is deleted with its unshared points and constraints;
+* a circle crossed by two lines becomes an arc with the same ID and radius, without the tapped piece; with one
+  crossing it is unchanged (false);
+* an arc crossed twice splits into two arcs with `kEqual`;
+* extend: a line extends to the nearest line or circle ahead (end point ID kept, `kOnCurve` added); nothing ahead or
+  a shared end → false and unchanged; an arc extends to a line ahead;
+* `trim_preview` / `extend_preview` describe exactly the removed / added piece; `pick_curve` ignores points.
+
+`sketch_tool_test`: a trim tap is one "Trim" undo step and Undo restores the sketch; a tap on empty space or with
+nothing to do adds no history; extend likewise ("Extend").
+Qt (`sketch_controller_test`): `set_tool("trim")`, hover over a piece gives a non-empty `edit_preview_path`, a tap
+trims; `extend` likewise.
+QML (`qml_test`): draw two crossing lines, choose `tool_trim`, tap one line's end piece, the line now ends at the
+crossing; screenshot `sketch_u04_trim.png`; the rail shows `tool_extend` (scrolling if needed).
+Desktop only.
