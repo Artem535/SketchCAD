@@ -33,15 +33,16 @@ asterisk: the label text is the value followed by `*` (`13.672*`, `R5*`). They a
 the text is never `err`.
 
 == Dimension tool (core `ToolSession`, `Tool::kDimension`)
-* Taps, with snapping as for drawing tools (U01/U04):
-  . a tap on an existing point (`kPoint` snap) picks it; a second tap on another point completes a point–point
-    distance;
+* Taps pick like the select tool (`pick`: points win over curves within the pick tolerance), independent of the snap
+  toggle:
+  . a tap on an existing point picks it; a second tap on another point completes a point–point distance;
   . a tap on a line (no point under it) completes its length; on a circle or arc, its radius;
-  . once complete, the preview shows the reference dimension following the pointer (hover), placed through it with
-    `dimension_placement_at`; the next tap places it: one command "Reference dimension" adding the dimension with its
+  . once complete, the preview shows the reference dimension following the pointer (hover), placed through the raw
+    pointer position with `dimension_placement_at`; the next tap places it: one command "Reference dimension" adding the dimension with its
     placement, one undo step;
   . taps elsewhere (empty space, the first point again) are ignored and keep the state.
-* Escape (`cancel`) drops the picks; switching tools does too. `input_field` is `kNone`.
+* Escape (`cancel`) drops the picks; switching tools does too. `in_progress` is true while something is picked;
+  `input_field` is `kNone`.
 
 == Controller and QML
 * Tool name `dimension`, rail button `tool_dimension` ("Размер", icon `dimension.svg`) after Arc.
