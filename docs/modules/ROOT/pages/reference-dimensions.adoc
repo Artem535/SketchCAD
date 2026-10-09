@@ -1,7 +1,7 @@
 = U10: Reference dimensions and the dimension tool
 :toc:
 
-Issue: TBD. Requirements: S01-DIM, S01-UI. Depends on S02 (xref:dimensions.adoc[]), U06 (xref:dimension-style.adoc[]),
+Issue: https://github.com/Artem535/SketchCAD/issues/49[#49]. Requirements: S01-DIM, S01-UI. Depends on S02 (xref:dimensions.adoc[]), U06 (xref:dimension-style.adoc[]),
 U09 (xref:dimension-placement.adoc[]).
 
 Origin: after U04 testing the user asked for a separate "Размер" tool that draws a dimension from point to point, and
