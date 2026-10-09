@@ -898,3 +898,56 @@ TEST_F(Snaps, UserSceneCircleWithLinesAndAChordIsDraggedByItsOutline) {
     EXPECT_TRUE(found) << far.x << " " << far.y;
   }
 }
+
+// The user's second scene: a chord P-Q on a circle and a long line ending at
+// Q. Points on the circle ride along instead of sliding around it.
+namespace {
+struct ChordScene {
+  EntityId centre, p, q, far;
+};
+}  // namespace
+TEST_F(Snaps, PointsOnADraggedCircleRideAlong) {
+  for (const bool by_centre : {false, true}) {
+    Document d;
+    d.set_commit_step(solver_step());
+    ToolSession t{d};
+    t.set_snap({true, 1, 1});
+    t.set_auto_dimensions(false);
+    ChordScene scene{};
+    const auto rim = [](double degrees) {
+      const double a = degrees * kPi / 180;
+      return Position{20.1 * std::cos(a), 20.1 * std::sin(a)};
+    };
+    ASSERT_TRUE(d.execute("Setup", [&](Sketch& s) {
+      scene.centre = *s.create_point({0, 0});
+      const EntityId c = *s.create_circle(scene.centre, 20.1);
+      scene.p = *s.create_point(rim(210));
+      scene.q = *s.create_point(rim(-50));
+      scene.far = *s.create_point({-40, 40});
+      return s.add_dimension(ConstraintKind::kRadius, c, 0, 20.1) &&
+             s.create_line(scene.p, scene.q) &&
+             s.create_line(scene.far, scene.q) &&
+             s.add_constraint(ConstraintKind::kOnCurve, scene.p, c) &&
+             s.add_constraint(ConstraintKind::kOnCurve, scene.q, c);
+    }));
+    const Position p0 = point_at(d.sketch(), scene.p);
+    const Position q0 = point_at(d.sketch(), scene.q);
+    t.set_tool(Tool::kSelect);
+    const Position from = by_centre ? Position{0, 0} : Position{0, 20.1};
+    t.press(from);
+    for (int i = 1; i <= 20; ++i)
+      t.drag({from.x - 0.4 * i, from.y + 0.25 * i});
+    t.release({from.x - 8, from.y + 5});
+    EXPECT_EQ(d.undo_label(), by_centre ? "Move point" : "Move curve");
+    const Position c = point_at(d.sketch(), scene.centre);
+    EXPECT_NEAR(c.x, -8, 1e-3) << by_centre;
+    EXPECT_NEAR(c.y, 5, 1e-3) << by_centre;
+    const Position p = point_at(d.sketch(), scene.p);
+    const Position q = point_at(d.sketch(), scene.q);
+    EXPECT_NEAR(p.x, p0.x - 8, 1e-3) << by_centre;
+    EXPECT_NEAR(p.y, p0.y + 5, 1e-3) << by_centre;
+    EXPECT_NEAR(q.x, q0.x - 8, 1e-3) << by_centre;
+    EXPECT_NEAR(q.y, q0.y + 5, 1e-3) << by_centre;
+    EXPECT_EQ(point_at(d.sketch(), scene.far), (Position{-40, 40}));
+  }
+}
