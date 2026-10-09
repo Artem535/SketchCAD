@@ -103,6 +103,31 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void trim_tool_cuts_at_the_crossing() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("tool_line"));
+    tap(controller, 10, 40);
+    tap(controller, 60, 40);
+    tap(controller, 30, 20);
+    tap(controller, 30, 60);
+    QVERIFY(item("tool_extend"));
+    click(item("tool_trim"));
+    tap(controller, 50, 40);
+    QCOMPARE(controller.document().undo_label(), std::string("Trim"));
+    const auto& s = controller.document().sketch();
+    for (const auto& [id, e] : s.entities())
+      if (const auto* l = std::get_if<sketchcad::SketchLine>(&e)) {
+        const auto a = std::get<sketchcad::SketchPoint>(*s.entity(l->start));
+        const auto b = std::get<sketchcad::SketchPoint>(*s.entity(l->end));
+        // The horizontal line now ends at the crossing.
+        if (std::abs(a.position.y - 40) < 1e-6 && std::abs(b.position.y - 40) < 1e-6)
+          QVERIFY(std::abs(std::max(a.position.x, b.position.x) - 30) < 1e-6);
+      }
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u04_trim.png"));
+  }
   void dimension_tool_draws_a_reference() {
     SketchController controller;
     QQmlApplicationEngine engine;
