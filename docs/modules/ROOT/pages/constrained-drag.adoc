@@ -123,6 +123,12 @@ around it.
   "Move curve" with the U03 lifecycle (warm start, rejected steps keep the last valid geometry, Escape cancels, one undo
   step). Radii are not targeted; constraints decide what else follows: a point kept on the circle by `kOnCurve` moves
   with it, and a line ending there stretches (U04). No snapping during a curve drag: the displacement is used raw.
+* Riders (user remark after the first U03b build: points on a dragged circle slid around it instead of moving with
+  it, because the soft phase keeps other points where they were): points held on the moved curve by `kOnCurve` are
+  dragged with it, to their start positions + d, so they keep their place on the curve while lines ending there
+  stretch. The same applies when a circle's or arc's centre point is dragged directly (d is then the centre's
+  displacement to the snapped pointer position). Riders are soft targets like the dragged points: other constraints
+  still win.
 * A press without movement only selects, as before; the selection stays on the curve after a drag.
 
 === Acceptance / test cases (U03b)
@@ -130,7 +136,8 @@ Core (`drag_test`): `drag_points` translating both endpoints of a 10 mm line wit
 length and moves both by the displacement (± 1e-3 mm); invalid input as above; `drag_point` behaviour is unchanged
 (existing cases).
 `sketch_tool_test`: dragging a circle's outline moves its centre by the pointer displacement, keeps the radius, is one
-"Move curve" undo step, and a point on it (`kOnCurve`) follows; dragging a line translates it; Escape restores; a tap
+"Move curve" undo step, and a point on it (`kOnCurve`) follows; in the user's second scene (a chord P–Q on a circle and
+a long line ending at Q) P and Q move by the displacement (± 1e-3 mm), by the outline and by the centre point; dragging a line translates it; Escape restores; a tap
 on the outline adds no history.
 Qt (`sketch_controller_test`): a press-drag-release on a circle's outline through the controller moves its centre.
 QML (`qml_test`): draw a circle, drag its outline with the mouse; the centre moves by the pointer displacement.
