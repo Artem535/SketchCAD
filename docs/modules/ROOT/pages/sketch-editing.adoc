@@ -28,6 +28,10 @@ endpoint points in the C01 model); creating constraints while dragging (U03 drag
   points within the arc's sweep count; for lines only points on the segment. Tangent or coincident configurations
   without a unique point are ignored.
 * On-curve: the nearest point of a line segment, a circle, or an arc within its sweep.
+* Grid on curves (`SnapSettings::grid_on_curves`, off by default; user remark after U04 testing): the on-curve
+  candidate is the nearest point where the curve crosses a grid line (x or y a multiple of the grid step) within the
+  snap tolerance, or the plain nearest point when there is no such crossing. It is still a `kOnCurve` result with the
+  same `curves`. Intersections and points keep their priority.
 
 == Snaps that create constraints (core, `ToolSession`)
 * A drawing vertex taken from a `kIntersection` or `kOnCurve` snap becomes a new point with one `kOnCurve` per curve,
@@ -36,6 +40,11 @@ endpoint points in the C01 model); creating constraints while dragging (U03 drag
 * Circle and arc centres behave the same (the centre may sit on a curve). An arc's start and end are not points in
   the C01 model, so they get no constraint; rectangle corners do (the corner point at the snapped position).
 * Constraints that the solver rejects make the whole command fail as before; nothing partial is committed.
+* Automatic dimensions and snapped ends (user remark after U04 testing: "привязывать один конец, размер пусть
+  меняется"): a line or polyline segment with an end created from a `kIntersection`/`kOnCurve` snap gets no automatic
+  length, and a rectangle with such a corner gets no automatic width and height (its horizontal/vertical constraints
+  stay). Moving the curve then stretches the segment while its far end stays. Circle and arc radii are still added.
+  A reference dimension (planned U10) is the way to show such a changing length.
 
 == Construction geometry
 * Context action `construction` ("Вспомогательная") for selected lines, circles and arcs: toggles their construction
@@ -48,6 +57,8 @@ endpoint points in the C01 model); creating constraints while dragging (U03 drag
 
 == Controller and QML
 * `snap_kind` adds `intersection` (an × marker) and `curve` (a small ring on the curve).
+* `grid_on_curves` property (bool, off by default) maps to the snap setting; the overflow menu has the checkable item
+  `gridOnCurvesToggle` ("Сетка на линиях").
 * `applicable` includes `on_curve` (point + line/circle/arc in either selection order, after `coincident`; the
   controller passes the point first) and `construction` (any selection containing a curve, last before Delete);
   `apply("construction")` toggles and returns the first selected curve's ID.
@@ -64,10 +75,15 @@ Core:
 * `sketch_view_test`: priority point > intersection > on-curve > grid; line–line, line–circle, circle–circle
   intersections; arc sweep limits; segment limits.
 * `sketch_tool_test`: a line from a free spot to a circle's rim gets one `kOnCurve` on the circle; a line ending on
-  the intersection of two lines gets two; a point snap still reuses the point; with automatic dimensions both kinds
-  are in one command and one undo step; construction toggle is one command and Undo restores.
+  the intersection of two lines gets two; a point snap still reuses the point; with automatic dimensions a line ending
+  on a circle gets no length, and dragging the circle's centre stretches it while the far end stays; a circle centred
+  on a line gets its radius and the `kOnCurve` in one command and one undo step; construction toggle is one command
+  and Undo restores.
+* `sketch_view_test` (grid on curves): with the option a point near a line or a circle lands where it crosses a grid
+  line; without it, the plain nearest point.
 
-Qt (`sketch_controller_test`): `snap_kind` reports `intersection` and `curve`; `on_curve` and `construction` appear in
+Qt (`sketch_controller_test`): `snap_kind` reports `intersection` and `curve`; `grid_on_curves` changes the snapped
+position on a line; `on_curve` and `construction` appear in
 `applicable`; `construction_path` holds the toggled curve and `geometry_path` no longer does.
 QML (`qml_test`): draw two crossing lines, draw a third line ending on the crossing (snap marker shown), check two
 `kOnCurve`; select a line, click `action_construction`, the line moves to the construction layer; screenshot
