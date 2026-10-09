@@ -9,6 +9,7 @@
 #include <numbers>
 
 #include "sketchcad/diagnostics.h"
+#include "sketchcad/dimension_layout.h"
 #include "sketchcad/solver.h"
 using namespace sketchcad;
 namespace {
@@ -950,4 +951,80 @@ TEST_F(Snaps, PointsOnADraggedCircleRideAlong) {
     EXPECT_NEAR(q.y, q0.y + 5, 1e-3) << by_centre;
     EXPECT_EQ(point_at(d.sketch(), scene.far), (Position{-40, 40}));
   }
+}
+
+// U10 (reference-dimensions.adoc): the dimension tool.
+namespace {
+std::vector<Constraint> references(const Sketch& s) {
+  std::vector<Constraint> out;
+  for (const auto& [id, c] : s.constraints())
+    if (c.reference) out.push_back(c);
+  return out;
+}
+}  // namespace
+
+TEST_F(Snaps, DimensionToolPlacesAPointToPointReference) {
+  const EntityId l = add_line({0, 0}, {10, 0});
+  const SketchLine ends = std::get<SketchLine>(*sketch().entity(l));
+  const EntityId far = add([](Sketch& s) { return *s.create_point({10, 20}); });
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kDimension);
+  session.press({0.2, 0.1});    // First point.
+  session.press({30, 30});      // Empty: ignored.
+  session.press({0.1, 0.2});    // The first point again: ignored.
+  EXPECT_EQ(doc.revision(), revision);
+  session.press({10.1, 19.8});  // Second point: complete.
+  session.hover({-4, 12});
+  EXPECT_EQ(references(session.preview()).size(), 1u);
+  session.press({-4, 12});      // Place.
+  EXPECT_EQ(doc.revision(), revision + 1);
+  EXPECT_EQ(doc.undo_label(), "Reference dimension");
+  const auto refs = references(sketch());
+  ASSERT_EQ(refs.size(), 1u);
+  EXPECT_EQ(refs[0].kind, ConstraintKind::kDistance);
+  EXPECT_EQ(refs[0].first, ends.start);
+  EXPECT_EQ(refs[0].second, far);
+  EXPECT_NEAR(refs[0].value, std::hypot(10, 20), 1e-9);
+  ASSERT_TRUE(refs[0].placement);
+  const auto expected =
+      dimension_placement_at(sketch(), refs[0], {-4, 12}).value();
+  EXPECT_NEAR(refs[0].placement->offset, expected.offset, 1e-9);
+  EXPECT_NEAR(refs[0].placement->along, expected.along, 1e-9);
+  EXPECT_TRUE(session.preview().constraints().empty());
+  ASSERT_TRUE(doc.undo());
+  EXPECT_TRUE(references(sketch()).empty());
+}
+
+TEST_F(Snaps, DimensionToolMeasuresALineAndACircle) {
+  const EntityId l = add_line({0, 0}, {10, 0});
+  const EntityId circle = add([](Sketch& s) {
+    return *s.create_circle(*s.create_point({40, 0}), 5);
+  });
+  session.set_tool(Tool::kDimension);
+  session.press({5, 0.1});  // Line, away from its points.
+  session.press({5, -6});
+  session.press({45.1, 0.2});  // Circle rim.
+  session.press({48, 8});
+  const auto refs = references(sketch());
+  ASSERT_EQ(refs.size(), 2u);
+  EXPECT_EQ(refs[0].kind, ConstraintKind::kLength);
+  EXPECT_EQ(refs[0].first, l);
+  EXPECT_NEAR(refs[0].placement->offset, -6, 1e-9);
+  EXPECT_EQ(refs[1].kind, ConstraintKind::kRadius);
+  EXPECT_EQ(refs[1].first, circle);
+  EXPECT_NEAR(refs[1].value, 5, 1e-9);
+}
+
+TEST_F(Snaps, DimensionToolEscapeDropsThePicks) {
+  add_line({0, 0}, {10, 0});
+  session.set_tool(Tool::kDimension);
+  session.press({0, 0});
+  EXPECT_TRUE(session.in_progress());
+  EXPECT_EQ(session.input_field(), InputField::kNone);
+  EXPECT_TRUE(session.cancel());
+  EXPECT_FALSE(session.in_progress());
+  session.press({5, 0.1});
+  session.set_tool(Tool::kSelect);
+  EXPECT_FALSE(session.in_progress());
+  EXPECT_TRUE(references(sketch()).empty());
 }

@@ -8,7 +8,16 @@
 #include "sketchcad/sketch_view.h"
 
 namespace sketchcad {
-enum class Tool { kSelect, kLine, kPolyline, kRectangle, kCircle, kArc };
+enum class Tool {
+  kSelect,
+  kLine,
+  kPolyline,
+  kRectangle,
+  kCircle,
+  kArc,
+  // Reference dimensions (U10).
+  kDimension,
+};
 
 enum class DeleteResult { kDeleted, kNothingSelected, kPointInUse };
 

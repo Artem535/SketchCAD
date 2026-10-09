@@ -2,6 +2,7 @@
 
 #include <array>
 #include <numbers>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -31,13 +32,20 @@ struct ScreenArc {
 struct DimensionGraphic {
   EntityId id = 0;
   ConstraintKind kind = ConstraintKind::kLength;
-  double value = 0;
+  double value = 0;  // Measured for a reference dimension.
+  bool reference = false;
   std::vector<std::pair<ScreenPoint, ScreenPoint>> segments;
   std::vector<ScreenArc> arcs;
   std::vector<std::array<ScreenPoint, 3>> arrows;  // Tip first.
   ScreenPoint text_position{0, 0};  // Bottom centre of the text.
   double text_angle = 0;            // In [-pi/2, pi/2).
 };
+
+// U09 placement whose dimension line (linear) or leader text (radius)
+// passes through `at` (world mm); nullopt for other kinds.
+std::optional<DimensionPlacement> dimension_placement_at(const Sketch&,
+                                                         const Constraint&,
+                                                         Position at);
 
 std::vector<DimensionGraphic> layout_dimensions(const Sketch&,
                                                 const ViewTransform&,

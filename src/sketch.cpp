@@ -284,7 +284,8 @@ std::optional<EntityId> Sketch::add_constraint(ConstraintKind kind,
 }
 std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
                                               EntityId first, EntityId second,
-                                              double value) {
+                                              double value, bool reference) {
+  (void)reference;
   const auto get = [&](EntityId id) -> const Entity* {
     auto it = entities_.find(id);
     return it == entities_.end() ? nullptr : &it->second;

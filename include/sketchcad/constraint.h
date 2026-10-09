@@ -62,6 +62,8 @@ struct Constraint {
   int side = 1;
   // Dimensions: set when the user moved the dimension; automatic otherwise.
   std::optional<DimensionPlacement> placement;
+  // Reference dimension (U10): shown, never solved.
+  bool reference = false;
   bool operator==(const Constraint&) const = default;
 };
 }  // namespace sketchcad

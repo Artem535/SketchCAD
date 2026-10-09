@@ -137,6 +137,12 @@ std::map<EntityId, P> group_centres(const Sketch& sketch,
 }
 }  // namespace
 
+std::optional<DimensionPlacement> dimension_placement_at(const Sketch&,
+                                                         const Constraint&,
+                                                         Position) {
+  return std::nullopt;
+}
+
 std::vector<DimensionGraphic> layout_dimensions(const Sketch& sketch,
                                                 const ViewTransform& view,
                                                 const DimensionStyle& style) {

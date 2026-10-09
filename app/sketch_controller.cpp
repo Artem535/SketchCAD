@@ -28,13 +28,14 @@ constexpr double kPointMarkerPx = 3;
 constexpr double kSelectedMarkerPx = 6;
 constexpr int kMajorEvery = 5;
 
-constexpr std::array<std::pair<Tool, const char*>, 6> kTools{{
+constexpr std::array<std::pair<Tool, const char*>, 7> kTools{{
     {Tool::kSelect, "select"},
     {Tool::kLine, "line"},
     {Tool::kPolyline, "polyline"},
     {Tool::kRectangle, "rectangle"},
     {Tool::kCircle, "circle"},
     {Tool::kArc, "arc"},
+    {Tool::kDimension, "dimension"},
 }};
 
 QString num(double v) { return QString::number(v, 'f', 2); }

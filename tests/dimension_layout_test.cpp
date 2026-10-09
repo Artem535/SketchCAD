@@ -247,3 +247,47 @@ TEST(DimensionLayout, PlacedRadiusOutsideAndPlacedAngle) {
   ASSERT_EQ(all[1].arcs.size(), 1u);
   EXPECT_NEAR(all[1].arcs[0].radius, 60, kEps);
 }
+
+// U10: reference dimensions show the current measurement.
+TEST(DimensionLayout, ReferenceShowsTheMeasuredValue) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {50, 0});
+  ASSERT_TRUE(s.add_dimension(K::kLength, l, 0, 50, true));
+  const auto end = std::get<SketchLine>(*s.entity(l)).end;
+  ASSERT_TRUE(s.update_point(end, {80, 0}));
+  const DimensionGraphic g = only(layout_dimensions(s, ViewTransform{}));
+  EXPECT_TRUE(g.reference);
+  EXPECT_NEAR(g.value, 80, 1e-12);
+}
+
+TEST(DimensionLayout, PlacementAtFollowsTheU09Formulas) {
+  Sketch s;
+  const EntityId l = line(s, {0, 0}, {50, 0});
+  const Constraint length = *s.constraint(*s.add_dimension(K::kLength, l, 0, 50));
+  auto p = dimension_placement_at(s, length, {10, -8});
+  ASSERT_TRUE(p);
+  EXPECT_NEAR(p->offset, -8, 1e-12);
+  EXPECT_NEAR(p->along, 0.2, 1e-12);
+  p = dimension_placement_at(s, length, {90, 3});
+  ASSERT_TRUE(p);
+  EXPECT_NEAR(p->along, 1, 1e-12);
+
+  const EntityId a = *s.create_point({0, 20}), b = *s.create_point({0, 40});
+  const Constraint distance =
+      *s.constraint(*s.add_dimension(K::kDistance, a, b, 20));
+  p = dimension_placement_at(s, distance, {-6, 25});
+  ASSERT_TRUE(p);
+  // Left normal of +Y is -X.
+  EXPECT_NEAR(p->offset, 6, 1e-12);
+  EXPECT_NEAR(p->along, 0.25, 1e-12);
+
+  const EntityId c = *s.create_circle(*s.create_point({100, 0}), 10);
+  const Constraint radius = *s.constraint(*s.add_dimension(K::kRadius, c, 0, 10));
+  p = dimension_placement_at(s, radius, {100, 15});
+  ASSERT_TRUE(p);
+  EXPECT_NEAR(p->angle, kPi / 2, 1e-12);
+  EXPECT_NEAR(p->offset, 15, 1e-12);
+  p = dimension_placement_at(s, radius, {100, 0});
+  ASSERT_TRUE(p);
+  EXPECT_NEAR(p->offset, 0.5, 1e-12);
+}
