@@ -166,8 +166,9 @@ Not in this increment: choosing cutting edges, fence or crossing selection, exte
 
 ==== Extend
 * Line: the end nearer to `at` moves along the line, beyond that end, to the nearest intersection with another curve
-  (its segment or sweep). The end point keeps its ID and gets `kOnCurve` on the boundary; a driving `kLength` takes the
-  new length. Rejected (false) when nothing lies ahead or when the end point is also used by another entity (moving it
+  (its segment or sweep). The end point keeps its ID and gets `kOnCurve` on the boundary, and loses its `kOnCurve`
+  on curves it leaves (an earlier boundary), which would otherwise hold it back; a driving `kLength` takes the new
+  length. Rejected (false) when nothing lies ahead or when the end point is also used by another entity (moving it
   would drag that geometry along).
 * Arc: the end nearer to `at` grows along the circle (sweep below a full turn) to the nearest intersection ahead;
   arc ends are not points, so nothing is constrained there.
@@ -195,8 +196,9 @@ Core (`sketch_edit_test`):
 * a circle crossed by two lines becomes an arc with the same ID and radius, without the tapped piece; with one
   crossing it is unchanged (false);
 * an arc crossed twice splits into two arcs with `kEqual`;
-* extend: a line extends to the nearest line or circle ahead (end point ID kept, `kOnCurve` added); nothing ahead or
-  a shared end → false and unchanged; an arc extends to a line ahead;
+* extend: a line extends to the nearest line or circle ahead (end point ID kept, `kOnCurve` added); extending again
+  moves on to the next boundary and drops the first one's `kOnCurve`; nothing ahead or a shared end → false and
+  unchanged; an arc extends to a line ahead;
 * `trim_preview` / `extend_preview` describe exactly the removed / added piece; `pick_curve` ignores points.
 
 `sketch_tool_test`: a trim tap is one "Trim" undo step and Undo restores the sketch; a tap on empty space or with

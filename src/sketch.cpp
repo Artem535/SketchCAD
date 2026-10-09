@@ -345,6 +345,7 @@ std::optional<EntityId> Sketch::add_dimension(ConstraintKind kind,
   constraints_.emplace(*id, c);
   return id;
 }
+bool Sketch::circle_to_arc(EntityId, double, double) { return false; }
 bool Sketch::set_dimension(EntityId id, double value) {
   auto it = constraints_.find(id);
   if (it == constraints_.end() || !is_dimension(it->second.kind) ||

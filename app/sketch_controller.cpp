@@ -28,7 +28,7 @@ constexpr double kPointMarkerPx = 3;
 constexpr double kSelectedMarkerPx = 6;
 constexpr int kMajorEvery = 5;
 
-constexpr std::array<std::pair<Tool, const char*>, 7> kTools{{
+constexpr std::array<std::pair<Tool, const char*>, 9> kTools{{
     {Tool::kSelect, "select"},
     {Tool::kLine, "line"},
     {Tool::kPolyline, "polyline"},
@@ -36,6 +36,8 @@ constexpr std::array<std::pair<Tool, const char*>, 7> kTools{{
     {Tool::kCircle, "circle"},
     {Tool::kArc, "arc"},
     {Tool::kDimension, "dimension"},
+    {Tool::kTrim, "trim"},
+    {Tool::kExtend, "extend"},
 }};
 
 QString num(double v) { return QString::number(v, 'f', 2); }

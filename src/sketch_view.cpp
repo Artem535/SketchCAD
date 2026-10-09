@@ -286,6 +286,10 @@ std::optional<EntityId> pick(const Sketch& s, Position p, double tolerance_mm) {
   return best;
 }
 
+std::optional<EntityId> pick_curve(const Sketch&, Position, double) {
+  return std::nullopt;
+}
+
 SnapResult snap(const Sketch& s, Position p, const SnapSettings& settings,
                 std::optional<EntityId> exclude) {
   if (!settings.enabled) return {p, SnapKind::kNone, std::nullopt};

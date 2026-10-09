@@ -17,6 +17,9 @@ enum class Tool {
   kArc,
   // Reference dimensions (U10).
   kDimension,
+  // U04 part 2.
+  kTrim,
+  kExtend,
 };
 
 enum class DeleteResult { kDeleted, kNothingSelected, kPointInUse };

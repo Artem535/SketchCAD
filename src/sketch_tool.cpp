@@ -587,6 +587,8 @@ void ToolSession::update_preview(std::optional<Position> cursor) {
       break;
     case Tool::kSelect:
     case Tool::kDimension:
+    case Tool::kTrim:
+    case Tool::kExtend:
       break;
   }
 }
@@ -614,6 +616,8 @@ InputField ToolSession::input_field() const {
       return vertices_.size() == 1 ? InputField::kRadius : InputField::kNone;
     case Tool::kSelect:
     case Tool::kDimension:
+    case Tool::kTrim:
+    case Tool::kExtend:
       break;
   }
   return InputField::kNone;
