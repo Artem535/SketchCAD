@@ -1056,6 +1056,22 @@ TEST_F(Snaps, TrimAndExtendTapsAreSingleUndoSteps) {
   EXPECT_EQ(doc.undo_label(), "Extend");
   EXPECT_EQ(doc.revision(), r + 1);
   EXPECT_NEAR(point_at(sketch(), std::get<SketchLine>(*sketch().entity(m)).end).x,
-              20, 1e-9);
+              10, 1e-9);  // Earlier boundary now includes its continuation.
   EXPECT_EQ(session.tool(), Tool::kExtend) << "the tool stays for the next tap";
+}
+
+TEST_F(Snaps, ExtendToBoundaryContinuationIsOneUndoStep) {
+  const auto l = add_line({0, 13}, {2, 10.3});
+  add_line({12, 0}, {12, 28});
+  const Sketch before = sketch();
+  session.set_tool(Tool::kExtend);
+  session.press({2, 10.3});
+  EXPECT_EQ(doc.undo_label(), "Extend");
+  const auto end = std::get<SketchLine>(*sketch().entity(l)).end;
+  EXPECT_NEAR(point_at(sketch(), end).x, 12, 1e-9);
+  EXPECT_NEAR(point_at(sketch(), end).y, -3.2, 1e-9);
+  ASSERT_TRUE(doc.undo());
+  EXPECT_TRUE(sketch() == before);
+  ASSERT_TRUE(doc.redo());
+  EXPECT_NEAR(point_at(sketch(), end).x, 12, 1e-9);
 }

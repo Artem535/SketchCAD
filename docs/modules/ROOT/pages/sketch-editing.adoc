@@ -126,8 +126,7 @@ no edge-selection step (every other line, circle and arc of the sketch is a cutt
 edge prompt in nanoCAD), and two separate tools instead of Shift switching between them. nanoCAD has no
 constraints, so the constraint rules below are this project's.
 
-Not in this increment: choosing cutting edges, fence or crossing selection, extending to the extension of a boundary
-("edge mode"), trimming points or polylines as a whole, preview of several pieces at once.
+Not in this increment: choosing cutting edges, fence or crossing selection, trimming points or polylines as a whole, preview of several pieces at once.
 
 === Core (`sketch_edit.h`, Qt-free)
 * `bool trim(Sketch&, EntityId curve, Position at)` and `bool extend(Sketch&, EntityId curve, Position at)` edit the
@@ -165,8 +164,10 @@ Not in this increment: choosing cutting edges, fence or crossing selection, exte
   ** the result must solve (`kSolved` with the commit step), otherwise the whole command fails and nothing changes.
 
 ==== Extend
-* Line: the end nearer to `at` moves along the line, beyond that end, to the nearest intersection with another curve
-  (its segment or sweep). The end point keeps its ID and gets `kOnCurve` on the boundary, and loses its `kOnCurve`
+* Line: the end nearer to `at` moves along the line, beyond that end, to the nearest intersection with another curve.
+  Line boundaries include their infinite straight continuation in both directions; circle boundaries are unchanged
+  and arc boundaries remain limited to their sweep. This also applies when extending an arc to a line boundary.
+  Trim still uses only existing boundary segments and arc sweeps; boundaries themselves never move. The end point keeps its ID and gets `kOnCurve` on the boundary, and loses its `kOnCurve`
   on curves it leaves (an earlier boundary), which would otherwise hold it back; a driving `kLength` takes the new
   length. Rejected (false) when nothing lies ahead or when the end point is also used by another entity (moving it
   would drag that geometry along).
@@ -227,3 +228,26 @@ GREEN: Release 189/189 (`build/issue12-trim-green.log`); Debug `-Werror` + ASan/
 (`build/issue12-trim-werror.log`). Screenshot `sketch_u04_trim.png` inspected: the horizontal line ends at the
 crossing after the trim tap; the rail shows the scroll indicator.
 Desktop only.
+
+=== Boundary continuation follow-up (12 October 2026)
+User acceptance example: two vertical segments from (0, 0) to (0, 28) and (12, 0) to (12, 28),
+with a short sloping line from (0, 13) to (2, 10.3). Extending its free end reaches (12, -3.2),
+below the right segment, on that segment's straight continuation. The boundary is unchanged.
+The preview must show the added piece, the endpoint keeps its ID and gets `kOnCurve`, the new
+driving length must solve, and the command remains one Undo step.
+Additional acceptance: extend the start backwards to a boundary continuation; an arc may reach
+a line continuation; trim must not cut at a boundary's imaginary continuation.
+
+Execution record (#53): Fedora 44 host, GCC 16.2.1, Qt 6.11.2, vcpkg dependencies.
+RED: 4/5 focused continuation checks failed on assertions; the trim regression already passed
+(`build/issue53-red.log`). QML regression also failed with continuation disabled after correcting
+the test to scroll the tool rail and draw on grid coordinates (`build/issue53-ui-red.log`).
+GREEN: Release `build/fedora` 194/194 and Debug `build/fedora-werror` 194/194.
+Debug uses `-Wall -Wextra -Werror -Wno-error=self-move`: GCC 16 flags the existing intentional
+self-move test in `sketch_test.cpp`. ASan/UBSan configuration could not link because host
+`libasan.so.8.0.0` is missing; no sanitizer pass is claimed. The older tool test now expects
+the nearer boundary continuation at x=10 instead of the farther actual segment at x=20.
+Screenshot `sketch_u04_extend_continuation.png` inspected: sloping line reaches below the
+vertical boundary's end; the boundary stays unchanged. Tests cover endpoint ID/constraint,
+driving length and solve, both directions, arcs, preview, Undo/Redo and real QML clicks.
+Desktop only; Android and user acceptance remain unverified.

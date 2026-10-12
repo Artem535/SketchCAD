@@ -68,12 +68,15 @@ Position at_param(const Curve& k, double t) {
 
 // Crossings of the full line or circle of `k` with the extents of every
 // other curve, grouped by parameter (unfiltered by `k`'s own extent).
-std::vector<Cut> all_cuts(const Sketch& s, const Curve& k) {
+// Extend also accepts the straight continuation of line boundaries.
+std::vector<Cut> all_cuts(const Sketch& s, const Curve& k,
+                          bool extend_line_boundaries = false) {
   std::vector<Cut> cuts;
   for (const Curve& other : curves(s, std::nullopt)) {
     if (other.id == k.id) continue;
     for (Position q : crossings(k, other)) {
-      if (!on_extent(other, q)) continue;
+      if (!(extend_line_boundaries && other.is_line) && !on_extent(other, q))
+        continue;
       const double t = param_of(k, q);
       auto same = std::find_if(cuts.begin(), cuts.end(), [&](const Cut& c) {
         return std::abs(c.param - t) <= kSame;
@@ -222,7 +225,7 @@ std::optional<ExtendPlan> plan_extend(const Sketch& s, EntityId id, Position at)
   const bool at_end = detail::distance(at, end) <= detail::distance(at, start);
   std::optional<Cut> best;
   double best_gap = INFINITY;
-  for (const Cut& c : all_cuts(s, *k)) {
+  for (const Cut& c : all_cuts(s, *k, true)) {
     double gap;
     if (k->is_line) {
       gap = at_end ? c.param - 1 : -c.param;

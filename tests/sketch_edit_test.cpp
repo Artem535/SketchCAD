@@ -236,3 +236,49 @@ TEST(PickCurve, IgnoresPoints) {
   EXPECT_EQ(pick_curve(s, {0.1, 0}, 1), l);
   EXPECT_FALSE(pick_curve(s, {15, 5}, 1));
 }
+
+TEST(Extend, SlopingLineReachesBoundaryContinuation) {
+  Sketch s;
+  line(s, {0, 0}, {0, 28});
+  const EntityId boundary = line(s, {12, 0}, {12, 28});
+  const EntityId l = line(s, {0, 13}, {2, 10.3});
+  const EntityId end = line_of(s, l).end;
+  const auto length = *s.add_dimension(K::kLength, l, 0, std::hypot(2, 2.7));
+  const auto preview = extend_preview(s, l, {2, 10.3});
+  ASSERT_TRUE(preview);
+  EXPECT_NEAR(preview->b.x, 12, kNear);
+  EXPECT_NEAR(preview->b.y, -3.2, kNear);
+  ASSERT_TRUE(extend(s, l, {2, 10.3}));
+  EXPECT_EQ(line_of(s, l).end, end);
+  expect_at(s, end, {12, -3.2});
+  expect_at(s, line_of(s, boundary).start, {12, 0});
+  expect_at(s, line_of(s, boundary).end, {12, 28});
+  EXPECT_EQ(curves_holding(s, end), std::vector<EntityId>{boundary});
+  EXPECT_NEAR(s.constraint(length)->value, std::hypot(12, 16.2), kNear);
+  EXPECT_EQ(solve(s).status, SolveStatus::kSolved);
+}
+
+TEST(Extend, StartReachesBoundaryContinuationBackwards) {
+  Sketch s;
+  const auto l = line(s, {0, 0}, {5, 0});
+  line(s, {-10, 2}, {-10, 8});
+  ASSERT_TRUE(extend(s, l, {0, 0}));
+  expect_at(s, line_of(s, l).start, {-10, 0});
+}
+
+TEST(Extend, ArcReachesLineContinuation) {
+  Sketch s;
+  const auto arc = *s.create_arc(*s.create_point({0, 0}), 10, 0, kPi / 2);
+  line(s, {-6, -20}, {-6, -15});
+  ASSERT_TRUE(extend(s, arc, {0, 10}));
+  EXPECT_NEAR(std::get<SketchArc>(*s.entity(arc)).sweep_angle,
+              std::atan2(8.0, -6.0), kNear);
+}
+
+TEST(Trim, IgnoresBoundaryContinuation) {
+  Sketch s;
+  const auto l = line(s, {0, 0}, {30, 0});
+  line(s, {10, 5}, {10, 10});
+  ASSERT_TRUE(trim(s, l, {20, 0}));
+  EXPECT_FALSE(s.entity(l));  // No actual crossing: whole line is deleted.
+}
