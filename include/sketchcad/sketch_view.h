@@ -47,6 +47,11 @@ std::optional<Bounds> bounds(const Sketch&);
 // Nearest entity within tolerance; points win over curves, ties by lower ID.
 std::optional<EntityId> pick(const Sketch&, Position, double tolerance_mm);
 
+// Nearest line, circle or arc within tolerance, ignoring points; ties by
+// lower ID (U04 trim/extend).
+std::optional<EntityId> pick_curve(const Sketch&, Position,
+                                   double tolerance_mm);
+
 enum class SnapKind { kNone, kGrid, kPoint, kIntersection, kOnCurve };
 
 struct SnapSettings {

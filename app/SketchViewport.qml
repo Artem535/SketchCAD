@@ -85,6 +85,17 @@ Item {
             joinStyle: ShapePath.RoundJoin
             PathSvg { path: root.controller.geometry_path }
         }
+        // Trim removes this piece (err); extend adds it (dashed primary).
+        ShapePath {
+            strokeColor: root.controller.tool === "trim" ? root.theme.err : root.accent
+            strokeWidth: 3
+            strokeStyle: root.controller.tool === "trim" ? ShapePath.SolidLine
+                                                         : ShapePath.DashLine
+            dashPattern: [4, 3]
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            PathSvg { path: root.controller.edit_preview_path }
+        }
         // Construction geometry (U04): thin dashed, not part of the outline.
         ShapePath {
             strokeColor: root.theme.muted

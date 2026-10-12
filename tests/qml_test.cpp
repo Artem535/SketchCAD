@@ -103,6 +103,63 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void trim_tool_cuts_at_the_crossing() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("tool_line"));
+    tap(controller, 10, 40);
+    tap(controller, 60, 40);
+    tap(controller, 30, 20);
+    tap(controller, 30, 60);
+    QVERIFY(item("tool_extend"));
+    click(item("tool_trim"));
+    tap(controller, 50, 40);
+    QCOMPARE(controller.document().undo_label(), std::string("Trim"));
+    const auto& s = controller.document().sketch();
+    for (const auto& [id, e] : s.entities())
+      if (const auto* l = std::get_if<sketchcad::SketchLine>(&e)) {
+        const auto a = std::get<sketchcad::SketchPoint>(*s.entity(l->start));
+        const auto b = std::get<sketchcad::SketchPoint>(*s.entity(l->end));
+        // The horizontal line now ends at the crossing.
+        if (std::abs(a.position.y - 40) < 1e-6 && std::abs(b.position.y - 40) < 1e-6)
+          QVERIFY(std::abs(std::max(a.position.x, b.position.x) - 30) < 1e-6);
+      }
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u04_trim.png"));
+  }
+  void extend_reaches_a_boundary_continuation() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    click(item("tool_line"));
+    tap(controller, 10, 60);
+    tap(controller, 30, 50);
+    tap(controller, 60, 60);
+    tap(controller, 60, 80);
+    QQuickItem* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    rail->setProperty("contentY",
+                      rail->property("contentHeight").toDouble() - rail->height());
+    click(item("tool_extend"));
+    QCOMPARE(controller.tool(), QString("extend"));
+    const auto p = controller.screen_of(30, 50);
+    controller.hover(p.x(), p.y());
+    QVERIFY(!controller.edit_preview_path().isEmpty());
+    tap(controller, 30, 50);
+    QCOMPARE(controller.document().undo_label(), std::string("Extend"));
+    bool reached = false;
+    const auto& s = controller.document().sketch();
+    for (const auto& [id, e] : s.entities())
+      if (const auto* point = std::get_if<sketchcad::SketchPoint>(&e))
+        if (std::abs(point->position.x - 60) < 1e-6 &&
+            std::abs(point->position.y - 35) < 1e-6)
+          reached = true;
+    QVERIFY(reached);
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u04_extend_continuation.png"));
+  }
   void dimension_tool_draws_a_reference() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -281,12 +338,12 @@ class QmlTest : public QObject {
                               "angle", "radius", "on_curve",
                               "construction"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 26);
+    QCOMPARE(keys.size(), 28);
     for (const QString& key : actions + QStringList{"constraint", "dimension",
                                                      "dof", "defined",
                                                      "redundant", "conflict",
                                                      "snap", "finger", "autodim",
-                                                     "input", "modes", "reference"}) {
+                                                     "input", "modes", "reference", "trim", "extend"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",

@@ -66,6 +66,9 @@ class Sketch {
   bool update_arc(EntityId, EntityId center, double radius, double start_angle,
                   double sweep_angle);
   bool set_construction(EntityId, bool);
+  // Turns a circle into an arc in place: same ID, centre, radius and
+  // construction flag (trim, sketch-editing.adoc).
+  bool circle_to_arc(EntityId, double start_angle, double sweep_angle);
   // Erases an entity or a constraint. Entities referenced by another
   // entity or by a constraint are kept.
   bool erase(EntityId);
