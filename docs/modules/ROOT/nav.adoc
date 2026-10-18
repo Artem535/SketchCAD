@@ -36,3 +36,4 @@
 ** xref:project-format.adoc[F01: Project format and file commands]
 ** xref:adr-0005-project-format.adoc[ADR-0005: Project format]
 ** xref:project-files-plan.adoc[F01: Implementation plan]
+** xref:autosave-recovery.adoc[F02: Autosave and crash recovery]

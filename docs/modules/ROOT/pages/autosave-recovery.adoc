@@ -1,0 +1,159 @@
+= F02: Autosave and crash recovery
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/14[#14]. Requirement: S01-FILE.
+Depends on F01 (xref:project-format.adoc[]), merged in PR #54.
+Status: proposed design, 18 October 2026; implementation has not started.
+
+== Intent and scope
+
+After an application crash, the user can recover the last complete automatic checkpoint without silently
+replacing their project file. This includes untitled sketches. Recovery always requires an explicit choice.
+The original `.sketchcad` file remains owned by the F01 Save/Save As commands.
+
+In scope: automatic checkpoints, interrupted-write protection, restore/discard/defer UI, safe cleanup,
+coexisting application instances, and simulated-process-crash tests. No cloud sync, rotating backup history,
+background overwrites of the user's original, persisted Undo history, or Android readiness claim.
+
+== Automatic checkpoint policy
+
+Proposed engineering defaults: write after 5 seconds without a committed document change; cap postponement
+at 30 seconds from the first not-yet-checkpointed committed change so continuous editing cannot starve autosave.
+Use an injectable timer/clock for tests. Do not write on hover, selection, zoom, theme changes or unchanged state.
+
+Checkpoint the last committed state, not an intermediate gesture. Autosave never cancels an active drag or
+unfinished drawing. Add a Qt-free Document accessor for a detached committed sketch/revision and its committed
+dirty state; retain the current allocator watermark when copying that state. A drag alone does not make the
+committed checkpoint dirty. Committing a drag produces a normal eligible revision. New code must respect that
+Undo returns to an older revision; revision magnitude is not a clock or a content-equality test.
+
+The application coordinator observes committed changes, takes a validated F01 snapshot, and writes through
+an atomic local store. The initial implementation may perform these bounded operations synchronously, as F01
+does; report timing and any UI latency limitation. A successful checkpoint does not mark the document saved,
+change its path, clear Undo/Redo, change geometry, or update the last explicit Save revision.
+
+If Undo returns to the explicitly saved state, retire this document's checkpoint. Redo to a dirty state schedules
+it again. Untitled clean new documents do not create recovery files; a dirty empty sketch does (deletion may
+be the user's unsaved work). No pointless repeated writes of the same committed state.
+
+On storage failure, retain the last complete checkpoint and the original file. Show a non-modal, translatable
+warning once per failure episode, then retry after 30 seconds while work remains dirty. Clear the warning after
+a successful retry. Do not spam a dialog every timer tick or disable sketch editing because autosave failed.
+
+== Storage and atomicity
+
+Store recoveries below `QStandardPaths::AppLocalDataLocation/recovery`, not beside user project files and not in
+the repository/build directory. Set a stable application name `SketchCAD` before resolving this path.
+Tests inject a QTemporaryDir and never touch real recovery data.
+
+Each running application owns one randomly generated session UUID and one recovery file. New/Open switches the
+current document within that session only after resolving the previous document through F01. Different app
+instances use different UUIDs and never overwrite, retire or delete each other's active checkpoints.
+
+Use a QLockFile per session for its whole lifetime, with `setStaleLockTime(0)` and nonblocking `tryLock(0)`.
+Do not forcibly remove a lock owned by a live process. Discovery excludes sessions whose owner lock cannot be
+acquired. Recovery selection must reacquire/claim its lock and reread the file before acting; a stale dialog list
+must not read a replaced file or process a recovery already handled by another instance. Test an actual second
+process holding its lock, plus release/stale-owner behaviour after process termination. UUIDs/lock paths are
+internal generated basenames, never trusted paths supplied by recovery contents. Only regular files directly
+below the managed root are candidates; reject symbolic links and unrelated entry types.
+
+A single UTF-8 JSON envelope contains metadata and the complete F01-encoded project as a string payload.
+Use reflect-cpp private wire structs and the existing strict JSON practices; do not duplicate model parsing.
+The payload is passed to the F01 decoder. A single-file envelope avoids committing model and metadata separately.
+
+Required fields: `format` = `SketchCADRecovery`, `version` = 1, `session_id`, `generation` (canonical uint64 string),
+`captured_at` (UTC timestamp), `original_url` (string, informational only, empty for untitled), `project_json`.
+The generation increases on each committed checkpoint, including after Undo; reject overflow rather than wrap.
+The envelope's session ID must match its generated filename. Reject unknown/duplicate fields, invalid metadata,
+malformed/future F01 payloads and inconsistent snapshots. Metadata never instructs the store to read/delete a
+path outside its managed directory, and original_url is never automatically opened or overwritten.
+
+Cap an envelope at 128 MiB; its F01 payload retains F01's 64 MiB/200,000-record/depth limits. Recovery envelope
+nesting is bounded at 16. Write through QSaveFile with direct-write fallback disabled: verify complete write,
+then commit. A write/commit failure preserves the previous complete envelope bytes. Temporary/incomplete files
+are not promoted to candidates; no partially parsed model reaches the current document.
+
+The guarantee is process-crash recovery from complete checkpoints, not power-loss durability. Do not discard
+unreviewed orphaned recoveries by age or storage quota. Clean only owned temporary files and explicitly retired
+or discarded records; large recovery folders may need a later retention/UI decision, not silent data deletion.
+
+== Startup and recovery UI
+
+After the main window is ready, discover inactive session recoveries and offer a modal list with source filename
+(or «Без имени»), checkpoint time, and validation status. Order by capture time for display only, with UUID as a
+stable tie breaker; never infer which content is newer from its revision number.
+
+Actions: «Восстановить», «Удалить копию», «Не сейчас». Restore is enabled only for a fully validated candidate.
+Corrupt/unsupported records remain visible with a reason and can be explicitly discarded; they never replace a
+valid document automatically. Defer preserves every record and closes the list. An overflow-menu action
+«Восстановление…» opens the list again. If the current project is dirty, the existing F01 Save/Discard/Cancel
+flow must finish before restoring another candidate. Reentrant file/recovery commands are ignored while busy.
+
+Restore installs a detached validated checkpoint, clears selection/previews/history, retains the solver hook and
+fits the view. The restored document is always dirty, even if empty or at revision zero. Its active file path is
+empty; display «Восстановлено — <source name>». First manual save uses Save As with a proposed recovery-copy name,
+so saving never silently overwrites the original path from metadata. No Undo step reaches a different project.
+
+Claim/adopt the selected recovery's session lock/file as this instance's active recovery before releasing the
+candidate claim. Keep the selected bytes as protection until the next successful checkpoint, explicit Save or
+explicit discard; restoring and crashing again before the timer must still offer that state. Retire the current
+instance's old empty session/lock without touching other sessions. If claiming or validation fails, leave the
+current document/path/history and all candidate bytes unchanged and refresh the list with an actionable error.
+
+Discard deletes only the chosen claimed recovery and releases its lock. It never deletes/changes the original.
+If deletion fails, retain the row and show an error; do not pretend it disappeared. Defer does not delete files.
+
+== Retirement and file-command integration
+
+* Explicit successful Save/Save As retires this session's recovery after the project file commit.
+* Accepted New/Open with Discard retires the old document's recovery before replacing it. A failed/cancelled
+  Open preserves the old document and its recovery; validate the candidate before retiring the old recovery.
+* Normal accepted close retires the active recovery. Cancelled close, cancelled Save As, failed save and
+  deferred recovery leave protection intact. Clean/untitled empty close also releases its own session lock.
+* A successful recovery restore adopts its candidate instead of deleting its only safety copy.
+* Shutdown must not create a new checkpoint after retirement; stop/clear pending timers before the final close.
+
+Recovery cleanup errors are distinct from project-write errors. If Save committed but retirement fails, keep
+F01's successful saved state and show «Проект сохранён, но копию восстановления удалить не удалось»; retain
+ownership of that recovery and retry retirement. Do not schedule a replacement from a clean state. Normal close
+and document replacement must not complete until required retirement succeeds; on failure stay in the current
+project and report the error, allowing retry. If the process instead crashes during this error condition, a
+recovery may be offered again; explicit user choice still prevents automatic stale replay/overwrite.
+
+== Acceptance and verification
+
+. Timer tests: debounce at 5 seconds, maximum postponement 30 seconds under continuous commits, no writes for
+  view-only events, retry throttling, and no uncommitted drag coordinates. Verify dirty marker and Undo/Redo
+  are unchanged by a checkpoint. Include dirty empty/untitled and restored-revision-zero cases.
+. F01 payload round trip retains stable IDs/watermark, construction, every constraint, reference dimensions and
+  annotation placement. A detached committed checkpoint must preserve consumed IDs without cancelling gestures.
+. Inject incomplete-write, partial-write and commit failures. Compare previous recovery and original bytes;
+  simulate process termination with an incomplete temporary file and find the last complete envelope afterward.
+. Real child-process crash test: checkpoint changes, terminate without normal close, restart/discover, explicitly
+  restore and compare the model. Restore and crash again before another timer; the selected state remains available.
+. Multiple instances: active owner is excluded; after owner death it is discoverable; two readers cannot both
+  adopt/discard the same candidate. Retiring one session leaves the other's bytes untouched.
+. Restore/Discard/Defer, corrupt/future metadata or payload, file disappearance, Unicode source name, bad UUID/path
+  data and bounded input tests. Never follow paths from metadata. Invalid restore leaves document/history unchanged.
+. Save/New/Open/Close transitions: successful retirement prevents stale startup entries, cancelled/failed operations
+  preserve recoveries, failed Open does not lose the old checkpoint, cleanup failure is surfaced and blocks normal
+  close/replacement until retry, and no shutdown callback recreates a deleted checkpoint.
+. QML controls and desktop smoke: autosave warning, recovery list and all three actions; save a restored copy under
+  a new name and verify the original bytes. Inspect a screenshot showing the restored unsaved state. Use temporary
+  recovery roots and actual child processes, not kill/cleanup of the user's running applications.
+. Observe RED assertions before implementation; record GREEN, environment, runtime evidence and limitations in
+  this page and #14. Android storage lifecycle, Windows runtime and sudden power loss require separate evidence.
+
+== Decisions for review
+
+The 5/30-second scheduling defaults, app-local storage, private string-payload envelope, one recovery per process,
+no age-based deletion and Save-As-first restoration are proposed engineering choices. F01's project schema and
+reflect-cpp dependency remain unchanged. The implementation plan follows design approval.
+
+== Design verification
+
+An independent builder review on 18 October 2026 found no important unanswered questions. Remaining API names,
+claim timing and retry implementation are engineering details to resolve in the implementation plan.
+The lock policy follows https://doc.qt.io/qt-6/qlockfile.html[Qt's long-lived lock guidance]; actual platform
+behaviour still requires the planned process tests. Documentation build is separate from runtime validation.

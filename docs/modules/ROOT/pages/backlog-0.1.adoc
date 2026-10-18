@@ -403,6 +403,8 @@ Fixtures all primitive/constraint types, unicode paths, invalid refs, truncated/
 [[f02]]
 == F02: Implement autosave and crash recovery
 
+Specification: xref:autosave-recovery.adoc[].
+
 * Requirements: S01-FILE.
 * Dependencies: F01.
 * Initial status: planned.
