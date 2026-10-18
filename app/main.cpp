@@ -5,13 +5,16 @@
 #include <QQuickWindow>
 #include <QTimer>
 
+#include "project_session.h"
 #include "sketch_controller.h"
 int main(int argc, char** argv) {
   QGuiApplication app(argc, argv);
   QQuickStyle::setStyle("Material");
   SketchController controller;
+  ProjectSession project(controller);
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("sketch", &controller);
+  engine.rootContext()->setContextProperty("project", &project);
   engine.load(QUrl("qrc:/Main.qml"));
   if (engine.rootObjects().isEmpty()) return 1;
   if (app.arguments().contains("--smoke"))

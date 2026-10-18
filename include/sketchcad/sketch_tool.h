@@ -50,6 +50,8 @@ class ToolSession {
   void drag(Position);
   void release(Position);
 
+  // Clears interaction state before a file operation, retaining user settings.
+  void reset();
   bool finish();
   bool cancel();
 

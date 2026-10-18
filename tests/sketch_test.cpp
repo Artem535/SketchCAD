@@ -285,3 +285,39 @@ TEST(Sketch, CompoundFailureLeavesGeometryAndAllocationUnchanged) {
   ASSERT_TRUE(next);
   EXPECT_EQ(*next, *p + 1);
 }
+
+TEST(Snapshot, PreservesFieldsAndConsumedWatermark) {
+  Sketch s;
+  const auto a = *s.create_point({2, 3}, true);
+  const auto b = *s.create_point({5, 7});
+  const auto l = *s.create_line(a, b, true);
+  const auto fix = *s.add_constraint(ConstraintKind::kFix, a);
+  const auto high = *s.create_point({9, 9});
+  ASSERT_TRUE(s.erase(high));
+  const auto data = s.snapshot();
+  EXPECT_EQ(data.next_id, high + 1);
+  auto restored = Sketch::from_snapshot(data);
+  ASSERT_TRUE(restored);
+  EXPECT_TRUE(*restored == s);
+  EXPECT_EQ(restored->constraint(fix)->target, (Position{2, 3}));
+  EXPECT_EQ(*restored->create_point({0, 0}), high + 1);
+  EXPECT_TRUE(std::get<SketchLine>(*restored->entity(l)).construction);
+}
+TEST(Snapshot, RejectsDuplicateReferencesAndWatermark) {
+  SketchSnapshot data;
+  data.entities = {SketchPoint{7, {0, 0}}, SketchPoint{9, {1, 0}},
+                   SketchLine{11, 7, 9}};
+  data.next_id = 20;
+  ASSERT_TRUE(Sketch::from_snapshot(data));
+  data.entities.push_back(SketchPoint{7, {2, 0}});
+  EXPECT_FALSE(Sketch::from_snapshot(data));
+  data.entities.pop_back();
+  data.next_id = 11;
+  EXPECT_FALSE(Sketch::from_snapshot(data));
+  data.next_id = 0;
+  auto exhausted = Sketch::from_snapshot(data);
+  ASSERT_TRUE(exhausted);
+  EXPECT_FALSE(exhausted->create_point({0, 0}));
+  std::get<SketchLine>(data.entities.back()).end = 999;
+  EXPECT_FALSE(Sketch::from_snapshot(data));
+}

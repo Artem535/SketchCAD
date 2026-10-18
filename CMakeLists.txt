@@ -3,12 +3,13 @@ project(SketchCAD VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Ceres CONFIG REQUIRED)
-add_library(sketchcad_core src/document.cpp src/sketch.cpp
+find_package(reflectcpp CONFIG REQUIRED)
+add_library(sketchcad_core src/project_io.cpp src/document.cpp src/sketch.cpp
             src/sketch_tool.cpp src/sketch_view.cpp src/constraint_solver.cpp
             src/constraint_diagnostics.cpp src/drag.cpp
             src/dimension_layout.cpp src/sketch_edit.cpp)
 target_include_directories(sketchcad_core PUBLIC include)
-target_link_libraries(sketchcad_core PRIVATE Ceres::ceres)
+target_link_libraries(sketchcad_core PRIVATE Ceres::ceres reflectcpp::reflectcpp)
 enable_testing()
 find_package(GTest REQUIRED)
 include(GoogleTest)
@@ -18,13 +19,15 @@ gtest_discover_tests(sketch_test)
 add_executable(document_test tests/document_test.cpp)
 target_link_libraries(document_test PRIVATE sketchcad_core GTest::gtest_main)
 gtest_discover_tests(document_test)
-foreach(name sketch_view_test sketch_tool_test constraint_test dimension_test
+foreach(name project_io_test sketch_view_test sketch_tool_test constraint_test dimension_test
   constraint_diagnostics_test
   constraint_solver_test drag_test dimension_layout_test sketch_edit_test)
   add_executable(${name} tests/${name}.cpp)
   target_link_libraries(${name} PRIVATE sketchcad_core GTest::gtest_main)
   gtest_discover_tests(${name})
 endforeach()
+
+target_compile_definitions(project_io_test PRIVATE PROJECT_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
 
 option(SKETCHCAD_BUILD_APP "Build Qt Quick app" ON)
 if(SKETCHCAD_BUILD_APP)
@@ -33,10 +36,16 @@ if(SKETCHCAD_BUILD_APP)
  set(SKETCHCAD_QML app/Main.qml app/SketchViewport.qml app/DimensionEditor.qml
   app/Inspector.qml app/Theme.qml app/Help.qml app/HelpPopup.qml)
  file(GLOB SKETCHCAD_ICONS CONFIGURE_DEPENDS app/icons/*.svg)
- add_library(sketchcad_controller app/sketch_controller.cpp
+ add_library(sketchcad_controller app/project_session.cpp app/project_file.cpp app/sketch_controller.cpp
   app/sketch_controller.h)
  target_include_directories(sketchcad_controller PUBLIC app)
  target_link_libraries(sketchcad_controller PUBLIC sketchcad_core Qt6::Core)
+ add_executable(project_session_test tests/project_session_test.cpp)
+ target_link_libraries(project_session_test PRIVATE sketchcad_controller Qt6::Test)
+ add_test(NAME project_session_test COMMAND project_session_test)
+ add_executable(project_file_test tests/project_file_test.cpp)
+ target_link_libraries(project_file_test PRIVATE sketchcad_controller Qt6::Test)
+ add_test(NAME project_file_test COMMAND project_file_test)
  add_executable(sketch_controller_test tests/sketch_controller_test.cpp)
  target_link_libraries(sketch_controller_test PRIVATE sketchcad_controller
   Qt6::Test)

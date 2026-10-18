@@ -45,9 +45,17 @@ struct Polyline {
   std::vector<EntityId> lines;
   bool operator==(const Polyline&) const = default;
 };
+struct SketchSnapshot {
+  std::vector<Entity> entities;
+  std::vector<Constraint> constraints;
+  EntityId next_id = 1;
+};
 class Sketch {
  public:
   Sketch() = default;
+  SketchSnapshot snapshot() const;
+  static std::optional<Sketch> from_snapshot(const SketchSnapshot&);
+  void swap(Sketch&) noexcept;
   Sketch(const Sketch&) = default;
   Sketch(Sketch&&) = default;
   Sketch& operator=(const Sketch&);

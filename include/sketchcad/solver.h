@@ -34,6 +34,7 @@ std::optional<double> measure(const Sketch& sketch, ConstraintKind kind,
 
 // Solves all constraints of `sketch`; writes back only on kSolved.
 SolveResult solve(Sketch& sketch);
+SolveResult check_constraints(const Sketch& sketch);
 
 // Document commit step that rejects any change the solver cannot satisfy.
 Edit solver_step();

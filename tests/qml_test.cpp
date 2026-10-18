@@ -1,15 +1,18 @@
+#include <QtQuickTest/quicktest.h>
+
 #include <QColor>
 #include <QCoreApplication>
+#include <QInputDevice>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
-#include <QInputDevice>
+#include <QTemporaryDir>
 #include <QWheelEvent>
-#include <QtQuickTest/quicktest.h>
 #include <QtTest>
 
+#include "project_session.h"
 #include "sketch_controller.h"
 class QmlTest : public QObject {
   Q_OBJECT
@@ -43,6 +46,8 @@ class QmlTest : public QObject {
 
   void open(QQmlApplicationEngine& engine, SketchController& controller) {
     engine.rootContext()->setContextProperty("sketch", &controller);
+    engine.rootContext()->setContextProperty(
+        "project", new ProjectSession(controller, &controller));
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     window_ = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
@@ -103,6 +108,100 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void project_file_commands_save_new_open_and_cancel() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    auto* project = qobject_cast<ProjectSession*>(
+        engine.rootContext()->contextProperty("project").value<QObject*>());
+    QVERIFY(project);
+    QTemporaryDir dir;
+    const auto url = QUrl::fromLocalFile(
+        dir.filePath(QString::fromUtf8("Проверка размеров.sketchcad")));
+    click(item("tool_line"));
+    tap(controller, 10, 40);
+    tap(controller, 60, 40);
+    click(item("tool_dimension"));
+    tap(controller, 10, 40);
+    tap(controller, 60, 40);
+    tap(controller, 35, 55);
+    QTRY_COMPARE(controller.dimensions().size(), 1);
+    const auto dimension_id =
+        controller.dimensions().front().toMap()["id"].toULongLong();
+    QVERIFY(controller.document().sketch().constraint(dimension_id)->reference);
+    QVERIFY(controller.document()
+                .sketch()
+                .constraint(dimension_id)
+                ->placement.has_value());
+    const auto saved_sketch = controller.document().sketch();
+    QVERIFY(project->dirty());
+    click(item("moreButton"));
+    QVERIFY(item("fileSaveAs"));
+    click(item("fileSaveAs"));
+    QVERIFY(project->busy());
+    project->accept_file(url);
+    QVERIFY(!project->dirty());
+    QCOMPARE(text_of("projectName"),
+             QString::fromUtf8("Проверка размеров.sketchcad"));
+    click(item("undoButton"));
+    QVERIFY(project->dirty());
+    click(item("moreButton"));
+    click(item("fileNew"));
+    const auto guarded_revision = controller.document().revision();
+    QTest::keySequence(window_, QKeySequence(QKeySequence::Redo));
+    QCOMPARE(controller.document().revision(), guarded_revision);
+    click(item("unsavedCancel"));
+    QVERIFY(project->dirty());
+    QVERIFY(!project->busy());
+    QTRY_VERIFY(!engine.rootObjects()
+                     .front()
+                     ->findChild<QObject*>("unsavedDialog")
+                     ->property("visible")
+                     .toBool());
+    click(item("moreButton"));
+    QTRY_VERIFY(engine.rootObjects()
+                    .front()
+                    ->findChild<QObject*>("moreMenu")
+                    ->property("visible")
+                    .toBool());
+    QTest::qWait(200);
+    click(item("fileNew"));
+    QTRY_VERIFY(project->busy());
+    click(item("unsavedDiscard"));
+    QTRY_VERIFY(!project->busy());
+    QTRY_VERIFY(!engine.rootObjects()
+                     .front()
+                     ->findChild<QObject*>("unsavedDialog")
+                     ->property("visible")
+                     .toBool());
+    QCOMPARE(controller.entity_count(), 0);
+    QVERIFY(!project->dirty());
+    click(item("moreButton"));
+    click(item("fileOpen"));
+    QVERIFY(project->busy());
+    project->accept_file(url);
+    QCOMPARE(controller.entity_count(), 3);
+    QVERIFY(!project->dirty());
+    QVERIFY(!controller.can_undo());
+    QVERIFY(controller.document().sketch() == saved_sketch);
+    click(item("moreButton"));
+    click(item("fileSave"));
+    QVERIFY(!project->busy());
+    QCOMPARE(text_of("projectState"),
+             QString::fromUtf8("Сохранено · объектов: 3"));
+    QTRY_VERIFY(!engine.rootObjects()
+                     .front()
+                     ->findChild<QObject*>("moreMenu")
+                     ->property("visible")
+                     .toBool());
+    const auto center = controller.screen_of(35, 40);
+    controller.zoom_at(center.x(), center.y(), 0.5);
+    QTRY_COMPARE(controller.dimension_labels().size(), 1);
+    QTRY_VERIFY(item("dimensionLabel_0"));
+    QTest::qWait(300);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_f01_opened.png"));
+  }
   void trim_tool_cuts_at_the_crossing() {
     SketchController controller;
     QQmlApplicationEngine engine;

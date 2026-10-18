@@ -1,0 +1,225 @@
+= F01: Versioned projects and file commands
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/13[#13]. Requirements: S01-FILE, S01-REL.
+Status: implemented and locally verified on 18 October 2026; pending PR review and user acceptance.
+Implementation plan: xref:project-files-plan.adoc[].
+Decision: xref:adr-0005-project-format.adoc[].
+
+== Intent and scope
+
+A user can close SketchCAD and later continue editing the same sketch, with its original identities,
+constraints and dimension annotations. Saving must not destroy the last good file, and an unsuccessful
+open must not replace the current document or discard its history.
+
+F01 includes Create/New, Open, Save, Save As, unsaved-change protection and a portable schema-v1 file.
+It excludes autosave/crash recovery (F02), DXF (X01), recent files, multiple document tabs, external
+references, persisted Undo/Redo history and migrations from a format that has not existed yet.
+Android document-provider/content-URI support belongs to P01; desktop verification does not prove Android readiness.
+
+== User-visible behaviour
+
+The existing top-bar overflow menu gains «Создать», «Открыть…», «Сохранить», «Сохранить как…».
+Desktop shortcuts: Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S. File dialogs use Qt Quick Dialogs.
+The heading displays the base filename, or «Без имени»; the subheading indicates saved/unsaved status.
+The local path is shown in the save/open dialog, not used as the document's model identity.
+
+* New replaces the project with an empty, clean document without a path or Undo history.
+* Open selects a local file, reads and validates a candidate fully, then installs it atomically.
+  A successful open is clean, starts with empty Undo/Redo and resets selection/tool previews and the view
+  to fit the loaded sketch. The solver hook remains installed. Empty files open with the default view.
+* Save writes the current document to its existing path. Untitled documents invoke Save As.
+* Save As selects a new path and confirms replacement of an existing file. The default extension is
+  `.sketchcad`; append it only if the chosen filename has no suffix. Changing filename changes neither
+  geometry nor Undo/Redo. The active path changes only after a successful write.
+* Successful save marks exactly the saved revision clean without clearing Undo/Redo. Undo away from that
+  revision is dirty; returning to it is clean. Failed/cancelled save leaves the dirty marker and path unchanged.
+* New, Open and window close on a dirty document display «Сохранить изменения?» with Save, Discard, Cancel.
+  Save continues the pending operation only after saving succeeds (including Save As for an untitled document).
+  Discard proceeds; Cancel leaves document, path and history unchanged. Cancelling the file picker also
+  cancels the pending operation. A failed Open after Discard still leaves the original in-memory project intact.
+* Resolve any active document gesture by cancelling its uncommitted step before a file operation.
+  This retains committed geometry, drops transient previews, and avoids serializing an intermediate drag.
+* Repeated file-command requests while a picker or confirmation is active do not replace the pending operation.
+* Errors use actionable RU/EN-ready text: unreadable file, invalid project, unsupported version, file too large,
+  or unable to save. No raw exception text is exposed. Ordinary UI state remains usable after an error.
+
+== Schema v1
+
+UTF-8 JSON object; `.sketchcad` extension. No executable content, archives, network resources or linked files.
+Units are millimetres and radians, in model coordinates (Y up). Decimal parsing is locale independent;
+encoding preserves round-trip double precision and rejects NaN/infinity. Records are written in ascending ID order.
+
+[source,json]
+----
+{
+  "format": "SketchCAD",
+  "version": 1,
+  "units": "mm",
+  "revision": "0",
+  "next_id": "1",
+  "entities": [],
+  "constraints": []
+}
+----
+
+All listed root fields are required. `version` is an integer; future versions fail with an explicit unsupported-version error.
+Unknown or duplicate keys, duplicate IDs, unknown entity/constraint kinds and trailing non-whitespace data are rejected.
+Schema v1 is strict: extensions require a new version with an explicit conversion, not silent data dropping.
+
+IDs, `next_id` and `revision` use canonical unsigned decimal strings (`0` or a nonzero digit followed by digits),
+within uint64 range. Entity and constraint IDs share one namespace and cannot be zero. `next_id` must exceed all
+stored IDs; zero means allocator exhaustion and remains exhausted on load. It must also retain the watermark
+of deleted/undone entities. Never rebuild IDs by insertion order or reset the watermark to max(stored IDs)+1.
+
+Entities are records with `id`, `kind` and `construction` plus:
+
+[cols="1,3",options="header"]
+|===
+|kind |Additional required fields
+|`point` |`x`, `y`
+|`line` |`start`, `end` (point IDs)
+|`circle` |`center` (point ID), `radius`
+|`arc` |`center` (point ID), `radius`, `start_angle`, `sweep_angle`
+|===
+
+All point references resolve to points; all geometry obeys the existing Sketch creation/update contracts
+(including finite values, positive radii and valid arc sweeps). Construction is stored even for points.
+Polyline is a creation result, not a separately persistent entity in the current model.
+
+Every constraint stores all persistent fields explicitly: `id`, `kind`, `first`, `second`,
+`target` (`x`, `y`), `internal`, `value`, `side`, `placement` and `reference`.
+`placement` is null or an object with `offset`, `along`, `angle`. All existing supported placement ranges apply.
+Zero `second` denotes a unary constraint. Boolean fields require JSON booleans, not numbers or strings.
+
+Stable kind names: `coincident`, `horizontal`, `vertical`, `parallel`, `perpendicular`, `tangent`,
+`equal`, `fix`, `on_curve`, `length`, `distance`, `angle`, `radius`. C++ enum ordinals are never serialized.
+Validate kind/argument combinations, dimension ranges, point-line distance side, reference support and
+placement eligibility against the model contracts. Fix targets, internal tangency and distance sides must
+be restored directly; recomputing them from current coordinates loses the stored intent.
+Reference dimensions retain their flag and annotation data, and do not become solver input after load.
+
+== Validation and installation
+
+Parse into detached records, validate the entire reference graph and shared ID namespace, then construct a
+candidate Sketch. Import/export snapshot data and validation belong to the Qt-free core; the snapshot includes
+the allocator watermark. Do not expose a bypass that lets callers mutate private entity maps unchecked.
+The persistent model is restored with the exact saved double values, not re-solved into a different shape.
+
+A structurally valid file must also satisfy the existing hard-constraint tolerances at its stored positions;
+reference dimensions are excluded. Validate residuals without moving geometry. An inconsistent file fails
+as an invalid project; opening never silently repairs it. Underconstrained sketches and redundant satisfied
+constraints remain valid. The existing solver's tolerance definitions are reused, not copied as new constants.
+
+`revision` is the saved Document state revision. On open it becomes both current and saved revision;
+subsequent edits receive monotonically newer revisions. Reject a revision that leaves no room for a next
+revision; this must not overflow. A document replacement clears history while retaining its commit hook.
+These rules are core API behaviour and need tests independent of Qt.
+
+Initial defensive limits chosen for F01: 64 MiB input and 200,000 combined entity/constraint records.
+Check bytes before parsing and records before candidate construction. Reject excessively nested JSON rather
+than risking an unbounded parser recursion; maximum nesting depth is 16. File limits are errors, not partial loads.
+
+== File I/O boundary and atomicity
+
+The JSON codec and model validation stay in `sketchcad_core`, using reflect-cpp from the pinned vcpkg manifest.
+Use private schema-v1 wire structs, mapped explicitly to validated model snapshots. Do not reflect the domain
+model directly: C++ member/type renames must not silently alter the on-disk schema. Choose stable explicit
+kind tags matching this specification. Wire ID/revision fields are strings with canonical uint64 validation.
+Use `rfl::NoExtraFields` for unknown fields. Missing fields, including nullable `placement`, remain errors;
+a nullable field is not optional in the schema. Do not use missing-field defaults that silently accept incomplete files.
+Duplicate-key rejection, numeric type strictness, depth limits and trailing-data handling require explicit tests;
+reflect-cpp defaults are not evidence that these contracts hold. Where needed use its yyjson backend at the
+codec boundary for bounded structural checks; do not add a second JSON library or a handwritten JSON parser.
+The pinned vcpkg baseline contains `reflectcpp` 0.25.0; enable JSON only and keep reflection types private to the codec.
+
+Qt handles filesystem paths, Unicode, dialogs and atomic replacement. The application uses QSaveFile with
+its direct-write fallback disabled: write all UTF-8 bytes, verify the full byte count, commit, then mark saved.
+Failure to create/write/commit the temporary file leaves the existing destination bytes untouched and the
+current document dirty. Crash recovery of an unsaved session is F02; this is not a promise of power-loss durability.
+
+Reads are bounded and non-mutating until validation succeeds. Local file URLs are converted through QUrl,
+never by stripping a textual prefix. Unsupported URL schemes receive an explicit error. No file path enters
+the core codec. Synchronous operations are acceptable within the stated initial bounds; performance limitations
+must be measured and reported, and no asynchronous revision race is introduced in F01.
+
+== Acceptance and RED/GREEN plan
+
+* Core round trip with sparse/out-of-order IDs, deleted/undone high IDs, every primitive and all 13 constraint kinds,
+  reference and driving dimensions, fix targets, internal tangency, signed point-line distance, construction flags,
+  and all annotation placements. Exact semantic equality and the next allocated ID survive.
+* Numeric boundary fixtures: IDs beyond 2^53, uint64 exhaustion, invalid revisions, non-finite/overflow numbers,
+  malformed types, duplicate keys/IDs, missing/invalid references, invalid kind combinations and excessive nesting.
+* Version fixture `tests/fixtures/project-v1.sketchcad` opens with stable identities; a future-version fixture is
+  rejected without mutation. No legacy format or migration is claimed before one exists.
+* Core document replacement preserves its solver hook, starts clean, restores saved revision and resets Undo/Redo.
+  Dirty-state tests cover save, edit, Undo/Redo back to the saved revision and failure/cancellation.
+* Qt integration uses QTemporaryDir: Unicode path, round trip, overwrite, unsupported URLs, truncated/corrupt/future
+  input and an injected writer/commit failure. Compare previous destination bytes and the full current document
+  state after failure. Test a real filesystem failure too; read-only permission alone is not reliable under root.
+* QML drives New/Open/Save/Save As entry points and Save/Discard/Cancel transitions. Use test-controlled selected
+  URLs at the picker boundary; separately smoke actual native dialogs in a desktop session. Capture and inspect
+  a screenshot with the opened filename, saved marker, geometry and dimension placement.
+* Record expected assertion failures before implementation, full Release and Debug verification, docs build,
+  runtime checks and any platform limitations in this page and issue #13.
+
+== Builder choices
+
+The user selected reflect-cpp on 18 October 2026. The extension, strict JSON, initial limits, metadata
+exclusions and synchronous I/O were proposed engineering choices and are covered by the approved design. Settings such as theme, grid, drawing mode and camera are not
+project content in v1. Test seams, internal function names, error enums and field ordering inside each record
+are left to implementation. Autosave and Android storage-provider integration remain separate tasks.
+
+== Codec references
+
+* https://github.com/getml/reflect-cpp[reflect-cpp official repository].
+* https://rfl.getml.com/processors/[Processors: NoExtraFields and missing/optional fields].
+* https://rfl.getml.com/custom_classes/[Custom classes and wire representation].
+
+Selection verified against the repository's vcpkg baseline on 18 October 2026. Build, strictness and
+round-trip behaviour remain to be verified by F01 RED/GREEN tests; this is not runtime validation.
+
+== Execution record (18 October 2026)
+
+Environment: Fedora 44 host, GCC 16.2.1, Qt 6.11.2; reflectcpp 0.25.0 from the pinned vcpkg baseline.
+Implementation branch: `codex/13-project-files`; issue #13; https://github.com/Artem535/SketchCAD/pull/54[PR #54]. Separate `build/fedora` Release and
+`build/fedora-werror` Debug directories; the older Ubuntu builds are not host-compatible.
+
+RED observed on assertions: four model/document/constraint checks; revision-exhaustion regression;
+six codec checks against stubs; two local-file Qt cases; five coordinator cases; the QML scenario
+failed because file actions were absent. Logs: `build/issue13-model-red.log`,
+`build/issue13-codec-red.log`, `build/issue13-files-red.log`, `build/issue13-session-red.log`,
+`build/issue13-ui-red.log`. Model GREEN was 49/49 targeted tests; codec GREEN initially 8/8.
+
+A fresh independent whole-branch review found two P2 issues: reflect-cpp narrows large signed-distance
+`side` integers to int, and exact v1 shape validation masked future-version errors. Both were reproduced
+RED in `build/issue13-review-red.log` before fixing raw +/-1 checks and envelope-first version dispatch.
+No other actionable review defect was reported. Encoding uses stable explicit enum/name pairs, independent
+of enum ordinal or reflected C++ names.
+
+Final GREEN: Release 211/211 (`build/issue13-release-green.log`); Debug 211/211
+(`build/issue13-debug-green.log`). Debug flags: `-Wall -Wextra -Werror -Wno-error=self-move`;
+the exception is the existing intentional self-move test on GCC 16. ASan/UBSan configuration cannot link
+because host `libasan.so.8.0.0` is missing (`build/issue13-asan-probe.log`); no sanitizer pass is claimed.
+`git diff --check` passed; Antora is built from committed HEAD.
+
+QML regression drives Save As, New/Cancel, New/Discard, Open and Save with real control clicks.
+The file selection result is injected at the native picker boundary, not entered by keyboard into the OS dialog.
+This scenario passed both offscreen and in the normal desktop platform session
+(`build/issue13-native-ui.log`). The screenshot `build/fedora/sketch_f01_opened.png` was inspected:
+Unicode project name, saved status, restored geometry and manually positioned reference dimension `50*`.
+Native dialog creation/closing is smoke-tested; human-operated native file selection remains user acceptance.
+
+Tests cover Unicode paths, preserved destination bytes on partial-write/commit failures, a real filesystem
+failure, original document/history after failed Open, both file-picker cancellation paths, Save-before-close/New,
+explicit filename suffixes, revision exhaustion, active-drag rollback and stale release, all primitive/constraint
+kinds, radial/angular/linear placement, nonzero fix targets, internal tangency, reference dimensions,
+large/sparse/exhausted IDs, duplicate keys/IDs, types, byte/record limits and comma numeric locale.
+Some additional coverage (fixture/locale, extra session transitions and modal keyboard suppression) was added
+after its implementation already existed and was not observed RED. QML test setup corrections wait on
+Popup QObject visibility, not its visual item proxy; acceptance expectations were retained.
+
+Limitations: Android storage providers/device input, Windows runtime, power-loss durability and large-document
+UI latency are unverified. No autosave/crash recovery (F02) is implemented. A deliberately near-exhausted
+revision may reach UINT64_MAX on the final permitted edit and then fail save/further editing; ordinary revisions
+cannot approach this boundary in practice. No legacy format migration is claimed before a previous schema exists.

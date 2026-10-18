@@ -139,6 +139,13 @@ SolveResult solve_once(Sketch& sketch, bool retry) {
 }
 }  // namespace
 
+SolveResult check_constraints(const Sketch& sketch) {
+  Problem problem(sketch);
+  if (!problem.build() || !problem.finite())
+    return {SolveStatus::kInvalidInput, {}};
+  return problem.check();
+}
+
 SolveResult solve(Sketch& sketch) { return solve_once(sketch, true); }
 
 Edit solver_step() {

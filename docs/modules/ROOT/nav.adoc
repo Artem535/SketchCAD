@@ -31,3 +31,8 @@
 ** xref:ui-help.adoc[Term help]
 ** xref:default-dimensions.adoc[Default dimensions]
 ** xref:sketch-editing.adoc[Snaps, construction, trim]
+
+* Project files
+** xref:project-format.adoc[F01: Project format and file commands]
+** xref:adr-0005-project-format.adoc[ADR-0005: Project format]
+** xref:project-files-plan.adoc[F01: Implementation plan]

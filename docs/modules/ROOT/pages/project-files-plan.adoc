@@ -1,0 +1,179 @@
+= F01 implementation plan
+:toc:
+
+For agentic workers: use `superpowers:executing-plans` for inline execution or
+`superpowers:subagent-driven-development` if the user selects delegated execution.
+Follow the tasks in order; read xref:project-format.adoc[] before implementing.
+
+Goal:: Preserve a complete editable sketch across sessions through safe, versioned local files.
+Architecture:: Validated Qt-free snapshots and a strict JSON codec; Qt local I/O with atomic replacement;
+a file-command coordinator gates document replacement and window close.
+Stack:: C++20, Ceres/Eigen, reflect-cpp from vcpkg, Qt Quick Dialogs, QSaveFile, GoogleTest and Qt Test.
+Spec:: xref:project-format.adoc[] and xref:adr-0005-project-format.adoc[]. Issue #13.
+Status:: Implemented and locally verified on 18 October 2026; https://github.com/Artem535/SketchCAD/pull/54[PR #54] awaits CI/review and user acceptance.
+Execution evidence: xref:project-format.adoc#_execution_record_18_october_2026[execution record].
+
+== Global constraints
+
+* Schema 1, UTF-8 JSON, `.sketchcad`, units mm and radians; strict field/type validation.
+* uint64 identity/revision fields are canonical decimal strings; zero next_id denotes exhausted allocation.
+* 64 MiB input, 200,000 combined records, maximum JSON nesting depth 16.
+* Persist every model field and the ID watermark; never serialize C++ enum ordinals or Qt types.
+* Do not re-solve geometry during load; evaluate hard residuals using existing tolerances, exclude reference dimensions.
+* Preserve the previous file and current document on I/O failure; mark saved only after QSaveFile commit.
+* No persisted Undo history, autosave, camera/settings, network references or Android storage-provider claim.
+* Follow Google C++ style, snake_case functions/variables and `Refs #13` commits. Record RED/GREEN in issue #13.
+* Prefix shell commands with `rtk`; configure separate build directories for the actual host environment.
+
+== Review focus
+
+* A malformed field hidden in a large otherwise-valid file must reject the entire candidate (task 2).
+* Stale selection or an in-flight gesture must not modify a newly opened document (tasks 1 and 4).
+* A file picker cancellation after Save must not silently discard a dirty untitled project (task 4).
+* A partial write or failed commit must preserve destination bytes and active path (task 3).
+* Large IDs and near-limit revisions must remain exact and must never wrap during subsequent edits (tasks 1 and 2).
+
+== Task 1: Validated snapshots and document replacement
+
+Files: `include/sketchcad/sketch.h`, `src/sketch.cpp`, `include/sketchcad/document.h`, `src/document.cpp`,
+`include/sketchcad/solver.h`, `src/constraint_solver.cpp`, `tests/sketch_test.cpp`,
+`tests/document_test.cpp`, `tests/constraint_solver_test.cpp`.
+
+Interfaces produced:
+
+* `SketchSnapshot { std::vector<Entity> entities; std::vector<Constraint> constraints; EntityId next_id = 1; }`.
+* `SketchSnapshot Sketch::snapshot() const` and
+  `static std::optional<Sketch> Sketch::from_snapshot(const SketchSnapshot&)`.
+* `SolveResult check_constraints(const Sketch&)`: build/check existing internal solver Problem without solving or writing back.
+* `bool Document::replace(Sketch initial, std::uint64_t revision)`:
+  reject active gestures and revision UINT64_MAX, retain commit hook, replace history with a clean initial state;
+  its next edit revision is revision+1. New uses revision 0.
+
+Steps:
+
+* [x] Write snapshot tests that assert exact IDs and fields after import/export; include deleted high IDs,
+  sparse/out-of-order input, exhausted next_id, duplicate IDs across entities/constraints, invalid typed references,
+  invalid dimensions/placements, fix targets, internal tangency and signed distance.
+* [x] Write `CheckConstraints.DoesNotMoveUnsatisfiedGeometry`: status is unsatisfied and the entire Sketch stays equal;
+  test empty and underconstrained sketches, redundant satisfied constraints and excluded reference dimensions.
+* [x] Write `Document.ReplaceResetsHistoryAndPreservesCommitHook`, `ReplaceRejectsActiveGesture` and
+  `ReplaceRevisionDoesNotWrap`. Verify failure leaves revision, history, saved marker and geometry unchanged.
+* [x] Add only signatures/stubs needed for tests to compile; run targeted tests and save expected assertion failures
+  in `build/issue13-model-red.log`. Missing symbols alone are not the recorded RED.
+* [x] Implement snapshot validation using the existing model validation rules; share helpers rather than duplicating
+  semantic checks. Import stored IDs and fields directly only after whole-snapshot validation.
+* [x] Implement the non-mutating residual check and document replacement. Verify the complete model/document/solver
+  suites pass and record `build/issue13-model-green.log`.
+* [x] Commit: `feat: add validated model snapshots and document replacement (Refs #13)`.
+
+== Task 2: Strict JSON codec and stable fixtures
+
+Create `include/sketchcad/project_io.h`, `src/project_io.cpp`, `tests/project_io_test.cpp`,
+`tests/fixtures/project-v1.sketchcad`, `tests/fixtures/project-future.sketchcad`.
+Modify `vcpkg.json` and `CMakeLists.txt`: `reflectcpp` (0.25.0 at the pinned baseline), JSON-only private core
+ dependency and a GoogleTest target. Use private versioned wire structs, not automatic serialization of domain types.
+
+Interfaces consumed: task 1 snapshot import/export, `check_constraints`.
+Interfaces produced:
+
+* `ProjectData { Sketch sketch; std::uint64_t revision = 0; }`.
+* `enum class ProjectError { kInvalidProject, kUnsupportedVersion, kTooLarge };`.
+* `using ProjectDecodeResult = std::variant<ProjectData, ProjectError>;`.
+* `ProjectDecodeResult decode_project(std::string_view bytes)`.
+* `std::optional<std::string> encode_project(const ProjectData&)`: invalid state returns nullopt.
+
+Steps:
+
+* [x] Write `ProjectIo.RoundTripEveryPersistentField` and a hand-authored v1 fixture test; use every primitive,
+  all 13 constraint kinds, reference flags and placements, non-default targets/sides and a consumed-ID watermark.
+* [x] Add parameterized rejecting fixtures for unknown/duplicate fields, duplicate IDs, wrong JSON types,
+  noncanonical/out-of-range decimal IDs, invalid references and constraint kinds, truncated/trailing data,
+  non-finite/overflow numbers, unsupported versions and UINT64_MAX revision.
+* [x] Add byte/record/depth boundary tests: 64 MiB, 200,000 combined records and depth 16 are the limits;
+  one beyond each rejects cleanly. Include a malformed last record after many valid records.
+* [x] Assert encode/decode preserves doubles and IDs above 2^53 under a non-English numeric locale (restore locale
+  after test). Never make the test depend on the presence of a particular system locale without reporting a skip.
+* [x] Run assertion-failing codec stubs, record `build/issue13-codec-red.log`, then implement the codec.
+  Use reflect-cpp wire structs and `rfl::NoExtraFields`; stable kind tags and string IDs follow the spec.
+  Add missing-nullable-field versus explicit-null tests, numeric type strictness tests and C++-name-independent
+  fixture checks. Use yyjson backend checks if needed for duplicate-key/nesting/trailing-data validation;
+  do not add a second JSON library. Validate strict schemas before snapshot import.
+* [x] Verify all codec tests and existing tests pass; keep deterministic output by sorting records by ID.
+  Record `build/issue13-codec-green.log` and commit `feat: add versioned project codec (Refs #13)`.
+
+== Task 3: Local file service and atomic persistence
+
+Create `app/project_file.h`, `app/project_file.cpp`, `tests/project_file_test.cpp`; wire Qt Core tests in CMake.
+
+Interfaces consumed: task 2 ProjectData/codec.
+Interfaces produced (namespace `project_file`):
+
+* `enum class Error { kUnreadable, kInvalidProject, kUnsupportedVersion, kTooLarge, kWriteFailed, kUnsupportedUrl };`.
+* `using ReadResult = std::variant<sketchcad::ProjectData, Error>;`.
+* `ReadResult read(const QUrl&)` and `std::optional<Error> write(const QUrl&, const sketchcad::ProjectData&)`.
+* An internal injectable atomic writer interface (open/write/commit) for tests; production implementation uses
+  QSaveFile with direct-write fallback disabled. The public default API always uses the production writer.
+
+Steps:
+
+* [x] Write Unicode-path round-trip and overwrite tests in QTemporaryDir, plus unsupported schemes, missing files,
+  oversized input, future schema and corrupt/truncated input; do not convert URL by textual prefix removal.
+* [x] Inject short-write and commit-failure paths and compare the complete old destination bytes afterward.
+  Add a real failure using a missing parent/directory destination, not root-sensitive chmod expectations.
+* [x] Record assertion RED (`build/issue13-files-red.log`), implement bounded read and atomic write, then verify
+  all Qt file tests and codec tests pass (`build/issue13-files-green.log`).
+* [x] Commit `feat: add atomic local project persistence (Refs #13)`.
+
+== Task 4: File-command coordinator, dialogs and user acceptance
+
+Create `app/project_session.h`, `app/project_session.cpp`, `tests/project_session_test.cpp`.
+Modify `app/sketch_controller.h/.cpp`, `app/Main.qml`, `app/main.cpp`, `CMakeLists.txt`,
+`tests/sketch_controller_test.cpp`, `tests/qml_test.cpp` and project documentation/handoff.
+
+Interfaces consumed: tasks 1–3. ProjectSession owns no Sketch; it references the controller's existing Document.
+Expose to QML through a separate `project` context object (register it in the app and QML test harness):
+
+* Properties: `QString display_name`, `QUrl file_url`, `bool dirty`, `bool busy` with state-change notifications.
+* Invokables: `request_new()`, `request_open()`, `request_save()`, `request_save_as()`, `request_close()`,
+  `answer_unsaved(QString choice)` (save/discard/cancel), `accept_file(QUrl)`, `cancel_file()`.
+* Signals: `ask_unsaved()`, `choose_open()`, `choose_save(QUrl suggested_url)`, `close_ready()`,
+  `error(QString key)` and `document_replaced()`.
+* `document_replaced()` tells SketchController to reset ToolSession/selection/previews and fit the new geometry.
+  Never replace the referenced Document object itself: ToolSession retains a valid reference.
+* Cancel active document gestures and clear uncommitted drawing state before file commands. Repeated requests
+  while busy are ignored; cancel returns the coordinator to idle. Only successful write changes URL/clean state.
+
+Steps:
+
+* [x] Write coordinator state-machine tests covering each command on clean/dirty/named/untitled documents,
+  all Save/Discard/Cancel branches, picker cancellation and I/O failure. Assert path, revision, history and
+  pending action after every transition. Test reentrant commands while busy and failed Open after Discard.
+* [x] Write controller tests for selection/preview/gesture reset on file commands and retained solver hook after
+  opening. Test saving, editing and Undo/Redo back to the saved revision through public UI-facing APIs.
+* [x] Record assertion RED, implement coordinator and integration; map error keys to translatable UI messages.
+* [x] Add overflow menu entries and shortcuts exactly as specified; use Qt Quick Dialogs for local file selection,
+  overwrite confirmation and a Save/Discard/Cancel dialog. Intercept window close until close_ready; prevent loops.
+  Append .sketchcad only to filenames without suffix; preserve explicitly chosen suffixes.
+* [x] Write QML click tests for each entry and confirmation branch, using selected-URL injection at the picker
+  boundary. Prove cancelling an untitled Save As does not close/reset the document. Record assertion RED before
+  implementing these handlers; preserve existing QML test setup by registering the new context object everywhere.
+* [x] Run full Release/Debug CTest, QML smoke and native desktop dialogs. Save/open a Unicode filename containing
+  moved/reference dimensions, then capture/inspect the opened filename, clean status and geometry screenshot.
+  Record any unavailable sanitizer/device check explicitly; never call desktop validation Android acceptance.
+* [x] Update execution record, ADR status, backlog and handoff. Commit `feat: add project file commands (Refs #13)`.
+* [x] Run Antora against committed HEAD and `rtk git diff --check`. Push the implementation branch and open a PR
+  with `Closes #13`, verification evidence and limitations. Attach the PR to this chat; do not merge without approval.
+
+== Execution evidence
+
+Use separate host-correct build directories. Configure both with the pinned vcpkg toolchain and system Qt;
+Release and Debug use the existing CMake/CTest conventions. Preserve unrelated changes and prior build directories.
+For each task record the exact RED assertion, GREEN results and environment in issue #13.
+Before final completion, run full CTest in both directories; `npm run docs` reads committed Git HEAD.
+
+== Plan self-review
+
+Spec coverage: task 1 owns IDs/revisions and geometric validation; task 2 owns every schema field and parser limits;
+task 3 owns paths/atomicity; task 4 owns the complete UI state machine, native dialog smoke and release evidence.
+Review-focus risks are assigned to explicit tests above. Proposed APIs are consistent across tasks. No autosave,
+DXF, settings persistence, license decision or Android storage implementation has been introduced.
