@@ -2,7 +2,8 @@
 :toc:
 
 Issue: https://github.com/Artem535/SketchCAD/issues/13[#13]. Requirements: S01-FILE, S01-REL.
-Status: proposed design, 18 October 2026; implementation has not started.
+Status: design approved by the user on 18 October 2026; implementation has not started.
+Implementation plan: xref:project-files-plan.adoc[].
 Decision: xref:adr-0005-project-format.adoc[].
 
 == Intent and scope
