@@ -957,3 +957,19 @@ void SketchController::cancel_dimension_drag() {
   refresh_scene();
   emit changed();
 }
+
+void SketchController::prepare_file_operation() {
+  cancel_dimension_drag();
+  session_.reset();
+  snap_hint_ = false;
+  selected_constraint_ = 0;
+  conflict_entities_.clear();
+  message_.clear();
+  analysed_ = false;
+  refresh_scene();
+  emit changed();
+}
+void SketchController::reset_after_open() {
+  prepare_file_operation();
+  fit();
+}

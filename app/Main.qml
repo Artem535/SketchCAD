@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.Dialogs as FileDialogs
 
 // Tablet shell from design/sketchcad-tablet.html (tablet-shell.adoc).
 ApplicationWindow {
@@ -10,7 +11,119 @@ ApplicationWindow {
     height: 800
     minimumWidth: 720
     minimumHeight: 480
-    title: qsTr("SketchCAD")
+    title: project.display_name + (project.dirty ? " *" : "") + " — SketchCAD"
+    property bool closeAuthorized: false
+    property bool syncingFileDialogs: false
+    onClosing: function(event) {
+        if (!closeAuthorized) {
+            event.accepted = false
+            project.request_close()
+        }
+    }
+    Shortcut { sequences: [StandardKey.New]; enabled: !project.busy; onActivated: project.request_new() }
+    Shortcut { sequences: [StandardKey.Open]; enabled: !project.busy; onActivated: project.request_open() }
+    Shortcut { sequences: [StandardKey.Save]; enabled: !project.busy; onActivated: project.request_save() }
+    Shortcut { sequence: "Ctrl+Shift+S"; enabled: !project.busy; onActivated: project.request_save_as() }
+    FileDialogs.FileDialog {
+        id: projectOpenDialog
+        objectName: "projectOpenDialog"
+        title: qsTr("Открыть проект")
+        fileMode: FileDialogs.FileDialog.OpenFile
+        nameFilters: [qsTr("Проекты SketchCAD (*.sketchcad)"), qsTr("Все файлы (*)")]
+        onAccepted: project.accept_file(selectedFile)
+        onRejected: if (!window.syncingFileDialogs) project.cancel_file()
+    }
+    FileDialogs.FileDialog {
+        id: projectSaveDialog
+        objectName: "projectSaveDialog"
+        title: qsTr("Сохранить проект")
+        fileMode: FileDialogs.FileDialog.SaveFile
+        defaultSuffix: "sketchcad"
+        nameFilters: [qsTr("Проекты SketchCAD (*.sketchcad)"), qsTr("Все файлы (*)")]
+        onAccepted: project.accept_file(selectedFile)
+        onRejected: if (!window.syncingFileDialogs) project.cancel_file()
+    }
+    Dialog {
+        id: unsavedDialog
+        objectName: "unsavedDialog"
+        width: Math.min(560, window.width - 40)
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Сохранить изменения?")
+        closePolicy: Popup.CloseOnEscape
+        onRejected: project.answer_unsaved("cancel")
+        contentItem: Label {
+            text: qsTr("В проекте есть несохранённые изменения.")
+            wrapMode: Text.WordWrap
+        }
+        footer: DialogButtonBox {
+            Button {
+                objectName: "unsavedSave"
+                text: qsTr("Сохранить")
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                onClicked: { unsavedDialog.close(); project.answer_unsaved("save") }
+            }
+            Button {
+                objectName: "unsavedDiscard"
+                text: qsTr("Не сохранять")
+                DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
+                onClicked: { unsavedDialog.close(); project.answer_unsaved("discard") }
+            }
+            Button {
+                objectName: "unsavedCancel"
+                text: qsTr("Отмена")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                onClicked: { unsavedDialog.close(); project.answer_unsaved("cancel") }
+            }
+        }
+    }
+    Dialog {
+        id: projectErrorDialog
+        objectName: "projectErrorDialog"
+        anchors.centerIn: parent
+        width: Math.min(480, window.width - 40)
+        modal: true
+        title: qsTr("Не удалось выполнить операцию")
+        standardButtons: Dialog.Ok
+        property string message: ""
+        contentItem: Label { text: projectErrorDialog.message; wrapMode: Text.WordWrap }
+    }
+    Connections {
+        target: project
+        function onAsk_unsaved() { unsavedDialog.open() }
+        function onChoose_open() {
+            window.syncingFileDialogs = true
+            projectSaveDialog.close()
+            window.syncingFileDialogs = false
+            projectOpenDialog.open()
+        }
+        function onChoose_save(suggested_url) {
+            if (suggested_url.toString().length) projectSaveDialog.selectedFile = suggested_url
+            projectSaveDialog.open()
+        }
+        function onClose_ready() { window.closeAuthorized = true; window.close() }
+        function onDocument_replaced() { editor.close() }
+        function onChanged() {
+            if (!project.busy) {
+                window.syncingFileDialogs = true
+                projectOpenDialog.close()
+                projectSaveDialog.close()
+                window.syncingFileDialogs = false
+            }
+        }
+        function onError(key) {
+            const messages = {
+                project_unreadable: qsTr("Не удалось прочитать файл. Проверьте путь и доступ к нему."),
+                project_invalid: qsTr("Файл повреждён или не является корректным проектом SketchCAD."),
+                project_version: qsTr("Проект создан в неподдерживаемой версии формата. Откройте его в более новой версии SketchCAD."),
+                project_too_large: qsTr("Проект превышает допустимый размер или количество объектов."),
+                project_write_failed: qsTr("Не удалось сохранить проект. Проверьте свободное место и доступ к папке. Предыдущий файл сохранён."),
+                project_unsupported_url: qsTr("Выберите локальный файл проекта.")
+            }
+            projectErrorDialog.message = messages[key] || messages.project_invalid
+            projectErrorDialog.open()
+        }
+    }
     color: theme.bg
     Material.theme: theme.dark ? Material.Dark : Material.Light
     Material.accent: theme.primary
@@ -231,13 +344,17 @@ ApplicationWindow {
             ColumnLayout {
                 spacing: 0
                 Label {
-                    text: qsTr("Эскиз 01")
+                    objectName: "projectName"
+                    text: project.display_name
+                    elide: Text.ElideMiddle
+                    Layout.maximumWidth: 220
                     font.pixelSize: 16
                     font.weight: Font.Medium
                     color: theme.ink
                 }
                 Label {
-                    text: qsTr("Не сохранено · объектов: %1").arg(sketch.entity_count)
+                    objectName: "projectState"
+                    text: (project.dirty ? qsTr("Не сохранено · объектов: %1") : qsTr("Сохранено · объектов: %1")).arg(sketch.entity_count)
                     font.pixelSize: 12
                     color: theme.muted
                 }
@@ -344,6 +461,31 @@ ApplicationWindow {
                         color: theme.surface
                         border.color: theme.line
                     }
+                    MenuItem {
+                        objectName: "fileNew"
+                        text: qsTr("Создать")
+                        enabled: !project.busy
+                        onTriggered: project.request_new()
+                    }
+                    MenuItem {
+                        objectName: "fileOpen"
+                        text: qsTr("Открыть…")
+                        enabled: !project.busy
+                        onTriggered: project.request_open()
+                    }
+                    MenuItem {
+                        objectName: "fileSave"
+                        text: qsTr("Сохранить")
+                        enabled: !project.busy
+                        onTriggered: project.request_save()
+                    }
+                    MenuItem {
+                        objectName: "fileSaveAs"
+                        text: qsTr("Сохранить как…")
+                        enabled: !project.busy
+                        onTriggered: project.request_save_as()
+                    }
+                    MenuSeparator {}
                     MenuItem {
                         objectName: "darkThemeToggle"
                         text: qsTr("Тёмная тема")

@@ -86,6 +86,20 @@ std::optional<EntityId> vertex_point(Sketch& s, Position p,
 
 ToolSession::ToolSession(Document& document) : document_(document) {}
 
+void ToolSession::reset() {
+  cancel();
+  if (document_.gesture_active()) document_.cancel_gesture();
+  tool_ = Tool::kSelect;
+  selected_.clear();
+  vertices_.clear();
+  dimension_picks_.clear();
+  last_snap_.reset();
+  edit_preview_.reset();
+  hover_.reset();
+  locked_width_.reset();
+  Sketch empty;
+  preview_.swap(empty);
+}
 void ToolSession::set_tool(Tool tool) {
   cancel();
   edit_preview_.reset();

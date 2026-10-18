@@ -185,6 +185,9 @@ class SketchController : public QObject {
   void changed();
 
  private:
+  friend class ProjectSession;
+  void prepare_file_operation();
+  void reset_after_open();
   sketchcad::Position world(double x, double y) const;
   void sync_tolerances();
   void refresh_scene();

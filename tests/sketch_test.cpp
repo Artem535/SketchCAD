@@ -305,7 +305,8 @@ TEST(Snapshot, PreservesFieldsAndConsumedWatermark) {
 }
 TEST(Snapshot, RejectsDuplicateReferencesAndWatermark) {
   SketchSnapshot data;
-  data.entities = {SketchPoint{7, {0, 0}}, SketchPoint{9, {1, 0}}, SketchLine{11, 7, 9}};
+  data.entities = {SketchPoint{7, {0, 0}}, SketchPoint{9, {1, 0}},
+                   SketchLine{11, 7, 9}};
   data.next_id = 20;
   ASSERT_TRUE(Sketch::from_snapshot(data));
   data.entities.push_back(SketchPoint{7, {2, 0}});

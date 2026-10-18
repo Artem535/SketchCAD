@@ -36,10 +36,13 @@ if(SKETCHCAD_BUILD_APP)
  set(SKETCHCAD_QML app/Main.qml app/SketchViewport.qml app/DimensionEditor.qml
   app/Inspector.qml app/Theme.qml app/Help.qml app/HelpPopup.qml)
  file(GLOB SKETCHCAD_ICONS CONFIGURE_DEPENDS app/icons/*.svg)
- add_library(sketchcad_controller app/project_file.cpp app/sketch_controller.cpp
+ add_library(sketchcad_controller app/project_session.cpp app/project_file.cpp app/sketch_controller.cpp
   app/sketch_controller.h)
  target_include_directories(sketchcad_controller PUBLIC app)
  target_link_libraries(sketchcad_controller PUBLIC sketchcad_core Qt6::Core)
+ add_executable(project_session_test tests/project_session_test.cpp)
+ target_link_libraries(project_session_test PRIVATE sketchcad_controller Qt6::Test)
+ add_test(NAME project_session_test COMMAND project_session_test)
  add_executable(project_file_test tests/project_file_test.cpp)
  target_link_libraries(project_file_test PRIVATE sketchcad_controller Qt6::Test)
  add_test(NAME project_file_test COMMAND project_file_test)

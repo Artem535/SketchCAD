@@ -3,9 +3,17 @@
 #include <QUrl>
 #include <optional>
 #include <variant>
+
 #include "sketchcad/project_io.h"
 namespace project_file {
-enum class Error { kUnreadable, kInvalidProject, kUnsupportedVersion, kTooLarge, kWriteFailed, kUnsupportedUrl };
+enum class Error {
+  kUnreadable,
+  kInvalidProject,
+  kUnsupportedVersion,
+  kTooLarge,
+  kWriteFailed,
+  kUnsupportedUrl
+};
 using ReadResult = std::variant<sketchcad::ProjectData, Error>;
 ReadResult read(const QUrl&);
 std::optional<Error> write(const QUrl&, const sketchcad::ProjectData&);
@@ -17,6 +25,7 @@ class AtomicWriter {
   virtual qint64 write(const QByteArray&) = 0;
   virtual bool commit() = 0;
 };
-std::optional<Error> write_with(const QUrl&, const sketchcad::ProjectData&, AtomicWriter&);
-}
-}
+std::optional<Error> write_with(const QUrl&, const sketchcad::ProjectData&,
+                                AtomicWriter&);
+}  // namespace detail
+}  // namespace project_file

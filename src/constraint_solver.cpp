@@ -141,7 +141,8 @@ SolveResult solve_once(Sketch& sketch, bool retry) {
 
 SolveResult check_constraints(const Sketch& sketch) {
   Problem problem(sketch);
-  if (!problem.build() || !problem.finite()) return {SolveStatus::kInvalidInput, {}};
+  if (!problem.build() || !problem.finite())
+    return {SolveStatus::kInvalidInput, {}};
   return problem.check();
 }
 

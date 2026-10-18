@@ -381,6 +381,7 @@ GoogleTest модели, раскладки и инструмента, Qt Test �
 == F01: Define a versioned project format and implement save/open
 
 Specification: xref:project-format.adoc[]. Schema decision: xref:adr-0005-project-format.adoc[].
+Current status (18 October): implemented on `codex/13-project-files`, pending PR review and user acceptance.
 
 * Requirements: S01-FILE, S01-REL.
 * Dependencies: C01, C02, S02.

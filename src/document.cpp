@@ -1,7 +1,7 @@
 #include "sketchcad/document.h"
 
-#include <utility>
 #include <limits>
+#include <utility>
 
 namespace sketchcad {
 Document::Document(Sketch initial) : live_(std::move(initial)) {
@@ -18,7 +18,8 @@ std::optional<Sketch> Document::apply(const Edit& edit) const {
 }
 
 bool Document::replace(Sketch initial, std::uint64_t revision) {
-  if (gesture_active() || revision == std::numeric_limits<std::uint64_t>::max()) return false;
+  if (gesture_active() || revision == std::numeric_limits<std::uint64_t>::max())
+    return false;
   std::vector<State> replacement;
   replacement.push_back({"", initial, revision});
   live_.swap(initial);
@@ -121,7 +122,8 @@ void Document::record(std::string label) {
                 states_.end());
   states_.push_back({std::move(label), live_, next_revision_});
   next_revision_ = next_revision_ == std::numeric_limits<std::uint64_t>::max()
-                       ? 0 : next_revision_ + 1;
+                       ? 0
+                       : next_revision_ + 1;
   position_ = states_.size() - 1;
 }
 

@@ -2,7 +2,7 @@
 :toc:
 
 Issue: https://github.com/Artem535/SketchCAD/issues/13[#13]. Requirements: S01-FILE, S01-REL.
-Status: design approved by the user on 18 October 2026; implementation has not started.
+Status: implemented and locally verified on 18 October 2026; pending PR review and user acceptance.
 Implementation plan: xref:project-files-plan.adoc[].
 Decision: xref:adr-0005-project-format.adoc[].
 
@@ -178,3 +178,48 @@ are left to implementation. Autosave and Android storage-provider integration re
 
 Selection verified against the repository's vcpkg baseline on 18 October 2026. Build, strictness and
 round-trip behaviour remain to be verified by F01 RED/GREEN tests; this is not runtime validation.
+
+== Execution record (18 October 2026)
+
+Environment: Fedora 44 host, GCC 16.2.1, Qt 6.11.2; reflectcpp 0.25.0 from the pinned vcpkg baseline.
+Implementation branch: `codex/13-project-files`; issue #13. Separate `build/fedora` Release and
+`build/fedora-werror` Debug directories; the older Ubuntu builds are not host-compatible.
+
+RED observed on assertions: four model/document/constraint checks; revision-exhaustion regression;
+six codec checks against stubs; two local-file Qt cases; five coordinator cases; the QML scenario
+failed because file actions were absent. Logs: `build/issue13-model-red.log`,
+`build/issue13-codec-red.log`, `build/issue13-files-red.log`, `build/issue13-session-red.log`,
+`build/issue13-ui-red.log`. Model GREEN was 49/49 targeted tests; codec GREEN initially 8/8.
+
+A fresh independent whole-branch review found two P2 issues: reflect-cpp narrows large signed-distance
+`side` integers to int, and exact v1 shape validation masked future-version errors. Both were reproduced
+RED in `build/issue13-review-red.log` before fixing raw +/-1 checks and envelope-first version dispatch.
+No other actionable review defect was reported. Encoding uses stable explicit enum/name pairs, independent
+of enum ordinal or reflected C++ names.
+
+Final GREEN: Release 211/211 (`build/issue13-release-green.log`); Debug 211/211
+(`build/issue13-debug-green.log`). Debug flags: `-Wall -Wextra -Werror -Wno-error=self-move`;
+the exception is the existing intentional self-move test on GCC 16. ASan/UBSan configuration cannot link
+because host `libasan.so.8.0.0` is missing (`build/issue13-asan-probe.log`); no sanitizer pass is claimed.
+`git diff --check` passed; Antora is built from committed HEAD.
+
+QML regression drives Save As, New/Cancel, New/Discard, Open and Save with real control clicks.
+The file selection result is injected at the native picker boundary, not entered by keyboard into the OS dialog.
+This scenario passed both offscreen and in the normal desktop platform session
+(`build/issue13-native-ui.log`). The screenshot `build/fedora/sketch_f01_opened.png` was inspected:
+Unicode project name, saved status, restored geometry and manually positioned reference dimension `50*`.
+Native dialog creation/closing is smoke-tested; human-operated native file selection remains user acceptance.
+
+Tests cover Unicode paths, preserved destination bytes on partial-write/commit failures, a real filesystem
+failure, original document/history after failed Open, both file-picker cancellation paths, Save-before-close/New,
+explicit filename suffixes, revision exhaustion, active-drag rollback and stale release, all primitive/constraint
+kinds, radial/angular/linear placement, nonzero fix targets, internal tangency, reference dimensions,
+large/sparse/exhausted IDs, duplicate keys/IDs, types, byte/record limits and comma numeric locale.
+Some additional coverage (fixture/locale, extra session transitions and modal keyboard suppression) was added
+after its implementation already existed and was not observed RED. QML test setup corrections wait on
+Popup QObject visibility, not its visual item proxy; acceptance expectations were retained.
+
+Limitations: Android storage providers/device input, Windows runtime, power-loss durability and large-document
+UI latency are unverified. No autosave/crash recovery (F02) is implemented. A deliberately near-exhausted
+revision may reach UINT64_MAX on the final permitted edit and then fail save/further editing; ordinary revisions
+cannot approach this boundary in practice. No legacy format migration is claimed before a previous schema exists.

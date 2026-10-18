@@ -65,28 +65,33 @@ std::optional<Sketch> Sketch::from_snapshot(const SketchSnapshot& data) {
     highest = std::max(highest, id);
   }
   for (const auto& [id, e] : result.entities_) {
-    const bool valid = std::visit([&](const auto& v) {
-      using T = std::decay_t<decltype(v)>;
-      if constexpr (std::is_same_v<T, SketchPoint>)
-        return result.update_point(id, v.position);
-      else if constexpr (std::is_same_v<T, SketchLine>)
-        return result.update_line(id, v.start, v.end);
-      else if constexpr (std::is_same_v<T, SketchCircle>)
-        return result.update_circle(id, v.center, v.radius);
-      else
-        return result.update_arc(id, v.center, v.radius, v.start_angle, v.sweep_angle);
-    }, e);
+    const bool valid = std::visit(
+        [&](const auto& v) {
+          using T = std::decay_t<decltype(v)>;
+          if constexpr (std::is_same_v<T, SketchPoint>)
+            return result.update_point(id, v.position);
+          else if constexpr (std::is_same_v<T, SketchLine>)
+            return result.update_line(id, v.start, v.end);
+          else if constexpr (std::is_same_v<T, SketchCircle>)
+            return result.update_circle(id, v.center, v.radius);
+          else
+            return result.update_arc(id, v.center, v.radius, v.start_angle,
+                                     v.sweep_angle);
+        },
+        e);
     if (!valid) return std::nullopt;
   }
   Sketch validator(result);
   for (const Constraint& c : data.constraints) {
-    if (!c.id || result.entities_.contains(c.id) || result.constraints_.contains(c.id) ||
-        !valid_position(c.target) || !std::isfinite(c.value) ||
-        (c.side != 1 && c.side != -1) || (c.reference && !is_dimension(c.kind)))
+    if (!c.id || result.entities_.contains(c.id) ||
+        result.constraints_.contains(c.id) || !valid_position(c.target) ||
+        !std::isfinite(c.value) || (c.side != 1 && c.side != -1) ||
+        (c.reference && !is_dimension(c.kind)))
       return std::nullopt;
     const auto test = is_dimension(c.kind)
-        ? validator.add_dimension(c.kind, c.first, c.second, c.value, c.reference)
-        : validator.add_constraint(c.kind, c.first, c.second);
+                          ? validator.add_dimension(c.kind, c.first, c.second,
+                                                    c.value, c.reference)
+                          : validator.add_constraint(c.kind, c.first, c.second);
     if (!test) return std::nullopt;
     const auto normalized = validator.constraint(*test);
     if (normalized->first != c.first || normalized->second != c.second ||
