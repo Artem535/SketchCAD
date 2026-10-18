@@ -122,7 +122,17 @@ than risking an unbounded parser recursion; maximum nesting depth is 16. File li
 
 == File I/O boundary and atomicity
 
-The JSON codec and model validation stay in `sketchcad_core`, using nlohmann-json from the pinned vcpkg manifest.
+The JSON codec and model validation stay in `sketchcad_core`, using reflect-cpp from the pinned vcpkg manifest.
+Use private schema-v1 wire structs, mapped explicitly to validated model snapshots. Do not reflect the domain
+model directly: C++ member/type renames must not silently alter the on-disk schema. Choose stable explicit
+kind tags matching this specification. Wire ID/revision fields are strings with canonical uint64 validation.
+Use `rfl::NoExtraFields` for unknown fields. Missing fields, including nullable `placement`, remain errors;
+a nullable field is not optional in the schema. Do not use missing-field defaults that silently accept incomplete files.
+Duplicate-key rejection, numeric type strictness, depth limits and trailing-data handling require explicit tests;
+reflect-cpp defaults are not evidence that these contracts hold. Where needed use its yyjson backend at the
+codec boundary for bounded structural checks; do not add a second JSON library or a handwritten JSON parser.
+The pinned vcpkg baseline contains `reflectcpp` 0.25.0; enable JSON only and keep reflection types private to the codec.
+
 Qt handles filesystem paths, Unicode, dialogs and atomic replacement. The application uses QSaveFile with
 its direct-write fallback disabled: write all UTF-8 bytes, verify the full byte count, commit, then mark saved.
 Failure to create/write/commit the temporary file leaves the existing destination bytes untouched and the
@@ -155,7 +165,16 @@ must be measured and reported, and no asynchronous revision race is introduced i
 
 == Builder choices
 
-The extension, strict JSON, nlohmann-json, initial limits, metadata exclusions and synchronous I/O are proposed
-engineering choices, not prior user decisions. Settings such as theme, grid, drawing mode and camera are not
+The user selected reflect-cpp on 18 October 2026. The extension, strict JSON, initial limits, metadata
+exclusions and synchronous I/O were proposed engineering choices and are covered by the approved design. Settings such as theme, grid, drawing mode and camera are not
 project content in v1. Test seams, internal function names, error enums and field ordering inside each record
 are left to implementation. Autosave and Android storage-provider integration remain separate tasks.
+
+== Codec references
+
+* https://github.com/getml/reflect-cpp[reflect-cpp official repository].
+* https://rfl.getml.com/processors/[Processors: NoExtraFields and missing/optional fields].
+* https://rfl.getml.com/custom_classes/[Custom classes and wire representation].
+
+Selection verified against the repository's vcpkg baseline on 18 October 2026. Build, strictness and
+round-trip behaviour remain to be verified by F01 RED/GREEN tests; this is not runtime validation.

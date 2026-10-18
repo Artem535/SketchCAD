@@ -8,7 +8,7 @@ Follow the tasks in order; read xref:project-format.adoc[] before implementing.
 Goal:: Preserve a complete editable sketch across sessions through safe, versioned local files.
 Architecture:: Validated Qt-free snapshots and a strict JSON codec; Qt local I/O with atomic replacement;
 a file-command coordinator gates document replacement and window close.
-Stack:: C++20, Ceres/Eigen, nlohmann-json from vcpkg, Qt Quick Dialogs, QSaveFile, GoogleTest and Qt Test.
+Stack:: C++20, Ceres/Eigen, reflect-cpp from vcpkg, Qt Quick Dialogs, QSaveFile, GoogleTest and Qt Test.
 Spec:: xref:project-format.adoc[] and xref:adr-0005-project-format.adoc[]. Issue #13.
 Status:: Plan for review, 18 October 2026. No implementation started.
 
@@ -69,7 +69,8 @@ Steps:
 
 Create `include/sketchcad/project_io.h`, `src/project_io.cpp`, `tests/project_io_test.cpp`,
 `tests/fixtures/project-v1.sketchcad`, `tests/fixtures/project-future.sketchcad`.
-Modify `vcpkg.json` and `CMakeLists.txt`: nlohmann-json through vcpkg, private core dependency and a GoogleTest target.
+Modify `vcpkg.json` and `CMakeLists.txt`: `reflectcpp` (0.25.0 at the pinned baseline), JSON-only private core
+ dependency and a GoogleTest target. Use private versioned wire structs, not automatic serialization of domain types.
 
 Interfaces consumed: task 1 snapshot import/export, `check_constraints`.
 Interfaces produced:
@@ -92,7 +93,10 @@ Steps:
 * [ ] Assert encode/decode preserves doubles and IDs above 2^53 under a non-English numeric locale (restore locale
   after test). Never make the test depend on the presence of a particular system locale without reporting a skip.
 * [ ] Run assertion-failing codec stubs, record `build/issue13-codec-red.log`, then implement the codec.
-  Use bounded parsing with duplicate-key and nesting detection; validate strict schemas before snapshot import.
+  Use reflect-cpp wire structs and `rfl::NoExtraFields`; stable kind tags and string IDs follow the spec.
+  Add missing-nullable-field versus explicit-null tests, numeric type strictness tests and C++-name-independent
+  fixture checks. Use yyjson backend checks if needed for duplicate-key/nesting/trailing-data validation;
+  do not add a second JSON library. Validate strict schemas before snapshot import.
 * [ ] Verify all codec tests and existing tests pass; keep deterministic output by sorting records by ID.
   Record `build/issue13-codec-green.log` and commit `feat: add versioned project codec (Refs #13)`.
 
