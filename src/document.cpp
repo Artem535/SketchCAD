@@ -1,6 +1,7 @@
 #include "sketchcad/document.h"
 
 #include <utility>
+#include <limits>
 
 namespace sketchcad {
 Document::Document(Sketch initial) : live_(std::move(initial)) {
@@ -16,8 +17,20 @@ std::optional<Sketch> Document::apply(const Edit& edit) const {
   return working;
 }
 
+bool Document::replace(Sketch initial, std::uint64_t revision) {
+  if (gesture_active() || revision == std::numeric_limits<std::uint64_t>::max()) return false;
+  std::vector<State> replacement;
+  replacement.push_back({"", initial, revision});
+  live_.swap(initial);
+  states_.swap(replacement);
+  position_ = 0;
+  next_revision_ = revision + 1;
+  saved_revision_ = revision;
+  return true;
+}
+
 bool Document::execute(std::string label, const Edit& edit) {
-  if (gesture_active()) return false;
+  if (gesture_active() || next_revision_ == 0) return false;
   std::optional<Sketch> result = apply(edit);
   if (!result) return false;
   const bool changed = !(*result == live_);
@@ -59,7 +72,7 @@ std::optional<std::string> Document::redo_label() const {
 }
 
 bool Document::begin_gesture(std::string label) {
-  if (gesture_active()) return false;
+  if (gesture_active() || next_revision_ == 0) return false;
   gesture_label_ = std::move(label);
   return true;
 }
@@ -106,7 +119,9 @@ bool Document::dirty() const {
 void Document::record(std::string label) {
   states_.erase(states_.begin() + static_cast<std::ptrdiff_t>(position_) + 1,
                 states_.end());
-  states_.push_back({std::move(label), live_, next_revision_++});
+  states_.push_back({std::move(label), live_, next_revision_});
+  next_revision_ = next_revision_ == std::numeric_limits<std::uint64_t>::max()
+                       ? 0 : next_revision_ + 1;
   position_ = states_.size() - 1;
 }
 

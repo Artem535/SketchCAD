@@ -451,3 +451,15 @@ TEST(Solver, OnCurveConflictsWithAFixedPointOffTheLine) {
   ASSERT_TRUE(s.add_constraint(K::kOnCurve, p, l));
   expect_conflict(s);
 }
+
+TEST(ProjectValidation, ChecksStoredPositionsWithoutSolving) {
+  Sketch s;
+  EXPECT_EQ(check_constraints(s).status, SolveStatus::kSolved);
+  const auto a = *s.create_point({0, 0});
+  const auto b = *s.create_point({10, 1});
+  const auto l = *s.create_line(a, b);
+  s.add_constraint(ConstraintKind::kHorizontal, l);
+  const Sketch before = s;
+  EXPECT_EQ(check_constraints(s).status, SolveStatus::kUnsatisfied);
+  EXPECT_TRUE(s == before);
+}

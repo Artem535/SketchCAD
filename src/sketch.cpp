@@ -44,6 +44,62 @@ bool references_point(const Entity& entity, EntityId id) {
       entity);
 }
 }  // namespace
+SketchSnapshot Sketch::snapshot() const {
+  SketchSnapshot result;
+  result.next_id = next_id_;
+  for (const auto& [id, e] : entities_) result.entities.push_back(e);
+  for (const auto& [id, c] : constraints_) result.constraints.push_back(c);
+  return result;
+}
+void Sketch::swap(Sketch& other) noexcept {
+  entities_.swap(other.entities_);
+  constraints_.swap(other.constraints_);
+  std::swap(next_id_, other.next_id_);
+}
+std::optional<Sketch> Sketch::from_snapshot(const SketchSnapshot& data) {
+  Sketch result;
+  EntityId highest = 0;
+  for (const Entity& e : data.entities) {
+    const EntityId id = std::visit([](const auto& v) { return v.id; }, e);
+    if (!id || !result.entities_.emplace(id, e).second) return std::nullopt;
+    highest = std::max(highest, id);
+  }
+  for (const auto& [id, e] : result.entities_) {
+    const bool valid = std::visit([&](const auto& v) {
+      using T = std::decay_t<decltype(v)>;
+      if constexpr (std::is_same_v<T, SketchPoint>)
+        return result.update_point(id, v.position);
+      else if constexpr (std::is_same_v<T, SketchLine>)
+        return result.update_line(id, v.start, v.end);
+      else if constexpr (std::is_same_v<T, SketchCircle>)
+        return result.update_circle(id, v.center, v.radius);
+      else
+        return result.update_arc(id, v.center, v.radius, v.start_angle, v.sweep_angle);
+    }, e);
+    if (!valid) return std::nullopt;
+  }
+  Sketch validator(result);
+  for (const Constraint& c : data.constraints) {
+    if (!c.id || result.entities_.contains(c.id) || result.constraints_.contains(c.id) ||
+        !valid_position(c.target) || !std::isfinite(c.value) ||
+        (c.side != 1 && c.side != -1) || (c.reference && !is_dimension(c.kind)))
+      return std::nullopt;
+    const auto test = is_dimension(c.kind)
+        ? validator.add_dimension(c.kind, c.first, c.second, c.value, c.reference)
+        : validator.add_constraint(c.kind, c.first, c.second);
+    if (!test) return std::nullopt;
+    const auto normalized = validator.constraint(*test);
+    if (normalized->first != c.first || normalized->second != c.second ||
+        (c.placement && !validator.set_dimension_placement(*test, c.placement)))
+      return std::nullopt;
+    validator.erase(*test);
+    result.constraints_.emplace(c.id, c);
+    highest = std::max(highest, c.id);
+  }
+  if (data.next_id != 0 && data.next_id <= highest) return std::nullopt;
+  result.next_id_ = data.next_id;
+  return result;
+}
 Sketch& Sketch::operator=(const Sketch& other) {
   if (this == &other) return *this;
   auto candidate = other.entities_;

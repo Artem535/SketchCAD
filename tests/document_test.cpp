@@ -251,3 +251,38 @@ TEST(Document, RevisionsAreUniqueAcrossBranches) {
   EXPECT_NE(d.revision(), first);
   EXPECT_NE(d.revision(), 0u);
 }
+
+TEST(ProjectDocument, ReplacementResetsHistoryRetainsHookAndRevision) {
+  Document d;
+  ASSERT_TRUE(d.execute("old", [](Sketch& s) { return s.create_point({1, 2}).has_value(); }));
+  d.set_commit_step([](Sketch&) { return false; });
+  Sketch initial;
+  initial.create_point({3, 4});
+  ASSERT_TRUE(d.replace(initial, 42));
+  EXPECT_EQ(d.revision(), 42u);
+  EXPECT_FALSE(d.dirty());
+  EXPECT_FALSE(d.can_undo());
+  EXPECT_FALSE(d.can_redo());
+  EXPECT_FALSE(d.execute("rejected", [](Sketch& s) { return s.create_point({0, 0}).has_value(); }));
+  d.set_commit_step({});
+  ASSERT_TRUE(d.execute("edit", [](Sketch& s) { return s.create_point({0, 0}).has_value(); }));
+  EXPECT_EQ(d.revision(), 43u);
+  EXPECT_TRUE(d.dirty());
+  ASSERT_TRUE(d.undo());
+  EXPECT_FALSE(d.dirty());
+  EXPECT_FALSE(d.replace({}, UINT64_MAX));
+  ASSERT_TRUE(d.begin_gesture("move"));
+  EXPECT_FALSE(d.replace({}, 0));
+}
+
+TEST(ProjectDocument, ExhaustedRevisionRejectsFurtherEdits) {
+  Document d;
+  ASSERT_TRUE(d.replace({}, UINT64_MAX - 1));
+  const auto edit = [](Sketch& s) { return s.create_point({0, 0}).has_value(); };
+  ASSERT_TRUE(d.execute("last", edit));
+  EXPECT_EQ(d.revision(), UINT64_MAX);
+  const Sketch before = d.sketch();
+  EXPECT_FALSE(d.execute("overflow", edit));
+  EXPECT_TRUE(d.sketch() == before);
+  EXPECT_FALSE(d.begin_gesture("overflow"));
+}

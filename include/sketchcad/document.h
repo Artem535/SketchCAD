@@ -21,6 +21,8 @@ class Document {
 
   const Sketch& sketch() const { return live_; }
 
+  bool replace(Sketch initial, std::uint64_t revision);
+
   bool execute(std::string label, const Edit& edit);
   // Runs after every edit and gesture step; the solver hook for S01.
   void set_commit_step(Edit step);
