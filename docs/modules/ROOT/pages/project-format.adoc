@@ -182,7 +182,7 @@ round-trip behaviour remain to be verified by F01 RED/GREEN tests; this is not r
 == Execution record (18 October 2026)
 
 Environment: Fedora 44 host, GCC 16.2.1, Qt 6.11.2; reflectcpp 0.25.0 from the pinned vcpkg baseline.
-Implementation branch: `codex/13-project-files`; issue #13. Separate `build/fedora` Release and
+Implementation branch: `codex/13-project-files`; issue #13; https://github.com/Artem535/SketchCAD/pull/54[PR #54]. Separate `build/fedora` Release and
 `build/fedora-werror` Debug directories; the older Ubuntu builds are not host-compatible.
 
 RED observed on assertions: four model/document/constraint checks; revision-exhaustion regression;

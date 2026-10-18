@@ -10,7 +10,7 @@ Architecture:: Validated Qt-free snapshots and a strict JSON codec; Qt local I/O
 a file-command coordinator gates document replacement and window close.
 Stack:: C++20, Ceres/Eigen, reflect-cpp from vcpkg, Qt Quick Dialogs, QSaveFile, GoogleTest and Qt Test.
 Spec:: xref:project-format.adoc[] and xref:adr-0005-project-format.adoc[]. Issue #13.
-Status:: Implemented and locally verified on 18 October 2026; PR publication is the final delivery step.
+Status:: Implemented and locally verified on 18 October 2026; https://github.com/Artem535/SketchCAD/pull/54[PR #54] awaits CI/review and user acceptance.
 Execution evidence: xref:project-format.adoc#_execution_record_18_october_2026[execution record].
 
 == Global constraints
@@ -161,7 +161,7 @@ Steps:
   moved/reference dimensions, then capture/inspect the opened filename, clean status and geometry screenshot.
   Record any unavailable sanitizer/device check explicitly; never call desktop validation Android acceptance.
 * [x] Update execution record, ADR status, backlog and handoff. Commit `feat: add project file commands (Refs #13)`.
-* [ ] Run Antora against committed HEAD and `rtk git diff --check`. Push the implementation branch and open a PR
+* [x] Run Antora against committed HEAD and `rtk git diff --check`. Push the implementation branch and open a PR
   with `Closes #13`, verification evidence and limitations. Attach the PR to this chat; do not merge without approval.
 
 == Execution evidence
