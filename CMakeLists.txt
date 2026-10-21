@@ -37,7 +37,7 @@ if(SKETCHCAD_BUILD_APP)
  set(SKETCHCAD_QML app/Main.qml app/SketchViewport.qml app/DimensionEditor.qml
   app/Inspector.qml app/Theme.qml app/Help.qml app/HelpPopup.qml)
  file(GLOB SKETCHCAD_ICONS CONFIGURE_DEPENDS app/icons/*.svg)
- add_library(sketchcad_controller app/project_session.cpp app/project_file.cpp app/recovery_store.cpp app/sketch_controller.cpp
+ add_library(sketchcad_controller app/project_session.cpp app/project_file.cpp app/recovery_store.cpp app/recovery_coordinator.cpp app/sketch_controller.cpp
   app/sketch_controller.h)
  target_include_directories(sketchcad_controller PUBLIC app)
  target_link_libraries(sketchcad_controller PUBLIC sketchcad_core Qt6::Core)
@@ -51,6 +51,9 @@ if(SKETCHCAD_BUILD_APP)
  target_compile_definitions(recovery_store_test PRIVATE RECOVERY_HELPER="$<TARGET_FILE:recovery_helper>")
  add_dependencies(recovery_store_test recovery_helper)
  add_test(NAME recovery_store_test COMMAND recovery_store_test)
+ add_executable(recovery_coordinator_test tests/recovery_coordinator_test.cpp)
+ target_link_libraries(recovery_coordinator_test PRIVATE sketchcad_controller Qt6::Test)
+ add_test(NAME recovery_coordinator_test COMMAND recovery_coordinator_test)
  add_executable(project_file_test tests/project_file_test.cpp)
  target_link_libraries(project_file_test PRIVATE sketchcad_controller Qt6::Test)
  add_test(NAME project_file_test COMMAND project_file_test)

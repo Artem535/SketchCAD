@@ -15,6 +15,8 @@ class ProjectSession : public QObject {
   explicit ProjectSession(SketchController&, QObject* parent = nullptr);
   QString display_name() const;
   QUrl file_url() const { return file_url_; }
+  // Informational source written into recovery checkpoints.
+  QUrl recovery_source() const;
   bool dirty() const;
   bool busy() const;
   Q_INVOKABLE void request_new();

@@ -17,6 +17,7 @@ QString ProjectSession::display_name() const {
   return file_url_.isEmpty() ? tr("Без имени")
                              : QFileInfo(file_url_.toLocalFile()).fileName();
 }
+QUrl ProjectSession::recovery_source() const { return file_url_; }
 bool ProjectSession::dirty() const { return document_.dirty(); }
 bool ProjectSession::busy() const { return phase_ != Phase::kIdle; }
 void ProjectSession::request_new() { request(Action::kNew); }
