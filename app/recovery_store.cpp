@@ -105,6 +105,18 @@ bool Store::start() {
   if (!lock_) return false;
   session_id_ = id;
   generation_ = 0;
+  // Locks left by dead sessions that never wrote a checkpoint: acquiring
+  // such a lock removes the stale file and releasing it deletes ours.
+  const auto locks =
+      QDir(root_).entryInfoList({QStringLiteral("*.lock")},
+                                QDir::Files | QDir::Hidden | QDir::NoSymLinks);
+  for (const QFileInfo& info : locks) {
+    const QString other = info.completeBaseName();
+    if (other != session_id_ &&
+        sketchcad::valid_session_id(other.toStdString()) &&
+        !QFileInfo(file_path(other)).exists())
+      try_lock(other);
+  }
   return true;
 }
 

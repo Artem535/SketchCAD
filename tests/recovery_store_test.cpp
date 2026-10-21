@@ -225,6 +225,22 @@ class RecoveryStoreTest : public QObject {
     QCOMPARE(found[0].session_id, id);
     QCOMPARE(bytes(dir.filePath(id + kExt)), before);
   }
+  void start_removes_dead_session_locks_without_checkpoints() {
+    QTemporaryDir dir;
+    QProcess* p = helper(dir.path(), "hold");
+    const QString id = line(p);
+    QVERIFY(QFile::exists(dir.filePath(id + ".lock")));
+    recovery::Store live(dir.path());
+    QVERIFY(live.start());
+    QVERIFY(QFile::exists(dir.filePath(id + ".lock")));  // owner alive
+    kill(p);
+    put(dir.filePath("notes.lock"), "x");
+    recovery::Store next(dir.path());
+    QVERIFY(next.start());
+    QVERIFY(!QFile::exists(dir.filePath(id + ".lock")));
+    QVERIFY(QFile::exists(dir.filePath(live.session_id() + ".lock")));
+    QVERIFY(QFile::exists(dir.filePath("notes.lock")));
+  }
 };
 QTEST_GUILESS_MAIN(RecoveryStoreTest)
 #include "recovery_store_test.moc"

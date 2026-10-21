@@ -2,6 +2,8 @@
 
 #include <QColor>
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QInputDevice>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -13,10 +15,12 @@
 #include <QtTest>
 
 #include "project_session.h"
+#include "recovery_coordinator.h"
 #include "sketch_controller.h"
 class QmlTest : public QObject {
   Q_OBJECT
   QQuickWindow* window_ = nullptr;
+  std::unique_ptr<QTemporaryDir> scratch_;
   // Walks the visual tree: Repeater delegates are not QObject children.
   static QQuickItem* find(QQuickItem* root, const QString& name) {
     if (root->objectName() == name) return root;
@@ -44,10 +48,25 @@ class QmlTest : public QObject {
                       scene_of(c, x_mm, y_mm));
   }
 
-  void open(QQmlApplicationEngine& engine, SketchController& controller) {
+  // Recovery checkpoints always live in a temporary root, never the user's.
+  void open(QQmlApplicationEngine& engine, SketchController& controller,
+            QString recovery_root = {}, recovery::WriterFactory writer = {},
+            std::function<std::int64_t()> now = {}) {
+    if (recovery_root.isEmpty()) {
+      scratch_ = std::make_unique<QTemporaryDir>();
+      recovery_root = scratch_->path();
+    }
     engine.rootContext()->setContextProperty("sketch", &controller);
-    engine.rootContext()->setContextProperty(
-        "project", new ProjectSession(controller, &controller));
+    auto* project = new ProjectSession(controller, &controller);
+    auto store =
+        std::make_unique<recovery::Store>(recovery_root, std::move(writer));
+    store->start();
+    auto* recovery = new RecoveryCoordinator(
+        controller, *project, std::move(store),
+        RecoveryOptions{std::move(now), !now}, &controller);
+    project->set_recovery(recovery);
+    engine.rootContext()->setContextProperty("project", project);
+    engine.rootContext()->setContextProperty("recovery", recovery);
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     window_ = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
@@ -82,6 +101,10 @@ class QmlTest : public QObject {
     QQuickItem* i = item(name);
     return i && i->isVisible();
   }
+  bool popup_open(const char* name) {
+    QObject* popup = window_->findChild<QObject*>(name);
+    return popup && popup->property("visible").toBool();
+  }
   QColor color_of(const char* name) {
     QQuickItem* i = item(name);
     return i ? i->property("color").value<QColor>() : QColor();
@@ -108,6 +131,105 @@ class QmlTest : public QObject {
   }
 
  private slots:
+  void recovery_list_discard_later_menu_and_restore() {
+    QTemporaryDir root;
+    const QString source =
+        QDir(root.path()).filePath(QString::fromUtf8("деталь.sketchcad"));
+    sketchcad::Sketch saved;
+    {
+      recovery::Store crashed(root.path());
+      QVERIFY(crashed.start());
+      const auto a = *saved.create_point({10, 40});
+      const auto b = *saved.create_point({60, 40});
+      saved.create_line(a, b);
+      QVERIFY(!crashed.write({saved, 4}, QUrl::fromLocalFile(source)));
+    }
+    const QString corrupt =
+        QDir(root.path())
+            .filePath(
+                "00000000-0000-4000-8000-000000000001.sketchcad-recovery");
+    QFile bad(corrupt);
+    QVERIFY(bad.open(QIODevice::WriteOnly));
+    bad.write("{}");
+    bad.close();
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller, root.path());
+    QTRY_VERIFY(popup_open("recoveryDialog"));
+    QTRY_VERIFY(item("recoveryRow_1"));
+    // Display order follows time; find the rows by name.
+    const int valid =
+        text_of("recoveryName_0") == QString::fromUtf8("деталь.sketchcad") ? 0
+                                                                           : 1;
+    const int broken = 1 - valid;
+    const auto name = [](const char* prefix, int i) {
+      return (QByteArray(prefix) + QByteArray::number(i));
+    };
+    QCOMPARE(text_of(name("recoveryName_", valid)),
+             QString::fromUtf8("деталь.sketchcad"));
+    QCOMPARE(text_of(name("recoveryName_", broken)),
+             QString::fromUtf8("Без имени"));
+    QVERIFY(item(name("recoveryRestore_", valid))->isEnabled());
+    QVERIFY(!item(name("recoveryRestore_", broken))->isEnabled());
+    QVERIFY(text_of(name("recoveryStatus_", broken))
+                .contains(QString::fromUtf8("повреждена")));
+    QTest::qWait(300);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_f02_recovery_list.png"));
+    click(item(name("recoveryDiscard_", broken)));
+    QTRY_VERIFY(!item("recoveryRow_1"));
+    QVERIFY(!QFile::exists(corrupt));
+    click(item("recoveryLater"));
+    QTRY_VERIFY(!popup_open("recoveryDialog"));
+    // "Not now" keeps the crashed copy; this session has no copy yet.
+    QCOMPARE(QDir(root.path()).entryList({"*.sketchcad-recovery"}).size(), 1);
+    click(item("moreButton"));
+    QTRY_VERIFY(engine.rootObjects()
+                    .front()
+                    ->findChild<QObject*>("moreMenu")
+                    ->property("visible")
+                    .toBool());
+    QTest::qWait(200);
+    click(item("fileRecovery"));
+    QTRY_VERIFY(popup_open("recoveryDialog"));
+    QTRY_VERIFY(item("recoveryRestore_0"));
+    QTest::qWait(200);
+    click(item("recoveryRestore_0"));
+    QTRY_VERIFY(!popup_open("recoveryDialog"));
+    QTRY_COMPARE(controller.entity_count(), 3);
+    QVERIFY(controller.document().sketch() == saved);
+    QCOMPARE(
+        window_->title(),
+        QString::fromUtf8("Восстановлено — деталь.sketchcad * — SketchCAD"));
+    QVERIFY(!QFile::exists(source));
+    QTest::qWait(300);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_f02_restored.png"));
+  }
+  void autosave_failure_shows_a_banner() {
+    std::int64_t now = 0;
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    struct Fail : project_file::detail::AtomicWriter {
+      bool open(const QString&) override { return false; }
+      qint64 write(const QByteArray&) override { return -1; }
+      bool commit() override { return false; }
+    };
+    open(
+        engine, controller, {}, [] { return std::make_unique<Fail>(); },
+        [&] { return now; });
+    QVERIFY(!shown("autosaveWarning"));
+    click(item("tool_line"));
+    tap(controller, 10, 40);
+    tap(controller, 60, 40);
+    now = 6000;
+    auto* recovery = qobject_cast<RecoveryCoordinator*>(
+        engine.rootContext()->contextProperty("recovery").value<QObject*>());
+    recovery->poll();
+    QTRY_VERIFY(shown("autosaveWarning"));
+    QVERIFY(
+        text_of("autosaveWarningText").contains(QString::fromUtf8("копию")));
+  }
   void project_file_commands_save_new_open_and_cancel() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -221,7 +343,8 @@ class QmlTest : public QObject {
         const auto a = std::get<sketchcad::SketchPoint>(*s.entity(l->start));
         const auto b = std::get<sketchcad::SketchPoint>(*s.entity(l->end));
         // The horizontal line now ends at the crossing.
-        if (std::abs(a.position.y - 40) < 1e-6 && std::abs(b.position.y - 40) < 1e-6)
+        if (std::abs(a.position.y - 40) < 1e-6 &&
+            std::abs(b.position.y - 40) < 1e-6)
           QVERIFY(std::abs(std::max(a.position.x, b.position.x) - 30) < 1e-6);
       }
     QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
@@ -238,8 +361,8 @@ class QmlTest : public QObject {
     tap(controller, 60, 80);
     QQuickItem* rail = item("toolRailFlick");
     QVERIFY(rail);
-    rail->setProperty("contentY",
-                      rail->property("contentHeight").toDouble() - rail->height());
+    rail->setProperty("contentY", rail->property("contentHeight").toDouble() -
+                                      rail->height());
     click(item("tool_extend"));
     QCOMPARE(controller.tool(), QString("extend"));
     const auto p = controller.screen_of(30, 50);
@@ -299,7 +422,8 @@ class QmlTest : public QObject {
     for (const auto& [id, e] : s.entities())
       if (const auto* k = std::get_if<sketchcad::SketchCircle>(&e)) {
         const auto c = std::get<sketchcad::SketchPoint>(*s.entity(k->center));
-        QVERIFY2(std::abs(c.position.x - 56) < 0.5, qPrintable(QString::number(c.position.x)));
+        QVERIFY2(std::abs(c.position.x - 56) < 0.5,
+                 qPrintable(QString::number(c.position.x)));
         QVERIFY(std::abs(c.position.y - 50) < 0.5);
       }
     QCOMPARE(controller.document().undo_label(), std::string("Move curve"));
@@ -372,7 +496,8 @@ class QmlTest : public QObject {
         controller.document().sketch().constraint(id)->placement;
     QVERIFY2(placement, "dimension placed");
     QVERIFY(placement->offset < -5);
-    QCOMPARE(controller.document().undo_label(), std::optional<std::string>("Move dimension"));
+    QCOMPARE(controller.document().undo_label(),
+             std::optional<std::string>("Move dimension"));
     QVERIFY(!shown("dimensionEditor"));
     QCOMPARE(controller.entity_count(), 3);  // Nothing selected or drawn.
 
@@ -431,18 +556,17 @@ class QmlTest : public QObject {
     SketchController controller;
     QQmlApplicationEngine engine;
     open(engine, controller);
-    const QStringList actions{"coincident", "horizontal", "vertical",
-                              "parallel", "perpendicular", "tangent",
-                              "equal", "fix", "length", "distance",
-                              "angle", "radius", "on_curve",
-                              "construction"};
+    const QStringList actions{
+        "coincident", "horizontal", "vertical", "parallel",    "perpendicular",
+        "tangent",    "equal",      "fix",      "length",      "distance",
+        "angle",      "radius",     "on_curve", "construction"};
     const QStringList keys = window_->property("helpKeys").toStringList();
     QCOMPARE(keys.size(), 28);
-    for (const QString& key : actions + QStringList{"constraint", "dimension",
-                                                     "dof", "defined",
-                                                     "redundant", "conflict",
-                                                     "snap", "finger", "autodim",
-                                                     "input", "modes", "reference", "trim", "extend"}) {
+    for (const QString& key :
+         actions + QStringList{"constraint", "dimension", "dof", "defined",
+                               "redundant", "conflict", "snap", "finger",
+                               "autodim", "input", "modes", "reference", "trim",
+                               "extend"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",
@@ -503,8 +627,8 @@ class QmlTest : public QObject {
     QTRY_VERIFY(shown("dimensionEditor"));
     click(item("help_dimension"));
     QTRY_VERIFY(shown("helpPopup"));
-    QCOMPARE(text_of("helpTitle"), window_->property("helpTitles")
-                                       .toMap()["length"].toString());
+    QCOMPARE(text_of("helpTitle"),
+             window_->property("helpTitles").toMap()["length"].toString());
     click(item("closeHelp"));
     QTRY_VERIFY(!shown("helpPopup"));
     click(item("applyDimension"));
@@ -516,8 +640,8 @@ class QmlTest : public QObject {
     QTRY_VERIFY(item("constraintBadge_1"));
     click(item("constraintBadge_1"));
     QTRY_VERIFY(shown("helpPopup"));
-    QCOMPARE(text_of("helpTitle"), window_->property("helpTitles")
-                                       .toMap()["redundant"].toString());
+    QCOMPARE(text_of("helpTitle"),
+             window_->property("helpTitles").toMap()["redundant"].toString());
     QTest::qWait(300);
     QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
                                        "/sketch_u07_help.png"));
