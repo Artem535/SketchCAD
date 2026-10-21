@@ -17,7 +17,7 @@ std::optional<Sketch> Document::apply(const Edit& edit) const {
   return working;
 }
 
-bool Document::replace(Sketch initial, std::uint64_t revision) {
+bool Document::replace(Sketch initial, std::uint64_t revision, bool saved) {
   if (gesture_active() || revision == std::numeric_limits<std::uint64_t>::max())
     return false;
   std::vector<State> replacement;
@@ -26,7 +26,7 @@ bool Document::replace(Sketch initial, std::uint64_t revision) {
   states_.swap(replacement);
   position_ = 0;
   next_revision_ = revision + 1;
-  saved_revision_ = revision;
+  saved_revision_ = saved ? std::optional(revision) : std::nullopt;
   return true;
 }
 
@@ -102,6 +102,17 @@ bool Document::cancel_gesture() {
   return true;
 }
 
+Sketch Document::committed() const {
+  // Assignment keeps the higher watermark of the live state.
+  Sketch result = live_;
+  result = states_[position_].sketch;
+  return result;
+}
+
+bool Document::committed_dirty() const {
+  return revision() != saved_revision_;
+}
+
 std::uint64_t Document::revision() const { return states_[position_].revision; }
 
 bool Document::mark_saved() {
@@ -111,7 +122,7 @@ bool Document::mark_saved() {
 }
 
 bool Document::dirty() const {
-  if (revision() != saved_revision_) return true;
+  if (committed_dirty()) return true;
   return gesture_active() &&
          !(live_ == states_[position_].sketch);
 }

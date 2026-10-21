@@ -292,3 +292,62 @@ TEST(ProjectDocument, ExhaustedRevisionRejectsFurtherEdits) {
   EXPECT_TRUE(d.sketch() == before);
   EXPECT_FALSE(d.begin_gesture("overflow"));
 }
+TEST(Document, CommittedIgnoresActiveGesture) {
+  Document d;
+  const EntityId p = add_point(d, {1, 1}).value();
+  ASSERT_TRUE(d.mark_saved());
+  const Sketch before = d.sketch();
+  ASSERT_TRUE(d.begin_gesture("Drag"));
+  ASSERT_TRUE(d.gesture_step([&](Sketch& s) { return s.update_point(p, {5, 5}); }));
+  EXPECT_TRUE(d.committed() == before);
+  EXPECT_TRUE(d.gesture_active());
+  EXPECT_FALSE(d.committed_dirty());
+  EXPECT_TRUE(d.dirty());
+  EXPECT_EQ(point_at(d, p).x, 5);
+}
+TEST(Document, CommittedKeepsLiveWatermark) {
+  Document d;
+  ASSERT_TRUE(add_point(d, {1, 1}));
+  ASSERT_TRUE(d.begin_gesture("Drag"));
+  ASSERT_TRUE(d.gesture_step([](Sketch& s) {
+    return s.create_point({2, 2}).has_value();
+  }));
+  const EntityId live_next = next_id(d);
+  const Sketch committed = d.committed();
+  EXPECT_EQ(committed.entities().size(), 1u);
+  EXPECT_EQ(committed.snapshot().next_id, live_next);
+  SketchSnapshot exhausted = d.sketch().snapshot();
+  exhausted.next_id = 0;
+  ASSERT_TRUE(d.cancel_gesture());
+  Document e;
+  ASSERT_TRUE(e.replace(Sketch::from_snapshot(exhausted).value(), 3));
+  EXPECT_EQ(e.committed().snapshot().next_id, 0u);
+}
+TEST(Document, CommittedDirtyFollowsUndoToSaved) {
+  Document d;
+  ASSERT_TRUE(add_point(d, {1, 1}));
+  ASSERT_TRUE(d.mark_saved());
+  EXPECT_FALSE(d.committed_dirty());
+  ASSERT_TRUE(add_point(d, {2, 2}));
+  EXPECT_TRUE(d.committed_dirty());
+  const auto revision = d.revision();
+  (void)d.committed();
+  EXPECT_EQ(d.revision(), revision);
+  EXPECT_EQ(d.undo_label(), "Point");
+  ASSERT_TRUE(d.undo());
+  EXPECT_FALSE(d.committed_dirty());
+  ASSERT_TRUE(d.redo());
+  EXPECT_TRUE(d.committed_dirty());
+}
+TEST(Document, ReplaceUnsavedIsDirtyAtRevisionZero) {
+  Document d;
+  ASSERT_TRUE(d.replace({}, 0, false));
+  EXPECT_TRUE(d.dirty());
+  EXPECT_TRUE(d.committed_dirty());
+  EXPECT_FALSE(d.can_undo());
+  ASSERT_TRUE(d.mark_saved());
+  EXPECT_FALSE(d.dirty());
+  ASSERT_TRUE(d.replace({}, 7));
+  EXPECT_FALSE(d.dirty());
+  EXPECT_EQ(d.revision(), 7u);
+}
