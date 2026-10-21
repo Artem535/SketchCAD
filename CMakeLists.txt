@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Ceres CONFIG REQUIRED)
 find_package(reflectcpp CONFIG REQUIRED)
-add_library(sketchcad_core src/project_io.cpp src/document.cpp src/sketch.cpp
+add_library(sketchcad_core src/project_io.cpp src/recovery_io.cpp src/document.cpp src/sketch.cpp
             src/sketch_tool.cpp src/sketch_view.cpp src/constraint_solver.cpp
             src/constraint_diagnostics.cpp src/drag.cpp
             src/dimension_layout.cpp src/sketch_edit.cpp)
@@ -19,7 +19,7 @@ gtest_discover_tests(sketch_test)
 add_executable(document_test tests/document_test.cpp)
 target_link_libraries(document_test PRIVATE sketchcad_core GTest::gtest_main)
 gtest_discover_tests(document_test)
-foreach(name project_io_test sketch_view_test sketch_tool_test constraint_test dimension_test
+foreach(name project_io_test recovery_io_test sketch_view_test sketch_tool_test constraint_test dimension_test
   constraint_diagnostics_test
   constraint_solver_test drag_test dimension_layout_test sketch_edit_test)
   add_executable(${name} tests/${name}.cpp)
@@ -28,6 +28,7 @@ foreach(name project_io_test sketch_view_test sketch_tool_test constraint_test d
 endforeach()
 
 target_compile_definitions(project_io_test PRIVATE PROJECT_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+target_compile_definitions(recovery_io_test PRIVATE RECOVERY_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
 
 option(SKETCHCAD_BUILD_APP "Build Qt Quick app" ON)
 if(SKETCHCAD_BUILD_APP)
