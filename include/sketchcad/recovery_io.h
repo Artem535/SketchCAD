@@ -12,7 +12,7 @@ namespace sketchcad {
 struct RecoveryMeta {
   std::string session_id;  // Lowercase canonical UUID.
   std::uint64_t generation = 0;
-  std::string captured_at;  // UTC, YYYY-MM-DDTHH:MM:SS.mmmZ.
+  std::string captured_at;   // UTC, YYYY-MM-DDTHH:MM:SS.mmmZ.
   std::string original_url;  // Informational only; never opened or written.
 };
 struct RecoveryData {

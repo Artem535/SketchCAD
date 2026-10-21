@@ -34,7 +34,8 @@ TEST(RecoveryIo, RoundTripMetadataAndProject) {
   const auto l = *s.create_line(a, b);
   ASSERT_TRUE(s.add_constraint(ConstraintKind::kHorizontal, l));
   const auto length = *s.add_dimension(ConstraintKind::kLength, l, 0, 10);
-  ASSERT_TRUE(s.set_dimension_placement(length, DimensionPlacement{5, 0.25, 0}));
+  ASSERT_TRUE(
+      s.set_dimension_placement(length, DimensionPlacement{5, 0.25, 0}));
   ASSERT_TRUE(s.add_dimension(ConstraintKind::kDistance, a, b, 10, true));
   const auto erased = *s.create_point({100, 100});
   ASSERT_TRUE(s.erase(erased));
@@ -67,17 +68,18 @@ TEST(RecoveryIo, HandAuthoredFixture) {
   ASSERT_TRUE(data.project.sketch.entity(4));
 }
 TEST(RecoveryIo, EncodeRejectsInvalidMetadata) {
-  for (auto broken : {RecoveryMeta{"bad", 1, meta.captured_at, ""},
-                      RecoveryMeta{meta.session_id, UINT64_MAX,
-                                   meta.captured_at, ""},
-                      RecoveryMeta{meta.session_id, 1, "yesterday", ""}})
+  for (auto broken :
+       {RecoveryMeta{"bad", 1, meta.captured_at, ""},
+        RecoveryMeta{meta.session_id, UINT64_MAX, meta.captured_at, ""},
+        RecoveryMeta{meta.session_id, 1, "yesterday", ""}})
     EXPECT_FALSE(encode_recovery(broken, {Sketch{}, 0}));
 }
 TEST(RecoveryIo, ValidatesSessionIdAndTimestamp) {
   EXPECT_TRUE(valid_session_id(meta.session_id));
   for (auto id : {"", "0F8FAD5B-D9CB-469F-A165-70867728950E",
                   "{0f8fad5b-d9cb-469f-a165-70867728950e}",
-                  "0f8fad5b-d9cb-469f-a165-70867728950", "0f8fad5bd9cb469fa16570867728950e",
+                  "0f8fad5b-d9cb-469f-a165-70867728950",
+                  "0f8fad5bd9cb469fa16570867728950e",
                   "0f8fad5b-d9cb-469f-a165-70867728950g", "../../etc/passwd"})
     EXPECT_FALSE(valid_session_id(id)) << id;
   EXPECT_TRUE(valid_captured_at("2026-02-28T23:59:59.999Z"));
@@ -96,7 +98,8 @@ TEST(RecoveryIo, RejectsMalformedEnvelopes) {
       "null",
       v + "x",
       v.substr(0, v.size() - 1),
-      changed(v, "\"format\":\"SketchCADRecovery\"", "\"format\":\"SketchCAD\""),
+      changed(v, "\"format\":\"SketchCADRecovery\"",
+              "\"format\":\"SketchCAD\""),
       changed(v, "\"version\":1", "\"version\":1,\"version\":1"),
       changed(v, "\"version\":1", "\"version\":\"1\""),
       changed(v, "\"version\":1", "\"version\":1,\"extra\":0"),

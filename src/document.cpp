@@ -90,8 +90,7 @@ bool Document::end_gesture() {
   if (!gesture_active()) return false;
   std::string label = std::move(*gesture_label_);
   gesture_label_.reset();
-  if (!(live_ == states_[position_].sketch))
-    record(std::move(label));
+  if (!(live_ == states_[position_].sketch)) record(std::move(label));
   return true;
 }
 
@@ -109,9 +108,7 @@ Sketch Document::committed() const {
   return result;
 }
 
-bool Document::committed_dirty() const {
-  return revision() != saved_revision_;
-}
+bool Document::committed_dirty() const { return revision() != saved_revision_; }
 
 std::uint64_t Document::revision() const { return states_[position_].revision; }
 
@@ -123,8 +120,7 @@ bool Document::mark_saved() {
 
 bool Document::dirty() const {
   if (committed_dirty()) return true;
-  return gesture_active() &&
-         !(live_ == states_[position_].sketch);
+  return gesture_active() && !(live_ == states_[position_].sketch);
 }
 
 // Appends the live state as a new step and discards the redo branch.

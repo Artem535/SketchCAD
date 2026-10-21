@@ -24,12 +24,13 @@ bool hex(char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }
 bool digit(char c) { return c >= '0' && c <= '9'; }
 int number(std::string_view s, std::size_t at, std::size_t length) {
   int result = 0;
-  for (std::size_t i = at; i < at + length; ++i) result = result * 10 + (s[i] - '0');
+  for (std::size_t i = at; i < at + length; ++i)
+    result = result * 10 + (s[i] - '0');
   return result;
 }
 bool valid_meta(const RecoveryMeta& meta) {
-  return valid_session_id(meta.session_id) &&
-         meta.generation != UINT64_MAX && valid_captured_at(meta.captured_at);
+  return valid_session_id(meta.session_id) && meta.generation != UINT64_MAX &&
+         valid_captured_at(meta.captured_at);
 }
 }  // namespace
 
@@ -71,7 +72,8 @@ RecoveryDecodeResult decode_recovery(std::string_view bytes) {
       return invalid;
     auto* version = yyjson_obj_get(root, "version");
     if (!yyjson_is_uint(version)) return invalid;
-    if (yyjson_get_uint(version) != 1) return RecoveryError::kUnsupportedVersion;
+    if (yyjson_get_uint(version) != 1)
+      return RecoveryError::kUnsupportedVersion;
     using T = Type;
     if (!shape(root, {{"format", T::kString},
                       {"version", T::kInteger},
@@ -106,13 +108,11 @@ std::optional<std::string> encode_recovery(const RecoveryMeta& meta,
   auto payload = encode_project(project);
   if (!payload) return std::nullopt;
   try {
-    const WireRecovery wire{"SketchCADRecovery",
-                            1,
-                            meta.session_id,
-                            std::to_string(meta.generation),
-                            meta.captured_at,
-                            meta.original_url,
-                            std::move(*payload)};
+    const WireRecovery wire{
+        "SketchCADRecovery", 1,
+        meta.session_id,     std::to_string(meta.generation),
+        meta.captured_at,    meta.original_url,
+        std::move(*payload)};
     auto bytes = rfl::json::write(wire);
     if (bytes.size() > kRecoveryMaxBytes) return std::nullopt;
     return bytes;
