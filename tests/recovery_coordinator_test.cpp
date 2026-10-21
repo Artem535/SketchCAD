@@ -1,6 +1,8 @@
 #include "recovery_coordinator.h"
 
+#include <QDir>
 #include <QFile>
+#include <QProcess>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -16,13 +18,15 @@ struct Writer : project_file::detail::AtomicWriter {
 // A controller, file session and coordinator over a temporary root with a
 // manual clock: tests move `now` and call poll().
 struct Fixture {
-  QTemporaryDir dir;
+  QTemporaryDir own;
+  QDir dir;
   std::int64_t now = 1000;
   bool fail_writes = false;
   SketchController c;
   ProjectSession p{c};
   std::unique_ptr<RecoveryCoordinator> r;
-  Fixture() {
+  explicit Fixture(const QString& root = {})
+      : dir(root.isEmpty() ? own.path() : root) {
     c.set_viewport_size(1000, 700);
     c.set_snap_enabled(false);
     c.set_auto_dimensions(false);
@@ -36,6 +40,7 @@ struct Fixture {
     r = std::make_unique<RecoveryCoordinator>(
         c, p, std::move(store),
         RecoveryCoordinator::Options{[this] { return now; }, false});
+    p.set_recovery(r.get());
   }
   QString path() {
     return dir.filePath(r->store().session_id() + ".sketchcad-recovery");
@@ -67,6 +72,15 @@ struct Fixture {
     c.cancel();
   }
 };
+QByteArray bytes(const QString& path) {
+  QFile file(path);
+  return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+// Makes deleting the checkpoint fail: a non-empty directory takes its name.
+void block_cleanup(Fixture& f) {
+  QFile::remove(f.path());
+  QVERIFY(QDir().mkpath(f.path() + "/x"));
+}
 }  // namespace
 class RecoveryCoordinatorTest : public QObject {
   Q_OBJECT
@@ -200,6 +214,228 @@ class RecoveryCoordinatorTest : public QObject {
     f.at(66000);
     QVERIFY(f.exists());
     QVERIFY(f.r->warning().isEmpty());
+  }
+  void save_and_save_as_retire_and_failures_keep_checkpoint() {
+    Fixture f;
+    f.line();
+    f.at(6000);
+    QVERIFY(f.exists());
+    QSignalSpy pick(&f.p, &ProjectSession::choose_save);
+    f.p.request_save();
+    QCOMPARE(pick.count(), 1);
+    f.p.cancel_file();
+    QVERIFY(f.exists());
+    f.p.request_save_as();
+    f.p.accept_file(
+        QUrl::fromLocalFile(f.dir.filePath("missing/dir/p.sketchcad")));
+    QVERIFY(f.exists());
+    QVERIFY(f.p.dirty());
+    f.p.request_save_as();
+    f.p.accept_file(QUrl::fromLocalFile(f.dir.filePath("p.sketchcad")));
+    QVERIFY(!f.p.dirty());
+    QVERIFY(!f.exists());
+    f.line(30);
+    f.at(20000);
+    QVERIFY(f.exists());
+    f.p.request_save();
+    QVERIFY(!f.exists());
+    f.at(100000);
+    QVERIFY(!f.exists());
+  }
+  void new_open_and_close_retire_after_validation() {
+    Fixture f;
+    const QString project = f.dir.filePath("p.sketchcad");
+    f.line();
+    f.p.request_save_as();
+    f.p.accept_file(QUrl::fromLocalFile(project));
+    f.line(30);
+    f.at(10000);
+    QVERIFY(f.exists());
+    QFile bad(f.dir.filePath("bad.sketchcad"));
+    QVERIFY(bad.open(QIODevice::WriteOnly));
+    bad.write("garbage");
+    bad.close();
+    QSignalSpy err(&f.p, &ProjectSession::error);
+    f.p.request_open();
+    f.p.answer_unsaved("discard");
+    f.p.accept_file(QUrl::fromLocalFile(bad.fileName()));
+    QCOMPARE(err.count(), 1);
+    QVERIFY(f.exists());  // failed Open keeps the old checkpoint
+    QVERIFY(f.p.dirty());
+    f.p.request_open();
+    f.p.answer_unsaved("discard");
+    f.p.accept_file(QUrl::fromLocalFile(project));
+    QVERIFY(!f.exists());
+    QVERIFY(!f.p.dirty());
+    f.line(50);
+    f.at(20000);
+    QVERIFY(f.exists());
+    f.p.request_new();
+    f.p.answer_unsaved("cancel");
+    QVERIFY(f.exists());
+    f.p.request_new();
+    f.p.answer_unsaved("discard");
+    QVERIFY(!f.exists());
+    QCOMPARE(f.c.entity_count(), 0);
+    f.line(70);
+    f.at(30000);
+    QVERIFY(f.exists());
+    QSignalSpy closed(&f.p, &ProjectSession::close_ready);
+    f.p.request_close();
+    f.p.answer_unsaved("cancel");
+    QVERIFY(f.exists());
+    f.p.request_close();
+    f.p.answer_unsaved("discard");
+    QCOMPARE(closed.count(), 1);
+    QVERIFY(!f.exists());
+    QVERIFY(!f.r->active());
+    f.line(90);  // a late edit after close must not recreate the file
+    f.at(100000);
+    QVERIFY(QDir(f.dir).entryList({"*.sketchcad-recovery"}).isEmpty());
+  }
+  void cleanup_failure_is_reported_and_blocks_close_until_retry() {
+    Fixture f;
+    f.line();
+    f.at(6000);
+    block_cleanup(f);
+    QSignalSpy err(&f.p, &ProjectSession::error);
+    QSignalSpy closed(&f.p, &ProjectSession::close_ready);
+    f.p.request_save_as();
+    f.p.accept_file(QUrl::fromLocalFile(f.dir.filePath("p.sketchcad")));
+    QVERIFY(!f.p.dirty());  // the save itself succeeded
+    QCOMPARE(err.count(), 1);
+    QCOMPARE(err.last().first().toString(), QString("recovery_cleanup_failed"));
+    QCOMPARE(f.r->warning(), QString("recovery_cleanup_failed"));
+    f.p.request_close();
+    QCOMPARE(closed.count(), 0);
+    QCOMPARE(err.count(), 2);
+    QVERIFY(!f.p.busy());
+    f.p.request_new();
+    QCOMPARE(err.count(), 3);
+    QVERIFY(QDir(f.path()).removeRecursively());
+    f.at(6000 + 30000);
+    QVERIFY(f.r->warning().isEmpty());
+    f.p.request_close();
+    QCOMPARE(closed.count(), 1);
+  }
+  void restore_gives_dirty_untitled_copy_and_keeps_original() {
+    QTemporaryDir root;
+    const QString original =
+        QDir(root.path()).filePath(QString::fromUtf8("деталь.sketchcad"));
+    QString id;
+    QByteArray saved;
+    sketchcad::Sketch expected;
+    {
+      Fixture f(root.path());
+      f.line();
+      f.p.request_save_as();
+      f.p.accept_file(QUrl::fromLocalFile(original));
+      saved = bytes(original);
+      f.line(30);
+      f.at(10000);
+      expected = f.c.document().sketch();
+      id = f.r->store().session_id();
+    }  // destroyed without close: as after a crash
+    QVERIFY(
+        QFile::exists(QDir(root.path()).filePath(id + ".sketchcad-recovery")));
+    Fixture g(root.path());
+    g.r->refresh();
+    QCOMPARE(g.r->candidates().size(), 1);
+    const auto row = g.r->candidates()[0].toMap();
+    QCOMPARE(row["session_id"].toString(), id);
+    QCOMPARE(row["source_name"].toString(),
+             QString::fromUtf8("деталь.sketchcad"));
+    QVERIFY(row["restorable"].toBool());
+    g.line(50);
+    g.p.request_restore(id);
+    g.p.answer_unsaved("cancel");
+    QCOMPARE(g.c.entity_count(), 3);
+    QCOMPARE(g.r->candidates().size(), 1);
+    g.p.request_restore(id);
+    g.p.answer_unsaved("discard");
+    QVERIFY(g.c.document().sketch() == expected);
+    QVERIFY(g.p.dirty());
+    QVERIFY(g.p.file_url().isEmpty());
+    QVERIFY(!g.c.can_undo());
+    QCOMPARE(g.p.display_name(),
+             QString::fromUtf8("Восстановлено — деталь.sketchcad"));
+    QCOMPARE(g.r->store().session_id(), id);
+    QVERIFY(g.r->candidates().isEmpty());
+    QVERIFY(g.exists());  // adopted, not deleted
+    g.at(100000);
+    QCOMPARE(g.r->store().generation(), 1u);  // already holds this state
+    QSignalSpy pick(&g.p, &ProjectSession::choose_save);
+    g.p.request_save();
+    QCOMPARE(pick.count(), 1);
+    QCOMPARE(pick.last().first().toUrl(),
+             QUrl::fromLocalFile(QDir(root.path())
+                                     .filePath(QString::fromUtf8(
+                                         "деталь (восстановлено).sketchcad"))));
+    QCOMPARE(bytes(original), saved);
+    g.p.cancel_file();
+    QVERIFY(g.exists());
+    const QString copy = QDir(root.path()).filePath("copy.sketchcad");
+    g.p.request_save();
+    g.p.accept_file(QUrl::fromLocalFile(copy));
+    QVERIFY(!g.p.dirty());
+    QCOMPARE(g.p.display_name(), QString("copy.sketchcad"));
+    QCOMPARE(bytes(original), saved);
+    QVERIFY(!g.exists());
+  }
+  void invalid_or_locked_restore_changes_nothing() {
+    QTemporaryDir root;
+    const QString corrupt = "00000000-0000-4000-8000-000000000001";
+    QFile file(QDir(root.path()).filePath(corrupt + ".sketchcad-recovery"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("{}");
+    file.close();
+    Fixture other(root.path());
+    other.line();
+    other.at(6000);
+    Fixture f(root.path());
+    f.line();
+    const auto before = f.c.document().sketch();
+    QSignalSpy err(&f.p, &ProjectSession::error);
+    f.r->refresh();
+    QCOMPARE(f.r->candidates().size(), 1);  // the live `other` is hidden
+    QVERIFY(!f.r->candidates()[0].toMap()["restorable"].toBool());
+    for (const QString& id :
+         {corrupt, other.r->store().session_id(),
+          QString("00000000-0000-4000-8000-000000000009")}) {
+      f.p.request_restore(id);
+      f.p.answer_unsaved("discard");
+      QVERIFY(f.c.document().sketch() == before);
+      QVERIFY(f.c.can_undo());
+      QVERIFY(!f.p.busy());
+      QVERIFY(!f.r->store().claimed());
+    }
+    QCOMPARE(err.count(), 3);
+    QVERIFY(other.exists());
+    f.r->discard(corrupt);
+    QVERIFY(!file.exists());
+    QVERIFY(f.r->candidates().isEmpty());
+    f.r->discard(other.r->store().session_id());
+    QVERIFY(other.exists());
+  }
+  void crashed_child_process_is_restored() {
+    QTemporaryDir root;
+    QProcess child;
+    child.start(RECOVERY_HELPER,
+                {"--root", root.path(), "--mode", "checkpoint"});
+    QVERIFY(child.waitForReadyRead(10000));
+    const QString id = QString::fromUtf8(child.readLine()).trimmed();
+    Fixture f(root.path());
+    f.r->refresh();
+    QVERIFY(f.r->candidates().isEmpty());
+    child.kill();
+    child.waitForFinished(10000);
+    f.r->refresh();
+    QCOMPARE(f.r->candidates().size(), 1);
+    f.p.request_restore(id);
+    QCOMPARE(f.c.entity_count(), 3);
+    QVERIFY(f.p.dirty());
+    QCOMPARE(f.p.display_name(),
+             QString::fromUtf8("Восстановлено — исходный.sketchcad"));
   }
 };
 QTEST_GUILESS_MAIN(RecoveryCoordinatorTest)
