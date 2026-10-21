@@ -118,12 +118,21 @@ ApplicationWindow {
                 project_version: qsTr("Проект создан в неподдерживаемой версии формата. Откройте его в более новой версии SketchCAD."),
                 project_too_large: qsTr("Проект превышает допустимый размер или количество объектов."),
                 project_write_failed: qsTr("Не удалось сохранить проект. Проверьте свободное место и доступ к папке. Предыдущий файл сохранён."),
-                project_unsupported_url: qsTr("Выберите локальный файл проекта.")
+                project_unsupported_url: qsTr("Выберите локальный файл проекта."),
+                recovery_cleanup_failed: qsTr("Проект сохранён, но копию восстановления удалить не удалось. Повторим автоматически; закрыть проект можно после успешной попытки."),
+                recovery_locked: qsTr("Эту копию сейчас использует другое окно SketchCAD."),
+                recovery_restore_failed: qsTr("Не удалось восстановить копию. Текущий проект не изменён.")
             }
             projectErrorDialog.message = messages[key] || messages.project_invalid
             projectErrorDialog.open()
         }
     }
+    RecoveryDialog { id: recoveryDialog; theme: theme }
+    // Startup check for copies left by a crash (autosave-recovery.adoc).
+    Component.onCompleted: Qt.callLater(function() {
+        recovery.refresh()
+        if (recovery.candidates.length) recoveryDialog.open()
+    })
     color: theme.bg
     Material.theme: theme.dark ? Material.Dark : Material.Light
     Material.accent: theme.primary
@@ -485,6 +494,12 @@ ApplicationWindow {
                         enabled: !project.busy
                         onTriggered: project.request_save_as()
                     }
+                    MenuItem {
+                        objectName: "fileRecovery"
+                        text: qsTr("Восстановление…")
+                        enabled: !project.busy
+                        onTriggered: recoveryDialog.show()
+                    }
                     MenuSeparator {}
                     MenuItem {
                         objectName: "darkThemeToggle"
@@ -636,6 +651,33 @@ ApplicationWindow {
                 ToolTip.delay: 600
                 ToolTip.text: qsTr("Что означают термины и действия")
             }
+        }
+    }
+
+    // Non-modal autosave problem; editing continues (autosave-recovery.adoc).
+    Rectangle {
+        objectName: "autosaveWarning"
+        visible: recovery.warning.length > 0
+        anchors.top: parent.top
+        anchors.topMargin: 12
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(warningText.implicitWidth + 32, parent.width - 160)
+        height: warningText.implicitHeight + 16
+        radius: 12
+        color: theme.errContainer
+        border.color: theme.err
+        z: 5
+        Label {
+            id: warningText
+            objectName: "autosaveWarningText"
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width - 32)
+            wrapMode: Text.WordWrap
+            color: theme.ink
+            font.pixelSize: 14
+            text: recovery.warning === "recovery_cleanup_failed"
+                  ? qsTr("Проект сохранён, но копию восстановления удалить не удалось. Повторим через 30 секунд.")
+                  : qsTr("Не удалось записать копию для восстановления. Повторим через 30 секунд; работу можно продолжать.")
         }
     }
 

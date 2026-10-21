@@ -47,6 +47,9 @@ ReadResult read(const QUrl& url) {
   }
   return Error::kInvalidProject;
 }
+std::unique_ptr<detail::AtomicWriter> detail::make_save_writer() {
+  return std::make_unique<SaveWriter>();
+}
 std::optional<Error> detail::write_with(const QUrl& url,
                                         const sketchcad::ProjectData& data,
                                         AtomicWriter& writer) {

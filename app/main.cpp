@@ -6,15 +6,29 @@
 #include <QTimer>
 
 #include "project_session.h"
+#include "recovery_coordinator.h"
 #include "sketch_controller.h"
 int main(int argc, char** argv) {
   QGuiApplication app(argc, argv);
+  // Before any standard path lookup: names the recovery directory.
+  QCoreApplication::setApplicationName("SketchCAD");
   QQuickStyle::setStyle("Material");
   SketchController controller;
   ProjectSession project(controller);
+  const int root_at = app.arguments().indexOf("--recovery-root");
+  auto store = std::make_unique<recovery::Store>(
+      root_at >= 0 && root_at + 1 < app.arguments().size()
+          ? app.arguments()[root_at + 1]
+          : recovery::Store::default_root());
+  if (!store->start())
+    qWarning("Recovery checkpoints are unavailable in %s",
+             qPrintable(store->root()));
+  RecoveryCoordinator recovery(controller, project, std::move(store));
+  project.set_recovery(&recovery);
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("sketch", &controller);
   engine.rootContext()->setContextProperty("project", &project);
+  engine.rootContext()->setContextProperty("recovery", &recovery);
   engine.load(QUrl("qrc:/Main.qml"));
   if (engine.rootObjects().isEmpty()) return 1;
   if (app.arguments().contains("--smoke"))

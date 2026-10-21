@@ -21,7 +21,14 @@ class Document {
 
   const Sketch& sketch() const { return live_; }
 
-  bool replace(Sketch initial, std::uint64_t revision);
+  // `saved = false` installs a document that has never been saved, e.g. a
+  // recovered checkpoint: it stays dirty until mark_saved().
+  bool replace(Sketch initial, std::uint64_t revision, bool saved = true);
+  // The current history state without an active gesture, carrying the live
+  // allocator watermark so consumed IDs are not issued again (autosave).
+  Sketch committed() const;
+  // Dirty state of committed(): ignores an active gesture.
+  bool committed_dirty() const;
 
   bool execute(std::string label, const Edit& edit);
   // Runs after every edit and gesture step; the solver hook for S01.
@@ -61,6 +68,7 @@ class Document {
   Edit commit_step_;
   std::optional<std::string> gesture_label_;
   std::uint64_t next_revision_ = 1;
-  std::uint64_t saved_revision_ = 0;
+  // Empty when the document has never been saved (recovered checkpoint).
+  std::optional<std::uint64_t> saved_revision_ = 0;
 };
 }  // namespace sketchcad
