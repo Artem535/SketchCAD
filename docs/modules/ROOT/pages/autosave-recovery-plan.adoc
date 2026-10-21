@@ -310,7 +310,7 @@ Steps:
 == Task 7: Recovery UI, startup and acceptance
 
 Files: create `app/RecoveryDialog.qml`; modify `app/Main.qml`, `app/main.cpp`, `CMakeLists.txt`
-(resources for app and `qml_test`; smoke passes `--recovery-root ${CMAKE_CURRENT_BINARY_DIR}/smoke-recovery`),
+(resources for app and `qml_test`; smoke passes `+--recovery-root ${CMAKE_CURRENT_BINARY_DIR}/smoke-recovery+`),
 `tests/qml_test.cpp`, docs.
 
 Steps:
