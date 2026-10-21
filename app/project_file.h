@@ -1,6 +1,7 @@
 #pragma once
 #include <QByteArray>
 #include <QUrl>
+#include <memory>
 #include <optional>
 #include <variant>
 
@@ -25,6 +26,8 @@ class AtomicWriter {
   virtual qint64 write(const QByteArray&) = 0;
   virtual bool commit() = 0;
 };
+// QSaveFile with direct-write fallback disabled.
+std::unique_ptr<AtomicWriter> make_save_writer();
 std::optional<Error> write_with(const QUrl&, const sketchcad::ProjectData&,
                                 AtomicWriter&);
 }  // namespace detail
