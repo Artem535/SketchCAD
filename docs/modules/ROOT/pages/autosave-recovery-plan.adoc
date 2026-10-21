@@ -12,7 +12,8 @@ a Qt recovery store (app-local directory, per-session QLockFile, QSaveFile); a r
 observes committed changes and integrates with the F01 `ProjectSession` file commands; a QML recovery list.
 Stack:: C++20, reflect-cpp/yyjson (already a private core dependency), Qt Core/Quick/Test, GoogleTest.
 Spec:: xref:autosave-recovery.adoc[]. Issue #14. Design approved by the user on 21 October 2026.
-Status:: Planned; implementation has not started.
+Status:: Implemented and locally verified on 21 October 2026; see the
+xref:autosave-recovery.adoc#_execution_record_21_october_2026[execution record].
 
 == Global constraints
 
@@ -93,17 +94,17 @@ Interfaces produced:
 
 Steps:
 
-* [ ] Write `Document.CommittedIgnoresActiveGesture`: begin a gesture, step a point move, assert `committed()`
+* [x] Write `Document.CommittedIgnoresActiveGesture`: begin a gesture, step a point move, assert `committed()`
   equals the pre-gesture sketch, `gesture_active()` stays true and `committed_dirty()` is false for a clean doc.
-* [ ] Write `Document.CommittedKeepsLiveWatermark`: inside a gesture create an entity (consuming an ID), cancel
+* [x] Write `Document.CommittedKeepsLiveWatermark`: inside a gesture create an entity (consuming an ID), cancel
   nothing, assert `committed().snapshot().next_id` equals the live watermark; also an exhausted (zero) watermark.
-* [ ] Write `Document.CommittedDirtyFollowsUndoToSaved`: edit, `mark_saved`, edit, Undo → not committed-dirty,
+* [x] Write `Document.CommittedDirtyFollowsUndoToSaved`: edit, `mark_saved`, edit, Undo → not committed-dirty,
   Redo → dirty; checkpoint calls must not change revision, labels or `can_undo`.
-* [ ] Write `Document.ReplaceUnsavedIsDirtyAtRevisionZero` (empty sketch, revision 0) and that `mark_saved` clears it;
+* [x] Write `Document.ReplaceUnsavedIsDirtyAtRevisionZero` (empty sketch, revision 0) and that `mark_saved` clears it;
   confirm existing `replace` callers keep the old default semantics.
-* [ ] Add declarations with stub bodies returning wrong values; record assertion RED in `build/issue14-document-red.log`.
-* [ ] Implement; run `document_test` and the full core suite; record `build/issue14-document-green.log`.
-* [ ] Commit `feat: expose committed document state for autosave (Refs #14)`.
+* [x] Add declarations with stub bodies returning wrong values; record assertion RED in `build/issue14-document-red.log`.
+* [x] Implement; run `document_test` and the full core suite; record `build/issue14-document-green.log`.
+* [x] Commit `feat: expose committed document state for autosave (Refs #14)`.
 
 == Task 2: Recovery envelope codec
 
@@ -126,22 +127,22 @@ Interfaces produced (namespace `sketchcad`):
 
 Steps:
 
-* [ ] Move `bounded_tree`, `shape`, `text`, `decimal` from `project_io.cpp` into `src/json_strict.h` (namespace
+* [x] Move `bounded_tree`, `shape`, `text`, `decimal` from `project_io.cpp` into `src/json_strict.h` (namespace
   `sketchcad::json_strict`, inline functions) with no behavior change; run `project_io_test` (all GREEN) and
   commit nothing yet.
-* [ ] Write `RecoveryIo.RoundTrip`: a project with stable high IDs, consumed watermark, construction geometry,
+* [x] Write `RecoveryIo.RoundTrip`: a project with stable high IDs, consumed watermark, construction geometry,
   every constraint kind, a reference dimension and a manual placement; compare `snapshot()` exactly and meta fields.
-* [ ] Write `RecoveryIo.Fixture`: decode a hand-authored `recovery-v1.json` (independent of C++ names).
-* [ ] Write parameterized rejects: unknown/duplicate/missing fields, wrong types, `format` mismatch, version 2
+* [x] Write `RecoveryIo.Fixture`: decode a hand-authored `recovery-v1.json` (independent of C++ names).
+* [x] Write parameterized rejects: unknown/duplicate/missing fields, wrong types, `format` mismatch, version 2
   (`kUnsupportedVersion`), bad UUIDs (uppercase, braces, short), non-canonical/overflowing/`UINT64_MAX` generation,
   bad timestamps, depth 17, bytes > 128 MiB (`kTooLarge`), malformed/future `project_json` (`kInvalidProject`),
   trailing data and truncation.
-* [ ] Add stubs that return `kInvalid`/nullopt; record RED in `build/issue14-codec-red.log`.
-* [ ] Implement with a private `WireRecovery` struct and `rfl::json::read<WireRecovery, rfl::NoExtraFields>`
+* [x] Add stubs that return `kInvalid`/nullopt; record RED in `build/issue14-codec-red.log`.
+* [x] Implement with a private `WireRecovery` struct and `rfl::json::read<WireRecovery, rfl::NoExtraFields>`
   after the yyjson strict pass; decode the payload with `decode_project` and map its errors to `kInvalidProject`
   except too-large. Deterministic output.
-* [ ] Run all core tests; record `build/issue14-codec-green.log`.
-* [ ] Commit `feat: add strict recovery envelope codec (Refs #14)`.
+* [x] Run all core tests; record `build/issue14-codec-green.log`.
+* [x] Commit `feat: add strict recovery envelope codec (Refs #14)`.
 
 == Task 3: Checkpoint schedule
 
@@ -171,11 +172,11 @@ Deadline: `min(last + 5000, first + 30000)`; while failing, `max(that, failed_at
 
 Steps:
 
-* [ ] Write tests: single change due at exactly +5000 and not at +4999; commits every 1 s are due at first+30000;
+* [x] Write tests: single change due at exactly +5000 and not at +4999; commits every 1 s are due at first+30000;
   `clear()` cancels; `written()` resets the 30 s window; `failed()` returns true once per episode, retry not before
   +30000 even if changes arrive, `written()` ends the episode; no deadline without changes.
-* [ ] Stub; RED in `build/issue14-schedule-red.log`; implement; GREEN in `build/issue14-schedule-green.log`.
-* [ ] Commit `feat: add autosave checkpoint schedule (Refs #14)`.
+* [x] Stub; RED in `build/issue14-schedule-red.log`; implement; GREEN in `build/issue14-schedule-green.log`.
+* [x] Commit `feat: add autosave checkpoint schedule (Refs #14)`.
 
 == Task 4: Recovery store, locks and child-process tests
 
@@ -223,19 +224,19 @@ Generation continues from the adopted/last written value and refuses to wrap. Re
 
 Steps:
 
-* [ ] Write store tests in a `QTemporaryDir`: write/discover from a second `Store` (after the first `release()`),
+* [x] Write store tests in a `QTemporaryDir`: write/discover from a second `Store` (after the first `release()`),
   own session excluded, generation increments, Unicode `original_url`, symlink/unrelated/temp files ignored,
   mismatched `session_id` reported invalid, corrupt and future files listed with a status but not claimable as valid.
-* [ ] Fault injection with `WriterFactory`: short write and commit failure keep the previous envelope bytes and
+* [x] Fault injection with `WriterFactory`: short write and commit failure keep the previous envelope bytes and
   return `kStorage`; a missing root (removed after `start`) fails cleanly.
-* [ ] Write the helper (`QCoreApplication`, args `--root <dir> --mode <hold|checkpoint|restore-crash>`): `hold`
+* [x] Write the helper (`QCoreApplication`, args `--root <dir> --mode <hold|checkpoint|restore-crash>`): `hold`
   starts a session, prints its UUID and sleeps; `checkpoint` builds a sketch, writes it, prints the UUID and sleeps
   until killed; `restore-crash` claims and adopts the given UUID then calls `std::abort()`.
-* [ ] Process tests with `QProcess`: a held session is not discovered and `claim` returns `kLocked`; after
+* [x] Process tests with `QProcess`: a held session is not discovered and `claim` returns `kLocked`; after
   `kill()` it is discovered and claimable; two `Store` objects cannot both claim one candidate; retiring one
   session leaves another's bytes identical.
-* [ ] Stub returning errors; RED in `build/issue14-store-red.log`; implement; GREEN in `build/issue14-store-green.log`.
-* [ ] Commit `feat: add recovery store with session locks (Refs #14)`.
+* [x] Stub returning errors; RED in `build/issue14-store-red.log`; implement; GREEN in `build/issue14-store-green.log`.
+* [x] Commit `feat: add recovery store with session locks (Refs #14)`.
 
 == Task 5: Recovery coordinator and autosave
 
@@ -263,14 +264,14 @@ it measures and logs the write duration with `qDebug` category `sketchcad.recove
 
 Steps:
 
-* [ ] Write tests with a fake clock and `use_timer = false`: no write before 5 s; write at 5 s; continuous commits
+* [x] Write tests with a fake clock and `use_timer = false`: no write before 5 s; write at 5 s; continuous commits
   write at 30 s; zoom/hover/selection produce no writes; a drag in progress writes the pre-drag state and the drag
   continues; dirty marker, revision and Undo/Redo unchanged after a write; Undo to saved retires the file; Redo
   schedules again; untitled clean doc creates no file; dirty empty sketch does; same state twice is written once.
-* [ ] Failure tests with an injected failing writer: one `warning` per episode, retry after 30 s, warning cleared
+* [x] Failure tests with an injected failing writer: one `warning` per episode, retry after 30 s, warning cleared
   after a successful retry, editing still works.
-* [ ] Stub; RED in `build/issue14-coordinator-red.log`; implement; GREEN in `build/issue14-coordinator-green.log`.
-* [ ] Commit `feat: autosave committed changes to the recovery store (Refs #14)`.
+* [x] Stub; RED in `build/issue14-coordinator-red.log`; implement; GREEN in `build/issue14-coordinator-green.log`.
+* [x] Commit `feat: autosave committed changes to the recovery store (Refs #14)`.
 
 == Task 6: File-command integration and restore
 
@@ -293,18 +294,18 @@ Interfaces produced:
 
 Steps:
 
-* [ ] Write session tests: Save/Save As retire; cancelled Save As and failed save keep the file; New with Discard
+* [x] Write session tests: Save/Save As retire; cancelled Save As and failed save keep the file; New with Discard
   retires; failed Open keeps the old recovery; Close retires and later edits create no file; cleanup failure blocks
   close and New until a retry succeeds; a shutdown callback cannot recreate the file.
-* [ ] Write restore tests: restore of a valid candidate gives a dirty untitled document with the exact model,
+* [x] Write restore tests: restore of a valid candidate gives a dirty untitled document with the exact model,
   no Undo, retained solver hook and recovered display name; first `request_save` emits `choose_save` (not a write
   to `original_url`) and the original file bytes stay identical; restore with a dirty current doc asks first and
   Cancel changes nothing; invalid/corrupt/missing candidate leaves everything unchanged; reentrant requests ignored.
-* [ ] RED in `build/issue14-session-red.log`; implement; GREEN in `build/issue14-session-green.log`.
-* [ ] Add the end-to-end crash test to `recovery_store_test` or a new Qt test using the helper in `checkpoint`
+* [x] RED in `build/issue14-session-red.log`; implement; GREEN in `build/issue14-session-green.log`.
+* [x] Add the end-to-end crash test to `recovery_store_test` or a new Qt test using the helper in `checkpoint`
   mode: kill, discover, restore through `ProjectSession`, compare snapshots; then `restore-crash` mode and assert
   the same state is offered again.
-* [ ] Commit `feat: integrate recovery with project file commands (Refs #14)`.
+* [x] Commit `feat: integrate recovery with project file commands (Refs #14)`.
 
 == Task 7: Recovery UI, startup and acceptance
 
@@ -314,25 +315,33 @@ Files: create `app/RecoveryDialog.qml`; modify `app/Main.qml`, `app/main.cpp`, `
 
 Steps:
 
-* [ ] `main.cpp`: `QCoreApplication::setApplicationName("SketchCAD")` before any path lookup; `--recovery-root <dir>`
+* [x] `main.cpp`: `QCoreApplication::setApplicationName("SketchCAD")` before any path lookup; `--recovery-root <dir>`
   overrides the store root; create `Store`, `start()`, the coordinator, `project.set_recovery`, context property
   `recovery`; after the window is shown, `refresh()` and open the dialog when candidates exist.
-* [ ] `RecoveryDialog.qml`: modal list (source name or «Без имени», time, status text), per-row
+* [x] `RecoveryDialog.qml`: modal list (source name or «Без имени», time, status text), per-row
   «Восстановить» (enabled only when restorable) and «Удалить копию», footer «Не сейчас». Errors are shown in the
   dialog. Overflow menu «Восстановление…» refreshes and opens it. A non-modal warning banner shows
   `recovery.warning` with translatable text. All strings through `qsTr`.
-* [ ] Write QML tests (temporary root, pre-written candidates): dialog appears with rows; Restore installs the
+* [x] Write QML tests (temporary root, pre-written candidates): dialog appears with rows; Restore installs the
   model and title shows «Восстановлено — …*»; Discard removes the row and the file; Not now keeps files; corrupt
   row has disabled Restore; menu entry reopens; warning banner appears with a failing writer.
   Save screenshots `sketch_f02_recovery_list.png` and `sketch_f02_restored.png`. RED before handlers.
-* [ ] Run full Release/Debug CTest, `qml_smoke`, and a manual desktop run: edit, wait > 5 s, `kill -9` the
+* [x] Run full Release/Debug CTest, `qml_smoke`, and a manual desktop run: edit, wait > 5 s, `kill -9` the
   app started for this check (never the user's other instances), restart, restore, Save As under a new name and
   verify the original bytes. Inspect the screenshots.
-* [ ] Update the spec execution record and status, backlog F02, `handoff.adoc`, `CLAUDE.md` architecture lines.
+* [x] Update the spec execution record and status, backlog F02, `handoff.adoc`, `CLAUDE.md` architecture lines.
   Commit `feat: add recovery list and startup recovery (Refs #14)`.
-* [ ] Run Antora on committed HEAD and `rtk git diff --check`; push; open the PR with `Closes #14`, evidence and
+* [x] Run Antora on committed HEAD and `rtk git diff --check`; push; open the PR with `Closes #14`, evidence and
   limitations (synchronous writes, process-crash only, no Windows/Android runtime evidence). Label
   `status:review`. Do not merge without the user's explicit word.
+
+== Deviations during implementation
+
+* The coordinator takes `std::unique_ptr<recovery::Store>` (QLockFile is not movable) and its options are
+  the namespace-level `RecoveryOptions` (GCC rejects a defaulted nested aggregate argument).
+* `ProjectSession::recovery_source()` supplies `original_url`; `RecoveryCoordinator::installed(bool)` marks
+  a document replacement instead of a separate epoch signal.
+* `Store::start()` also removes stale locks of dead sessions without a checkpoint (see the execution record).
 
 == Plan self-review
 

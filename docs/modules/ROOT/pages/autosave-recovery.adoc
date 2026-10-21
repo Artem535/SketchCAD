@@ -3,7 +3,8 @@
 
 Issue: https://github.com/Artem535/SketchCAD/issues/14[#14]. Requirement: S01-FILE.
 Depends on F01 (xref:project-format.adoc[]), merged in PR #54.
-Status: design approved by the user on 21 October 2026; implementation plan: xref:autosave-recovery-plan.adoc[].
+Status: design approved by the user on 21 October 2026 (plan: xref:autosave-recovery-plan.adoc[]);
+implemented on `codex/14-autosave-recovery`, pending PR review and user acceptance.
 
 == Intent and scope
 
@@ -157,3 +158,51 @@ An independent builder review on 18 October 2026 found no important unanswered q
 claim timing and retry implementation are engineering details to resolve in the implementation plan.
 The lock policy follows https://doc.qt.io/qt-6/qlockfile.html[Qt's long-lived lock guidance]; actual platform
 behaviour still requires the planned process tests. Documentation build is separate from runtime validation.
+
+== Execution record (21 October 2026)
+
+Environment: Fedora 44 host, GCC 16.2.1, Qt 6.11.2, reflectcpp 0.25.0 (pinned vcpkg baseline). Builds:
+`build/fedora` (Release) and `build/fedora-werror` (Debug, `-Wall -Wextra -Werror -Wno-error=self-move`).
+Qt binaries run on the host (`host-spawn`); the Ubuntu toolbox has an older Qt.
+
+Implemented API: `Document::committed()`, `committed_dirty()` and `replace(..., saved = false)`;
+`recovery_io.h` (envelope codec, strict checks shared with F01 in `src/json_strict.h`); `AutosaveSchedule`;
+`recovery::Store` (`app/recovery_store.h`); `RecoveryCoordinator` (QML context `recovery`);
+`ProjectSession::set_recovery` and `request_restore`; `RecoveryDialog.qml`, warning banner and
+«Восстановление…» menu entry; `--recovery-root <dir>` for tests and smoke.
+
+RED observed on assertions before each implementation step. Logs in `build/`:
+`issue14-document-red.log` (3 of 4 new Document tests; `CommittedDirtyFollowsUndoToSaved` passed on the stub,
+which delegated to `dirty()`, and is a regression guard), `issue14-codec-red.log` (6 of 7; the first run
+crashed because the test dereferenced the stub's empty result, a test defect fixed with `value_or`),
+`issue14-schedule-red.log` (4 of 5), `issue14-store-red.log` (5 of 5), `issue14-coordinator-red.log`
+and `issue14-coordinator-red2.log`, `issue14-session-red.log` (6 of 6 integration cases), `issue14-ui-red.log`.
+
+Test defects fixed without changing the checked behaviour: three coordinator tests used a nonexistent
+«point» tool and were rewritten with circles; their RED was re-observed afterwards by disabling the checkpoint
+write (`issue14-coordinator-red2.log`, 7 of 7 failing on write assertions). A coordinator test expected Redo
+after Undo-to-clean to reuse the retired file, which contradicts this specification, and was removed.
+The QML test first assumed a row order and a second checkpoint for the clean session; it now looks rows up by
+name, because the order is display-only.
+
+Additional change from the desktop check: a session start removes `.lock` files of dead sessions that never
+wrote a checkpoint (Qt treats a dead owner's lock as stale; without this, such files accumulated). Covered by
+`start_removes_dead_session_locks_without_checkpoints`, observed failing before the change.
+
+GREEN: Release 229/229 (`build/issue14-release-green.log`), Debug 229/229 (`build/issue14-debug-green.log`).
+New suites: `document_test` (+4), `recovery_io_test` (7), `autosave_schedule_test` (5), `recovery_store_test`
+(6 cases including real child processes: live lock exclusion, `kill` then discovery, two claimants, adopt then
+`abort` and re-discovery), `recovery_coordinator_test` (13 cases including a killed child process restored
+through `ProjectSession`), `qml_test` (+2). ASan/UBSan are not claimed (host `libasan` missing, as in F01).
+
+Runtime evidence: QML screenshots `build/fedora/sketch_f02_recovery_list.png` and
+`sketch_f02_restored.png` were inspected (rows, statuses, disabled Restore for a corrupt copy; restored title
+«Восстановлено — деталь.sketchcad *», unsaved state, geometry). The desktop (Wayland) app started with a
+temporary `--recovery-root` after a helper checkpoint process was killed with SIGKILL and showed the recovery
+list. Restore, Save As under a new name and preserved original bytes are verified by
+`restore_gives_dirty_untitled_copy_and_keeps_original`; a human-operated desktop restore is user acceptance.
+
+Limitations: checkpoints are written synchronously on the GUI thread; the measured time is logged under the
+`sketchcad.recovery` category, and large sketches may cause a short pause. Process-crash recovery only, no
+power-loss durability. No Windows or Android runtime evidence. The «fit» after restore places a single long
+line edge to edge, as after Open in F01 (existing view behaviour).
