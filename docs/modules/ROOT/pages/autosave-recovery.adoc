@@ -3,7 +3,7 @@
 
 Issue: https://github.com/Artem535/SketchCAD/issues/14[#14]. Requirement: S01-FILE.
 Depends on F01 (xref:project-format.adoc[]), merged in PR #54.
-Status: proposed design, 18 October 2026; implementation has not started.
+Status: design approved by the user on 21 October 2026; implementation plan: xref:autosave-recovery-plan.adoc[].
 
 == Intent and scope
 
