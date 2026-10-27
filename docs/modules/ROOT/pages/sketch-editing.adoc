@@ -184,6 +184,8 @@ Not in this increment: choosing cutting edges, fence or crossing selection, trim
   `edit_preview_path`.
 * The tool buttons of the rail scroll vertically when they do not fit the window height; the snap and finger
   toggles, "Связи" and "Справка" below them stay visible.
+  A wheel or two-finger scroll over the rail only scrolls the rail (including at its ends) and never zooms the sketch
+  under it (fix found in U11 acceptance, 27 October 2026).
 * Help (U07) gains `trim` and `extend`.
 
 === Acceptance / test cases (part 2)

@@ -66,6 +66,9 @@ one tap (a whole polyline or rectangle), fillets.
 * Controller messages use keys `chamfer_not_corner`, `chamfer_too_long`, `chamfer_collinear`,
   `chamfer_equal_length`, and `invalid_value`; QML translates them to the Russian explanations above.
   A solver rejection uses the existing solver-status message. A visible distance button opens the existing keypad.
+  The button is a filled chip (`chamferDistance`, surface colour, border, pencil mark) to the right of the tool rail,
+  "Отступ фаски: N мм ✎", so it reads as a control and not as a caption over the grid; typing a digit on a keyboard
+  opens the same keypad. (Found in user acceptance on 27 October 2026: the flat text button was not recognised.)
 
 == Acceptance / test cases
 Core (`sketch_edit_test`):
@@ -156,5 +159,10 @@ using only `CMAKE_PREFIX_PATH` bypasses vcpkg's gflags wrapper and fails to defi
   (transaction unchanged; seven available IDs succeeds). Extra diagnostics were confined to `/tmp`.
 * 27 October 2026: re-verified before commit. The session ran in an Ubuntu 26.04 toolbox, so both Fedora trees
   were rebuilt on the host through `host-spawn`; 245/245 CTest entries pass in Release and Debug/Werror.
-* Manual acceptance by the user, Android/device tests and remote CI are not claimed.
+* 27 October 2026, user acceptance on the desktop found two issues, both fixed test-first:
+  the mouse wheel over the tool rail zoomed the sketch once the list reached its end (RED
+  `build/u11-rail-wheel-red.log`, scale 7.36 → 1.02; the rail now swallows unused wheel events, see
+  xref:sketch-editing.adoc[]), and the distance button looked like a caption, so the user did not find how to set
+  the size (RED `build/u11-chip-red.log`; now a filled chip). 245/245 CTest in Release and Debug/Werror.
+* Further manual acceptance by the user, Android/device tests and remote CI are not claimed.
   Committed locally on `feat/u11-chamfer`; push, PR publication and merge are separate user decisions.

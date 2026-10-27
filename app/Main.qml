@@ -559,10 +559,27 @@ ApplicationWindow {
         anchors.leftMargin: 96
         anchors.top: parent.top
         anchors.topMargin: 12
-        text: qsTr("Отступ фаски: %1 мм").arg(Number(sketch.input_value.toFixed(3)))
+        text: qsTr("Отступ фаски: %1 мм ✎").arg(Number(sketch.input_value.toFixed(3)))
+        implicitHeight: 40
+        leftPadding: 14
+        rightPadding: 14
         onClicked: editor.input("distance")
         ToolTip.visible: hovered
         ToolTip.text: help.hint("chamfer")
+        contentItem: Label {
+            text: parent.text
+            color: theme.primary
+            font.pixelSize: 14
+            font.weight: Font.Medium
+            verticalAlignment: Text.AlignVCenter
+        }
+        // A filled chip, so it reads as a control over the grid.
+        background: Rectangle {
+            objectName: "chamferDistance_background"
+            radius: 20
+            color: theme.surface
+            border.color: theme.line
+        }
     }
 
     // Floating tool rail.
@@ -577,6 +594,13 @@ ApplicationWindow {
         radius: 20
         color: theme.surface
         border.color: theme.dark ? "transparent" : theme.line
+        // Wheel events the tool list does not take (at its ends, or over the
+        // toggles) stop here instead of zooming the sketch below.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.NoButton
+            onWheel: (wheel) => wheel.accepted = true
+        }
         ColumnLayout {
             anchors.fill: parent
             anchors.topMargin: 6

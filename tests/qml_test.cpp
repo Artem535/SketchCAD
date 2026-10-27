@@ -341,6 +341,10 @@ class QmlTest : public QObject {
     click(item("tool_chamfer"));
     QCOMPARE(controller.tool(), QString("chamfer"));
     QVERIFY(item("chamferDistance"));
+    // A filled chip, not a bare caption over the grid (U11 acceptance).
+    const QColor chip = color_of("chamferDistance_background");
+    QVERIFY(chip.isValid());
+    QCOMPARE(chip.alpha(), 255);
     click(item("chamferDistance"));
     QTRY_VERIFY(item("dimensionEditor"));
     click(item("key_3"));
@@ -360,6 +364,26 @@ class QmlTest : public QObject {
                                        "/sketch_u11_chamfer.png"));
   }
 
+  void wheel_over_tool_rail_does_not_zoom() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    QQuickItem* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    const double scale = controller.scale();
+    const QPointF at = rail->mapToScene(
+        {rail->width() / 2, rail->height() / 2});
+    // Scrolls down past the end of the list, as in U11 acceptance.
+    for (int i = 0; i < 12; ++i) {
+      QWheelEvent wheel(at, window_->mapToGlobal(at), QPoint(), QPoint(0, -120),
+                        Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase,
+                        false);
+      QCoreApplication::sendEvent(window_, &wheel);
+      QTest::qWait(20);
+    }
+    QCOMPARE(controller.scale(), scale);
+    QTRY_VERIFY(rail->property("contentY").toReal() > 0);
+  }
   void trim_tool_cuts_at_the_crossing() {
     SketchController controller;
     QQmlApplicationEngine engine;
