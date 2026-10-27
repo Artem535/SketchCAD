@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 
+#include "sketchcad/diagnostics.h"
 #include "sketchcad/sketch_view.h"
 #include "sketchcad/solver.h"
 using namespace sketchcad;
@@ -47,6 +49,214 @@ std::size_t lines(const Sketch& s) {
   });
 }
 }  // namespace
+
+namespace {
+struct Corner {
+  Sketch s;
+  EntityId p = *s.create_point({0, 0});
+  EntityId a = *s.create_point({10, 0});
+  EntityId b = *s.create_point({0, 10});
+  EntityId l1 = *s.create_line(p, a);
+  EntityId l2 = *s.create_line(b, p);  // Exercise the reversed endpoint.
+};
+}  // namespace
+
+TEST(Chamfer, KeepsVirtualSharpLineIdsAndDegreesOfFreedom) {
+  Corner c;
+  const auto dof = diagnose(c.s).dof;
+  ASSERT_TRUE(chamfer(c.s, c.p, 2));
+  EXPECT_EQ(lines(c.s), 3u);
+  EXPECT_EQ(c.s.entities().size(), 8u);
+  EXPECT_TRUE(std::get<SketchPoint>(*c.s.entity(c.p)).construction);
+  expect_at(c.s, c.p, {0, 0});
+  const auto l1 = line_of(c.s, c.l1), l2 = line_of(c.s, c.l2);
+  EXPECT_EQ(l1.end, c.a);
+  EXPECT_EQ(l2.start, c.b);
+  expect_at(c.s, l1.start, {2, 0});
+  expect_at(c.s, l2.end, {0, 2});
+  EXPECT_EQ(curves_holding(c.s, c.p), (std::vector<EntityId>{c.l1, c.l2}));
+  const auto legs = of_kind(c.s, K::kDistance);
+  ASSERT_EQ(legs.size(), 2u);
+  for (const auto& leg : legs) {
+    EXPECT_EQ(leg.first, c.p);
+    EXPECT_DOUBLE_EQ(leg.value, 2);
+    EXPECT_FALSE(leg.reference);
+  }
+  EXPECT_EQ(solve(c.s).status, SolveStatus::kSolved);
+  EXPECT_EQ(diagnose(c.s).dof, dof);
+  EXPECT_FALSE(chamfer(c.s, c.p, 1));  // A virtual sharp is no longer a corner.
+}
+
+TEST(Chamfer, ConvertsLengthsWithoutLosingConstraintIdentityOrReferenceFlag) {
+  Corner c;
+  const auto length = *c.s.add_dimension(K::kLength, c.l1, 0, 10);
+  const auto reference = *c.s.add_dimension(K::kLength, c.l2, 0, 10, true);
+  ASSERT_TRUE(
+      c.s.set_dimension_placement(length, DimensionPlacement{4, .3, 0}));
+  const auto horizontal = *c.s.add_constraint(K::kHorizontal, c.l1);
+  const auto fixed = *c.s.add_constraint(K::kFix, c.p);
+  ASSERT_TRUE(chamfer(c.s, c.p, 2));
+  for (auto [id, far] : {std::pair{length, c.a}, std::pair{reference, c.b}}) {
+    const auto converted = c.s.constraint(id);
+    ASSERT_TRUE(converted);
+    EXPECT_EQ(converted->kind, K::kDistance);
+    EXPECT_EQ(converted->first, far);
+    EXPECT_EQ(converted->second, c.p);
+    EXPECT_DOUBLE_EQ(converted->value, 10);
+    EXPECT_FALSE(converted->placement);
+  }
+  EXPECT_FALSE(c.s.constraint(length)->reference);
+  EXPECT_TRUE(c.s.constraint(reference)->reference);
+  EXPECT_TRUE(c.s.constraint(horizontal));
+  EXPECT_TRUE(c.s.constraint(fixed));
+  EXPECT_EQ(solve(c.s).status, SolveStatus::kSolved);
+  expect_at(c.s, c.p, {0, 0});
+}
+
+TEST(Chamfer,
+     RectangleOverallDimensionsSurviveAndLegsCanBeEditedIndependently) {
+  Sketch s;
+  const auto rectangle = *s.create_rectangle({0, 0}, 20, 10);
+  const auto p = rectangle.points;
+  const auto l = rectangle.lines;
+  ASSERT_TRUE(s.add_constraint(K::kFix, p[0]));
+  for (std::size_t i = 0; i < l.size(); ++i)
+    ASSERT_TRUE(
+        s.add_constraint(i % 2 == 0 ? K::kHorizontal : K::kVertical, l[i]));
+  const auto width = *s.add_dimension(K::kLength, l[0], 0, 20);
+  const auto height = *s.add_dimension(K::kLength, l[3], 0, 10);
+  const auto dof = diagnose(s).dof;
+  const Sketch original = s;
+  ASSERT_TRUE(chamfer(s, p[0], 2));
+  ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+  EXPECT_EQ(diagnose(s).dof, dof);
+  EXPECT_NEAR(*measure(s, K::kDistance, p[1], p[0]), 20, kLengthTolerance);
+  EXPECT_NEAR(*measure(s, K::kDistance, p[3], p[0]), 10, kLengthTolerance);
+  EXPECT_EQ(s.constraint(width)->kind, K::kDistance);
+  EXPECT_EQ(s.constraint(height)->kind, K::kDistance);
+  const auto first = line_of(s, l[0]).start;
+  const auto second = line_of(s, l[3]).end;
+  EntityId leg = 0;
+  for (const auto& [id, dim] : s.constraints())
+    if (dim.kind == K::kDistance && dim.first == p[0] && dim.second == first)
+      leg = id;
+  ASSERT_NE(leg, 0u);
+  ASSERT_TRUE(s.set_dimension(leg, 3));
+  ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+  EXPECT_NEAR(at(s, first).x, 3, kLengthTolerance);
+  EXPECT_NEAR(at(s, second).y, 2, kLengthTolerance);
+  for (auto id : p) {
+    EXPECT_NEAR(at(s, id).x, at(original, id).x, kLengthTolerance);
+    EXPECT_NEAR(at(s, id).y, at(original, id).y, kLengthTolerance);
+  }
+}
+
+TEST(Chamfer, PreviewMatchesAnObliqueChamferAndDoesNotMutate) {
+  Corner c;
+  ASSERT_TRUE(c.s.update_point(c.b, {6, 8}));
+  const Sketch before = c.s;
+  const auto preview = chamfer_preview(c.s, c.p, 2);
+  ASSERT_TRUE(preview);
+  EXPECT_TRUE(c.s == before);
+  EXPECT_FALSE(preview->is_arc);
+  EXPECT_NEAR(preview->a.x, 2, kNear);
+  EXPECT_NEAR(preview->b.x, 1.2, kNear);
+  EXPECT_NEAR(preview->b.y, 1.6, kNear);
+  ASSERT_TRUE(chamfer(c.s, c.p, 2));
+  for (const auto& [id, e] : c.s.entities())
+    if (const auto* l = std::get_if<SketchLine>(&e);
+        l && id != c.l1 && id != c.l2) {
+      EXPECT_EQ(at(c.s, l->start), preview->a);
+      EXPECT_EQ(at(c.s, l->end), preview->b);
+    }
+}
+
+TEST(Chamfer, RejectsInvalidOrTooLongDistancesWithoutConsumingIds) {
+  for (double d :
+       {0.0, -1.0, kLengthTolerance, 10.0, 10.0 - kLengthTolerance / 2,
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN()}) {
+    Corner c;
+    const auto before = c.s.snapshot();
+    EXPECT_FALSE(chamfer(c.s, c.p, d)) << d;
+    EXPECT_FALSE(chamfer_preview(c.s, c.p, d));
+    EXPECT_EQ(c.s.snapshot().entities, before.entities);
+    EXPECT_EQ(c.s.snapshot().constraints, before.constraints);
+    EXPECT_EQ(c.s.snapshot().next_id, before.next_id);
+  }
+}
+
+TEST(Chamfer, RejectsCollinearAndEqualLengthCornersWithAReason) {
+  Corner c;
+  ASSERT_TRUE(c.s.update_point(c.b, {-10, 0}));
+  EXPECT_EQ(chamfer_status(c.s, c.p, 2), ChamferStatus::kCollinear);
+  EXPECT_FALSE(chamfer(c.s, c.p, 2));
+  ASSERT_TRUE(c.s.update_point(c.b, {10, 0}));
+  EXPECT_EQ(chamfer_status(c.s, c.p, 2), ChamferStatus::kCollinear);
+  ASSERT_TRUE(c.s.update_point(c.b, {0, 10}));
+  ASSERT_TRUE(c.s.add_constraint(K::kEqual, c.l1, c.l2));
+  const Sketch before = c.s;
+  EXPECT_EQ(chamfer_status(c.s, c.p, 2), ChamferStatus::kEqualLength);
+  EXPECT_FALSE(chamfer(c.s, c.p, 2));
+  EXPECT_TRUE(c.s == before);
+  EXPECT_EQ(pick_corner(c.s, {0, 0}, 0), c.p);
+}
+
+TEST(Chamfer, RejectsNonCornersAndCircleOrArcCentres) {
+  for (int use = 0; use < 3; ++use) {
+    Corner c;
+    if (use == 0) c.s.create_line(c.p, *c.s.create_point({-10, 0}));
+    if (use == 1) c.s.create_circle(c.p, 5);
+    if (use == 2) c.s.create_arc(c.p, 5, 0, kPi);
+    const Sketch before = c.s;
+    EXPECT_EQ(chamfer_status(c.s, c.p, 2), ChamferStatus::kNotCorner);
+    EXPECT_FALSE(chamfer(c.s, c.p, 2));
+    EXPECT_FALSE(pick_corner(c.s, {0, 0}, 1));
+    EXPECT_TRUE(c.s == before);
+  }
+  Corner c;
+  EXPECT_FALSE(chamfer(c.s, 9999, 2));
+  EXPECT_FALSE(chamfer(c.s, c.l1, 2));
+  EXPECT_FALSE(chamfer(c.s, c.a, 2));
+}
+
+TEST(Chamfer, ConstructionChamferRequiresBothConstructionLines) {
+  for (bool both : {false, true}) {
+    Corner c;
+    c.s.set_construction(c.l1, true);
+    c.s.set_construction(c.l2, both);
+    ASSERT_TRUE(chamfer(c.s, c.p, 2));
+    for (const auto& [id, e] : c.s.entities()) {
+      if (const auto* l = std::get_if<SketchLine>(&e);
+          l && id != c.l1 && id != c.l2) {
+        EXPECT_EQ(l->construction, both);
+      }
+    }
+  }
+}
+
+TEST(Chamfer, AllocationFailureRollsBackTheEntireEdit) {
+  Corner c;
+  auto snapshot = c.s.snapshot();
+  snapshot.next_id = std::numeric_limits<EntityId>::max() - 1;
+  auto exhausted = Sketch::from_snapshot(snapshot);
+  ASSERT_TRUE(exhausted);
+  EXPECT_FALSE(chamfer(*exhausted, c.p, 2));
+  EXPECT_EQ(exhausted->snapshot().entities, snapshot.entities);
+  EXPECT_EQ(exhausted->snapshot().constraints, snapshot.constraints);
+  EXPECT_EQ(exhausted->snapshot().next_id, snapshot.next_id);
+}
+
+TEST(Chamfer, PicksOnlyCornersByDistanceThenIdAndRejectsInvalidCursor) {
+  Corner c;
+  const auto rectangle = *c.s.create_rectangle({-11, -10}, 10, 10);
+  EXPECT_EQ(pick_corner(c.s, {-.5, 0}, 1), c.p);
+  EXPECT_EQ(pick_corner(c.s, {-.9, 0}, 1), rectangle.points[2]);
+  EXPECT_FALSE(pick_corner(c.s, {10, 0}, .1));
+  EXPECT_FALSE(pick_corner(c.s, {0, 0}, -1));
+  EXPECT_FALSE(pick_corner(c.s, {NAN, 0}, 1));
+  EXPECT_FALSE(pick_corner(c.s, {0, 0}, INFINITY));
+}
 
 TEST(Trim, MiddlePieceSplitsTheLineOntoBothCutters) {
   Sketch s;

@@ -245,6 +245,17 @@ Free/constrained/fixed/singular fixtures; actual touch/mouse drag; latency measu
 === Verification
 Intersections/tangent/ambiguous picks, invalid edit rollback; UI preview/cancel; constraint integrity после edit.
 
+[[u11]]
+== U11: Chamfer a sketch corner
+
+* Requirements: S01-EDIT, S01-DIM, S01-UNDO, S01-UI.
+* Dependencies: U04 part 2, U08.
+* Specification: xref:sketch-chamfer.adoc[].
+* Deliverable: equal-distance chamfer between two lines, retained virtual sharp and overall dimensions,
+  parametric leg dimensions, preview, numeric input and one-step Undo/Redo.
+* Verification: core geometry/constraints/DOF/rollback, tool state, controller and QML interaction.
+  Desktop evidence does not establish Android support.
+
 [[u05]]
 == U05: Align the sketch shell and theme with the tablet mockup
 

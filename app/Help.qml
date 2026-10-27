@@ -5,7 +5,7 @@ QtObject {
     // Glossary order: concepts first, then the actions in context-bar order.
     readonly property var keys: [
         "constraint", "dimension", "dof", "defined", "redundant", "conflict",
-        "snap", "finger", "autodim", "input", "modes", "reference", "trim", "extend",
+        "snap", "finger", "autodim", "input", "modes", "reference", "trim", "extend", "chamfer",
         "coincident", "on_curve", "horizontal", "vertical", "parallel", "perpendicular",
         "tangent", "equal", "fix", "length", "distance", "angle", "radius", "construction"
     ]
@@ -95,6 +95,15 @@ QtObject {
                        + "Коснитесь куска — он удалится до ближайших пересечений с обеих сторон; кусок, который удалится, "
                        + "подсвечивается красным при наведении. Окружность становится дугой, линия без пересечений "
                        + "удаляется целиком. Новый конец остаётся «На кривой», размер длины принимает новое значение.")
+        },
+        chamfer: {
+            title: qsTr("Фаска"),
+            hint: qsTr("Срезает угол двух отрезков на заданном расстоянии от вершины"),
+            text: qsTr("Задайте отступ в миллиметрах и коснитесь общего угла двух отрезков. "
+                       + "Оба конца отступят от вершины на это расстояние, между ними появится фаска. "
+                       + "Исходная вершина останется вспомогательной точкой, размеры до неё сохранятся. "
+                       + "Два размера отступа можно менять отдельно; отмена возвращает весь угол за один шаг. "
+                       + "Отступ должен быть меньше каждого отрезка. Фаска для дуг и отрезков с равенством длин пока недоступна.")
         },
         extend: {
             title: qsTr("Удлинить"),

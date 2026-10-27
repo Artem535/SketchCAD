@@ -465,6 +465,36 @@ class SketchControllerTest : public QObject {
     // Not an input: the controller refuses to change it.
     QVERIFY(!c->set_dimension(dimension(c)["id"].toULongLong(), 70));
   }
+  void chamfer_has_distance_preview_and_one_undo_step() {
+    auto* c = make();
+    c->set_tool("rectangle");
+    tap(c, 10, 10);
+    tap(c, 60, 40);
+    const auto before = c->document().sketch();
+    c->set_tool("chamfer");
+    QCOMPARE(c->tool(), QString("chamfer"));
+    QCOMPARE(c->input_field(), QString("distance"));
+    QCOMPARE(c->input_value(), 2.0);
+    const auto at = c->screen_of(10, 10);
+    c->hover(at.x(), at.y());
+    QVERIFY(!c->edit_preview_path().isEmpty());
+    QVERIFY(c->enter_value(3));
+    QVERIFY(!c->edit_preview_path().isEmpty());
+    tap(c, 10, 10);
+    QCOMPARE(lines(c).size(), 5u);
+    QCOMPARE(c->document().undo_label(), std::string("Chamfer"));
+    QVERIFY(c->message().isEmpty());
+    QVERIFY(c->edit_preview_path().isEmpty());
+    QVERIFY(!c->construction_path().isEmpty());
+    c->undo();
+    QVERIFY(c->document().sketch() == before);
+    tap(c, 80, 80);
+    QCOMPARE(c->message(), QString("chamfer_not_corner"));
+    QVERIFY(c->enter_value(100));
+    tap(c, 10, 10);
+    QCOMPARE(c->message(), QString("chamfer_too_long"));
+  }
+
   void trim_and_extend_tools() {
     auto* c = make();
     line(c);  // (10, 10) - (60, 10)

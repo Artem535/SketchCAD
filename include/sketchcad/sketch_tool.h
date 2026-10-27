@@ -2,6 +2,7 @@
 
 #include <map>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "sketchcad/document.h"
@@ -21,12 +22,13 @@ enum class Tool {
   // U04 part 2.
   kTrim,
   kExtend,
+  kChamfer,
 };
 
 enum class DeleteResult { kDeleted, kNothingSelected, kPointInUse };
 
 // Value the next typed number sets while drawing (default-dimensions.adoc).
-enum class InputField { kNone, kLength, kWidth, kHeight, kRadius };
+enum class InputField { kNone, kLength, kWidth, kHeight, kRadius, kDistance };
 
 // Drawing and selection state machine over a Document, in world mm.
 // Every finished shape is one Document command; unfinished shapes exist
@@ -64,6 +66,7 @@ class ToolSession {
   InputField input_field() const;
   double input_value() const;
   bool enter_value(double value);
+  const std::string& message() const { return message_; }
   bool in_progress() const {
     return !vertices_.empty() || !dimension_picks_.empty();
   }
@@ -137,6 +140,8 @@ class ToolSession {
   std::optional<SnapResult> last_snap_;
   std::vector<EntityId> dimension_picks_;
   std::optional<CurvePiece> edit_preview_;
+  double chamfer_distance_ = 2;
+  std::string message_;
   Sketch preview_;
 };
 }  // namespace sketchcad

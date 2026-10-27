@@ -28,7 +28,7 @@ constexpr double kPointMarkerPx = 3;
 constexpr double kSelectedMarkerPx = 6;
 constexpr int kMajorEvery = 5;
 
-constexpr std::array<std::pair<Tool, const char*>, 9> kTools{{
+constexpr std::array<std::pair<Tool, const char*>, 10> kTools{{
     {Tool::kSelect, "select"},
     {Tool::kLine, "line"},
     {Tool::kPolyline, "polyline"},
@@ -38,7 +38,10 @@ constexpr std::array<std::pair<Tool, const char*>, 9> kTools{{
     {Tool::kDimension, "dimension"},
     {Tool::kTrim, "trim"},
     {Tool::kExtend, "extend"},
+    {Tool::kChamfer, "chamfer"},
 }};
+
+QString status_message(sketchcad::SolveStatus status);
 
 QString num(double v) { return QString::number(v, 'f', 2); }
 QString move_to(ScreenPoint p) {
@@ -154,7 +157,12 @@ void SketchController::hover(double x, double y) {
 
 void SketchController::press(double x, double y) {
   message_.clear();
+  last_status_ = sketchcad::SolveStatus::kSolved;
   session_.press(world(x, y));
+  message_ = QString::fromStdString(session_.message());
+  if (message_ == QStringLiteral("chamfer_failed") &&
+      last_status_ != sketchcad::SolveStatus::kSolved)
+    message_ = status_message(last_status_);
   snap_hint_ = session_.tool() != Tool::kSelect;
   refresh_scene();
   emit changed();
@@ -324,9 +332,10 @@ void SketchController::refresh_scene() {
   construction_path_.clear();
   points_path_.clear();
   for (const auto& [id, entity] : sketch.entities()) {
-    if (const auto* p = std::get_if<SketchPoint>(&entity))
-      points_path_ += marker_path(p->position, kPointMarkerPx);
-    else if (std::visit([](const auto& e) { return e.construction; }, entity))
+    if (const auto* p = std::get_if<SketchPoint>(&entity)) {
+      (p->construction ? construction_path_ : points_path_) +=
+          marker_path(p->position, kPointMarkerPx);
+    } else if (std::visit([](const auto& e) { return e.construction; }, entity))
       construction_path_ += curve_path(sketch, entity);
     else
       geometry_path_ += curve_path(sketch, entity);
@@ -862,6 +871,8 @@ QString SketchController::input_field() const {
     case sketchcad::InputField::kWidth: return QStringLiteral("width");
     case sketchcad::InputField::kHeight: return QStringLiteral("height");
     case sketchcad::InputField::kRadius: return QStringLiteral("radius");
+    case sketchcad::InputField::kDistance:
+      return QStringLiteral("distance");
     case sketchcad::InputField::kNone: break;
   }
   return {};

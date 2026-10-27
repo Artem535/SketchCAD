@@ -7,7 +7,7 @@ find_package(reflectcpp CONFIG REQUIRED)
 add_library(sketchcad_core src/project_io.cpp src/recovery_io.cpp src/autosave_schedule.cpp src/document.cpp src/sketch.cpp
             src/sketch_tool.cpp src/sketch_view.cpp src/constraint_solver.cpp
             src/constraint_diagnostics.cpp src/drag.cpp
-            src/dimension_layout.cpp src/sketch_edit.cpp)
+            src/dimension_layout.cpp src/sketch_edit.cpp src/sketch_chamfer.cpp)
 target_include_directories(sketchcad_core PUBLIC include)
 target_link_libraries(sketchcad_core PRIVATE Ceres::ceres reflectcpp::reflectcpp)
 enable_testing()

@@ -179,7 +179,8 @@ ApplicationWindow {
         { name: "arc", label: qsTr("Дуга") },
         { name: "dimension", label: qsTr("Размер") },
         { name: "trim", label: qsTr("Обрезать") },
-        { name: "extend", label: qsTr("Удлинить") }
+        { name: "extend", label: qsTr("Удлинить") },
+        { name: "chamfer", label: qsTr("Фаска") }
     ]
 
     readonly property var actionLabels: ({
@@ -206,6 +207,11 @@ ApplicationWindow {
         case "degenerate": return qsTr("Ограничение схлопывает геометрию — изменение отменено")
         case "invalid_action": return qsTr("Ограничение не подходит к выбранным объектам")
         case "invalid_dimension": return qsTr("Размер не подходит к выбранным объектам")
+        case "chamfer_not_corner": return qsTr("Нужен угол двух отрезков")
+        case "chamfer_too_long": return qsTr("Фаска длиннее отрезка")
+        case "chamfer_collinear": return qsTr("Отрезки на одной прямой")
+        case "chamfer_equal_length": return qsTr("Отрезок связан равенством длин")
+        case "chamfer_failed": return qsTr("Не удалось построить фаску — изменение отменено")
         }
         return ""
     }
@@ -544,6 +550,19 @@ ApplicationWindow {
         theme: theme
         onDimensionClicked: (id) => editor.edit(id)
         onPreviewDimensionClicked: if (sketch.input_field !== "") editor.input(sketch.input_field)
+    }
+
+    Button {
+        objectName: "chamferDistance"
+        visible: sketch.tool === "chamfer"
+        anchors.left: parent.left
+        anchors.leftMargin: 96
+        anchors.top: parent.top
+        anchors.topMargin: 12
+        text: qsTr("Отступ фаски: %1 мм").arg(Number(sketch.input_value.toFixed(3)))
+        onClicked: editor.input("distance")
+        ToolTip.visible: hovered
+        ToolTip.text: help.hint("chamfer")
     }
 
     // Floating tool rail.

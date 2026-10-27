@@ -52,6 +52,10 @@ std::optional<EntityId> pick(const Sketch&, Position, double tolerance_mm);
 std::optional<EntityId> pick_curve(const Sketch&, Position,
                                    double tolerance_mm);
 
+// Nearest point shared by exactly two lines and no other entity (U11).
+std::optional<EntityId> pick_corner(const Sketch&, Position,
+                                    double tolerance_mm);
+
 enum class SnapKind { kNone, kGrid, kPoint, kIntersection, kOnCurve };
 
 struct SnapSettings {

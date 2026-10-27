@@ -60,7 +60,7 @@ Popup {
     // the first character typed on a keyboard, if any.
     function input(name, typed) {
         field = name
-        kind = name === "radius" ? "radius" : "length"
+        kind = name === "radius" ? "radius" : name === "distance" ? "distance" : "length"
         dimensionId = 0
         error = ""
         if (typed !== undefined && typed !== "") {

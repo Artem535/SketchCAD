@@ -324,6 +324,42 @@ class QmlTest : public QObject {
     QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
                                        "/sketch_f01_opened.png"));
   }
+  void chamfer_tool_edits_a_rectangle_with_numeric_input() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_auto_dimensions(true);
+    click(item("tool_rectangle"));
+    tap(controller, 20, 20);
+    tap(controller, 60, 50);
+    QVERIFY(item("tool_chamfer"));
+    QQuickItem* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    rail->setProperty(
+        "contentY", rail->property("contentHeight").toReal() - rail->height());
+    QTest::qWait(20);
+    click(item("tool_chamfer"));
+    QCOMPARE(controller.tool(), QString("chamfer"));
+    QVERIFY(item("chamferDistance"));
+    click(item("chamferDistance"));
+    QTRY_VERIFY(item("dimensionEditor"));
+    click(item("key_3"));
+    click(item("applyDimension"));
+    QTRY_COMPARE(controller.input_value(), 3.0);
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    tap(controller, 20, 20);
+    QCOMPARE(controller.document().undo_label(), std::string("Chamfer"));
+    std::size_t lines = 0;
+    for (const auto& [id, e] : controller.document().sketch().entities())
+      lines += std::holds_alternative<sketchcad::SketchLine>(e);
+    QCOMPARE(lines, 5u);
+    QCOMPARE(controller.dimensions().size(), 4);
+    QVERIFY(window_->property("helpKeys").toStringList().contains("chamfer"));
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u11_chamfer.png"));
+  }
+
   void trim_tool_cuts_at_the_crossing() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -561,12 +597,12 @@ class QmlTest : public QObject {
         "tangent",    "equal",      "fix",      "length",      "distance",
         "angle",      "radius",     "on_curve", "construction"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 28);
+    QCOMPARE(keys.size(), 29);
     for (const QString& key :
          actions + QStringList{"constraint", "dimension", "dof", "defined",
                                "redundant", "conflict", "snap", "finger",
                                "autodim", "input", "modes", "reference", "trim",
-                               "extend"}) {
+                               "extend", "chamfer"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",
