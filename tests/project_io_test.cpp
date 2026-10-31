@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <fstream>
 #include <locale>
 #include <numbers>
@@ -19,7 +20,7 @@ std::string changed(std::string s, std::string_view a, std::string_view b) {
 TEST(ProjectIo, EmptyAndFutureFixture) {
   ASSERT_TRUE(std::holds_alternative<ProjectData>(decode_project(empty)));
   EXPECT_EQ(std::get<ProjectError>(decode_project(
-                changed(empty, "\"version\":1", "\"version\":2"))),
+                changed(empty, "\"version\":1", "\"version\":3"))),
             ProjectError::kUnsupportedVersion);
 }
 TEST(ProjectIo, RoundTripEveryPersistentField) {
@@ -201,8 +202,120 @@ TEST(ProjectIo, RejectsSideBeforeNarrowing) {
 }
 TEST(ProjectIo, FutureEnvelopeDoesNotRequireVersionOneFields) {
   const std::string future =
-      R"({"format":"SketchCAD","version":2,"future_field":true})";
+      R"({"format":"SketchCAD","version":3,"future_field":true})";
   const auto decoded = decode_project(future);
   ASSERT_TRUE(std::holds_alternative<ProjectError>(decoded));
   EXPECT_EQ(std::get<ProjectError>(decoded), ProjectError::kUnsupportedVersion);
+}
+
+TEST(ArcBindings, ProjectRoundTripAndRadiusAfterLoad) {
+  using K = ConstraintKind;
+  Sketch s;
+  const auto c = *s.create_point({2, 2});
+  const auto px = *s.create_point({2, 0}), fx = *s.create_point({10, 0});
+  const auto py = *s.create_point({0, 2}), fy = *s.create_point({0, 10});
+  const auto lx = *s.create_line(fx, px), ly = *s.create_line(py, fy);
+  const auto arc = *s.create_arc(c, 2, 3.141592653589793, 1.570796326794897);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, ly, arc, py));
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, lx, arc, px));
+  s.add_constraint(K::kFix, fx);
+  s.add_constraint(K::kFix, fy);
+  s.add_constraint(K::kHorizontal, lx);
+  s.add_constraint(K::kVertical, ly);
+  const auto radius = *s.add_dimension(K::kRadius, arc, 0, 2);
+  const auto bytes = encode_project({s, 12});
+  ASSERT_TRUE(bytes);
+  EXPECT_NE(bytes->find("\"version\":2"), std::string::npos);
+  auto legacy = *bytes;
+  const auto version_start = legacy.find("\"version\":") + 10;
+  legacy.replace(version_start, 1, "1");
+  EXPECT_TRUE(std::holds_alternative<ProjectError>(decode_project(legacy)));
+  EXPECT_NE(bytes->find("tangent_start"), std::string::npos);
+  EXPECT_NE(bytes->find("tangent_end"), std::string::npos);
+  const auto decoded = decode_project(*bytes);
+  ASSERT_TRUE(std::holds_alternative<ProjectData>(decoded));
+  Sketch loaded = std::get<ProjectData>(decoded).sketch;
+  EXPECT_EQ(loaded, s);
+  ASSERT_TRUE(loaded.set_dimension(radius, 3));
+  ASSERT_EQ(solve(loaded).status, SolveStatus::kSolved);
+  const auto a = std::get<SketchArc>(*loaded.entity(arc));
+  const auto center = std::get<SketchPoint>(*loaded.entity(c)).position;
+  const auto contact = std::get<SketchPoint>(*loaded.entity(px)).position;
+  EXPECT_NEAR(contact.x,
+              center.x + a.radius * std::cos(a.start_angle + a.sweep_angle),
+              1e-6);
+  EXPECT_NEAR(contact.y,
+              center.y + a.radius * std::sin(a.start_angle + a.sweep_angle),
+              1e-6);
+  EXPECT_TRUE(std::holds_alternative<ProjectError>(
+      decode_project(changed(*bytes, "tangent_start", "unknown_binding"))));
+  EXPECT_TRUE(std::holds_alternative<ProjectError>(
+      decode_project(changed(*bytes, "\"side\":1", "\"side\":0"))));
+}
+
+TEST(ArcBindings, ProjectRejectsStaleBoundArcAnglesWithoutRepair) {
+  using K = ConstraintKind;
+  Sketch s;
+  const auto center = *s.create_point({0, 2});
+  const auto start = *s.create_point({-2, 2}), end = *s.create_point({0, 0});
+  const auto l = *s.create_line(start, *s.create_point({-2, 8}));
+  const auto l2 = *s.create_line(*s.create_point({8, 0}), end);
+  const auto arc =
+      *s.create_arc(center, 2, std::numbers::pi, std::numbers::pi / 2);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, l, arc, start));
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, l2, arc, end));
+  const auto bytes = encode_project({s, 0});
+  ASSERT_TRUE(bytes);
+  for (const std::string field : {"start_angle", "sweep_angle"}) {
+    auto malformed = *bytes;
+    const auto value_start =
+        malformed.find("\"" + field + "\":") + field.size() + 3;
+    const auto value_end = malformed.find_first_of(",}", value_start);
+    malformed.replace(value_start, value_end - value_start, "0.25");
+    EXPECT_TRUE(std::holds_alternative<ProjectError>(decode_project(malformed)))
+        << field;
+    Sketch stale = s;
+    const auto a = std::get<SketchArc>(*stale.entity(arc));
+    ASSERT_TRUE(stale.update_arc(
+        arc, center, 2, field == "start_angle" ? 0.25 : a.start_angle,
+        field == "sweep_angle" ? 0.25 : a.sweep_angle));
+    // Hard residuals remain satisfied; editing may synchronize this cache.
+    ASSERT_EQ(check_constraints(stale).status, SolveStatus::kSolved);
+    const auto before = stale.snapshot();
+    EXPECT_FALSE(encode_project({stale, 0})) << field;
+    EXPECT_EQ(stale.snapshot().entities, before.entities);
+    ASSERT_EQ(solve(stale).status, SolveStatus::kSolved);
+    EXPECT_TRUE(encode_project({stale, 0}));
+  }
+}
+
+TEST(ArcBindings, ProjectRejectsFlippedNormalMetadata) {
+  Sketch s;
+  const auto p = *s.create_point({0, 0}), q = *s.create_point({4, 0});
+  const auto center = *s.create_point({0, 2});
+  const auto line = *s.create_line(q, p);
+  const auto arc = *s.create_arc(center, 2, 0, 3 * std::numbers::pi / 2);
+  ASSERT_TRUE(s.add_arc_tangency(ConstraintKind::kTangentEnd, line, arc, p));
+  const auto bytes = encode_project({s, 0});
+  ASSERT_TRUE(bytes);
+  EXPECT_NE(bytes->find("\"internal\":true"), std::string::npos);
+  const auto decoded = decode_project(*bytes);
+  ASSERT_TRUE(std::holds_alternative<ProjectData>(decoded));
+  EXPECT_EQ(std::get<ProjectData>(decoded).sketch, s);
+  auto flipped = *bytes;
+  const auto value = flipped.find("\"internal\":") + 11;
+  const auto end = flipped.find_first_of(",}", value);
+  const bool was_true = flipped.substr(value, end - value) == "true";
+  flipped.replace(value, end - value, was_true ? "false" : "true");
+  EXPECT_TRUE(std::holds_alternative<ProjectError>(decode_project(flipped)));
+}
+
+TEST(ProjectIo, VersionOneAndTwoBackwardCompatibility) {
+  const auto v1 = decode_project(empty);
+  ASSERT_TRUE(std::holds_alternative<ProjectData>(v1));
+  const auto encoded = encode_project(std::get<ProjectData>(v1));
+  ASSERT_TRUE(encoded);
+  EXPECT_NE(encoded->find("\"version\":1"), std::string::npos);
+  EXPECT_TRUE(std::holds_alternative<ProjectData>(decode_project(
+      changed(empty, "\"version\":1", "\"version\":2"))));
 }

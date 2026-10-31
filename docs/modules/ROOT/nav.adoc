@@ -32,6 +32,7 @@
 ** xref:default-dimensions.adoc[Default dimensions]
 ** xref:sketch-editing.adoc[Snaps, construction, trim]
 ** xref:sketch-chamfer.adoc[Chamfer tool]
+** xref:sketch-fillet.adoc[Fillet tool]
 
 * Project files
 ** xref:project-format.adoc[F01: Project format and file commands]

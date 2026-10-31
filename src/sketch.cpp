@@ -88,16 +88,31 @@ std::optional<Sketch> Sketch::from_snapshot(const SketchSnapshot& data) {
         !std::isfinite(c.value) || (c.side != 1 && c.side != -1) ||
         (c.reference && !is_dimension(c.kind)))
       return std::nullopt;
-    const auto test = is_dimension(c.kind)
-                          ? validator.add_dimension(c.kind, c.first, c.second,
-                                                    c.value, c.reference)
-                          : validator.add_constraint(c.kind, c.first, c.second);
+    const bool binding = c.kind == ConstraintKind::kTangentStart ||
+                         c.kind == ConstraintKind::kTangentEnd;
+    std::optional<EntityId> test;
+    if (binding) {
+      const auto l = validator.entity(c.first);
+      if (!l || !std::holds_alternative<SketchLine>(*l) ||
+          c.value != 0 || c.target != Position{0, 0} || c.placement)
+        return std::nullopt;
+      const auto& line = std::get<SketchLine>(*l);
+      test = validator.add_arc_tangency(c.kind, c.first, c.second,
+                                        c.side == 1 ? line.start : line.end);
+    } else {
+      test = is_dimension(c.kind)
+                 ? validator.add_dimension(c.kind, c.first, c.second, c.value,
+                                           c.reference)
+                 : validator.add_constraint(c.kind, c.first, c.second);
+    }
     if (!test) return std::nullopt;
     const auto normalized = validator.constraint(*test);
     if (normalized->first != c.first || normalized->second != c.second ||
         (c.placement && !validator.set_dimension_placement(*test, c.placement)))
       return std::nullopt;
-    validator.erase(*test);
+    if (!binding) validator.erase(*test);
+    // Keep the recorded normal branch even for an unsolved coordinate edit;
+    // the validator's temporary relation may have captured the opposite sign.
     result.constraints_.emplace(c.id, c);
     highest = std::max(highest, c.id);
   }
@@ -175,6 +190,29 @@ bool Sketch::update_line(EntityId id, EntityId start, EntityId end) {
     return false;
   auto* line = std::get_if<SketchLine>(&it->second);
   if (!line) return false;
+  for (const auto& [cid, c] : constraints_) {
+    if (c.kind == ConstraintKind::kOnCurve && c.second == id &&
+        (c.first == start || c.first == end))
+      return false;
+    if ((c.kind != ConstraintKind::kTangentStart &&
+         c.kind != ConstraintKind::kTangentEnd) ||
+        c.first != id)
+      continue;
+    const auto& arc = std::get<SketchArc>(entities_.at(c.second));
+    if (start == arc.center || end == arc.center) return false;
+    const EntityId endpoint = c.side == 1 ? start : end;
+    for (const auto& [oid, oc] : constraints_) {
+      if (oid == cid || oc.second != c.second ||
+          (oc.kind != ConstraintKind::kTangentStart &&
+           oc.kind != ConstraintKind::kTangentEnd))
+        continue;
+      const auto& ol = std::get<SketchLine>(entities_.at(oc.first));
+      const EntityId other_ep =
+          oc.first == id ? (oc.side == 1 ? start : end)
+                         : (oc.side == 1 ? ol.start : ol.end);
+      if (endpoint == other_ep) return false;
+    }
+  }
   line->start = start;
   line->end = end;
   return true;
@@ -185,6 +223,10 @@ bool Sketch::update_circle(EntityId id, EntityId center, double radius) {
     return false;
   auto* circle = std::get_if<SketchCircle>(&it->second);
   if (!circle) return false;
+  for (const auto& [cid, c] : constraints_)
+    if (c.kind == ConstraintKind::kOnCurve && c.second == id &&
+        c.first == center)
+      return false;
   circle->center = center;
   circle->radius = radius;
   return true;
@@ -197,6 +239,17 @@ bool Sketch::update_arc(EntityId id, EntityId center, double radius,
     return false;
   auto* arc = std::get_if<SketchArc>(&it->second);
   if (!arc) return false;
+  for (const auto& [cid, c] : constraints_) {
+    if (c.kind == ConstraintKind::kOnCurve && c.second == id &&
+        c.first == center)
+      return false;
+    if ((c.kind == ConstraintKind::kTangentStart ||
+         c.kind == ConstraintKind::kTangentEnd) &&
+        c.second == id) {
+      const auto& seg = std::get<SketchLine>(entities_.at(c.first));
+      if (center == seg.start || center == seg.end) return false;
+    }
+  }
   arc->center = center;
   arc->radius = radius;
   arc->start_angle = start;
@@ -340,6 +393,47 @@ std::optional<EntityId> Sketch::add_constraint(ConstraintKind kind,
   const auto id = allocate();
   if (!id) return std::nullopt;
   c.id = *id;
+  constraints_.emplace(*id, c);
+  return id;
+}
+std::optional<EntityId> Sketch::add_arc_tangency(ConstraintKind kind,
+                                                 EntityId line, EntityId arc,
+                                                 EntityId endpoint) {
+  if (kind != ConstraintKind::kTangentStart &&
+      kind != ConstraintKind::kTangentEnd)
+    return std::nullopt;
+  const auto l = entity(line), a = entity(arc);
+  if (!l || !a || !std::holds_alternative<SketchLine>(*l) ||
+      !std::holds_alternative<SketchArc>(*a))
+    return std::nullopt;
+  const auto& segment = std::get<SketchLine>(*l);
+  if ((endpoint != segment.start && endpoint != segment.end) ||
+      segment.start == std::get<SketchArc>(*a).center ||
+      segment.end == std::get<SketchArc>(*a).center)
+    return std::nullopt;
+  for (const auto& [id, c] : constraints_) {
+    if (c.second != arc || (c.kind != ConstraintKind::kTangentStart &&
+                            c.kind != ConstraintKind::kTangentEnd))
+      continue;
+    const auto other = std::get<SketchLine>(*entity(c.first));
+    if (c.kind == kind || endpoint == (c.side == 1 ? other.start : other.end))
+      return std::nullopt;
+  }
+  const auto id = allocate();
+  if (!id) return std::nullopt;
+  Constraint c{};
+  c.id = *id;
+  c.kind = kind;
+  c.first = line;
+  c.second = arc;
+  c.side = endpoint == segment.start ? 1 : -1;
+  const Position start = std::get<SketchPoint>(*entity(segment.start)).position;
+  const Position end = std::get<SketchPoint>(*entity(segment.end)).position;
+  const Position contact = std::get<SketchPoint>(*entity(endpoint)).position;
+  const Position center =
+      std::get<SketchPoint>(*entity(std::get<SketchArc>(*a).center)).position;
+  c.internal = (end.x - start.x) * (center.y - contact.y) -
+                   (end.y - start.y) * (center.x - contact.x) < 0;
   constraints_.emplace(*id, c);
   return id;
 }

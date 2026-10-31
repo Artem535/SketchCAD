@@ -12,6 +12,17 @@ inline std::optional<std::array<SketchLine, 2>> corner_lines(const Sketch& s,
   const auto entity = s.entity(point);
   if (!entity || !std::holds_alternative<SketchPoint>(*entity))
     return std::nullopt;
+  // Arc contacts reference a line endpoint through their binding metadata.
+  // Such a point already joins an arc as well as its incident lines.
+  for (const auto& [id, c] : s.constraints()) {
+    if (c.kind != ConstraintKind::kTangentStart &&
+        c.kind != ConstraintKind::kTangentEnd)
+      continue;
+    const auto line_entity = s.entity(c.first);
+    if (!line_entity) continue;
+    if (const auto* line = std::get_if<SketchLine>(&*line_entity))
+      if ((c.side == 1 ? line->start : line->end) == point) return std::nullopt;
+  }
   std::array<SketchLine, 2> result{};
   std::size_t count = 0;
   for (const auto& [id, e] : s.entities()) {

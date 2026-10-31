@@ -6,6 +6,9 @@ import QtQuick.Dialogs as FileDialogs
 // Tablet shell from design/sketchcad-tablet.html (tablet-shell.adoc).
 ApplicationWindow {
     id: window
+    readonly property bool cornerTool: sketch.tool === "chamfer" || sketch.tool === "fillet"
+    readonly property string cornerStep: sketch.tool === "fillet" ? sketch.fillet_step : sketch.chamfer_step
+
     visible: true
     width: 1280
     height: 800
@@ -180,7 +183,8 @@ ApplicationWindow {
         { name: "dimension", label: qsTr("Размер") },
         { name: "trim", label: qsTr("Обрезать") },
         { name: "extend", label: qsTr("Удлинить") },
-        { name: "chamfer", label: qsTr("Фаска") }
+        { name: "chamfer", label: qsTr("Фаска") },
+        { name: "fillet", label: qsTr("Скруглить") }
     ]
 
     readonly property var actionLabels: ({
@@ -207,6 +211,13 @@ ApplicationWindow {
         case "degenerate": return qsTr("Ограничение схлопывает геометрию — изменение отменено")
         case "invalid_action": return qsTr("Ограничение не подходит к выбранным объектам")
         case "invalid_dimension": return qsTr("Размер не подходит к выбранным объектам")
+        case "fillet_pick_line": return qsTr("Выберите другой отрезок")
+        case "fillet_not_corner": return qsTr("Нужен общий угол двух отрезков")
+        case "fillet_too_long": return qsTr("Радиус слишком большой для этого угла")
+        case "fillet_collinear": return qsTr("Отрезки на одной прямой")
+        case "fillet_equal_length": return qsTr("Отрезок связан равенством длин")
+        case "fillet_failed": return qsTr("Не удалось построить скругление — изменение отменено")
+        case "chamfer_pick_line": return qsTr("Выберите другой отрезок")
         case "chamfer_not_corner": return qsTr("Нужен угол двух отрезков")
         case "chamfer_too_long": return qsTr("Фаска длиннее отрезка")
         case "chamfer_collinear": return qsTr("Отрезки на одной прямой")
@@ -232,6 +243,9 @@ ApplicationWindow {
     }
 
     function inputText() {
+        if (window.cornerTool)
+            return (window.cornerStep === "distance" || window.cornerStep === "radius") ? qsTr("Тяните маркер · Размер — точный ввод · «Готово» — применить")
+                                                     : qsTr("Выберите два отрезка с общей вершиной")
         if (sketch.in_progress) {
             if (sketch.tool === "polyline")
                 return qsTr("Касание — вершина; первая точка замыкает, «Готово» — завершить")
@@ -552,20 +566,42 @@ ApplicationWindow {
         onPreviewDimensionClicked: if (sketch.input_field !== "") editor.input(sketch.input_field)
     }
 
-    Button {
-        objectName: "chamferDistance"
-        visible: sketch.tool === "chamfer"
+    Label {
+        objectName: sketch.tool === "fillet" ? "filletPrompt" : "chamferPrompt"
+        visible: window.cornerTool
         anchors.left: parent.left
         anchors.leftMargin: 96
         anchors.top: parent.top
         anchors.topMargin: 12
-        text: qsTr("Отступ фаски: %1 мм ✎").arg(Number(sketch.input_value.toFixed(3)))
+        text: window.cornerStep === "first" ? qsTr("Выберите первый отрезок")
+            : window.cornerStep === "second" ? qsTr("Выберите второй отрезок")
+            : sketch.tool === "fillet" ? qsTr("Задайте радиус и подтвердите")
+            : qsTr("Задайте отступ и подтвердите")
+        padding: 10
+        color: theme.ink
+        font.pixelSize: 14
+        background: Rectangle {
+            radius: 12
+            color: theme.surface
+            border.color: theme.line
+        }
+    }
+
+    Button {
+        objectName: sketch.tool === "fillet" ? "filletRadius" : "chamferDistance"
+        visible: window.cornerStep === "distance" || window.cornerStep === "radius"
+        anchors.left: parent.left
+        anchors.leftMargin: 96
+        anchors.top: parent.top
+        anchors.topMargin: 60
+        text: (sketch.tool === "fillet" ? qsTr("Радиус: %1 мм ✎") : qsTr("Отступ фаски: %1 мм ✎"))
+                  .arg(Number(sketch.input_value.toFixed(3)))
         implicitHeight: 40
         leftPadding: 14
         rightPadding: 14
-        onClicked: editor.input("distance")
+        onClicked: editor.input(sketch.input_field)
         ToolTip.visible: hovered
-        ToolTip.text: help.hint("chamfer")
+        ToolTip.text: help.hint(sketch.tool)
         contentItem: Label {
             text: parent.text
             color: theme.primary
@@ -828,7 +864,9 @@ ApplicationWindow {
             }
             Chip {
                 objectName: "finishShape"
-                visible: sketch.in_progress && sketch.tool === "polyline"
+                visible: sketch.in_progress && (sketch.tool === "polyline"
+                                               || window.cornerStep === "distance" || window.cornerStep === "radius")
+                enabled: sketch.can_finish
                 icon.source: "qrc:/icons/check.svg"
                 text: qsTr("Готово")
                 tint: theme.primary
@@ -913,7 +951,11 @@ ApplicationWindow {
                 if (sketch.message === toast.shownKey) return
                 toast.shownKey = sketch.message
                 const text = window.describe(sketch.message)
-                if (text === "") return
+                if (text === "") {
+                    toast.visible = false
+                    toastTimer.stop()
+                    return
+                }
                 toast.text = text
                 toast.visible = true
                 toastTimer.restart()

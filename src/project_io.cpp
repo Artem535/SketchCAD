@@ -15,6 +15,32 @@
 
 namespace sketchcad {
 namespace {
+// Persistence never repairs derived arc caches: bound contacts must already
+// coincide with the stored arc endpoints within the geometric length tolerance.
+bool valid_bound_arc_endpoints(const Sketch& sketch) {
+  for (const auto& [id, c] : sketch.constraints()) {
+    if (c.kind != ConstraintKind::kTangentStart &&
+        c.kind != ConstraintKind::kTangentEnd)
+      continue;
+    // Called only after snapshot/reference validation.
+    const auto line = std::get<SketchLine>(*sketch.entity(c.first));
+    const auto arc = std::get<SketchArc>(*sketch.entity(c.second));
+    const auto contact =
+        std::get<SketchPoint>(
+            *sketch.entity(c.side == 1 ? line.start : line.end))
+            .position;
+    const auto center =
+        std::get<SketchPoint>(*sketch.entity(arc.center)).position;
+    const double angle =
+        arc.start_angle +
+        (c.kind == ConstraintKind::kTangentEnd ? arc.sweep_angle : 0);
+    const double error =
+        std::hypot(contact.x - center.x - arc.radius * std::cos(angle),
+                   contact.y - center.y - arc.radius * std::sin(angle));
+    if (!std::isfinite(error) || error > kLengthTolerance) return false;
+  }
+  return true;
+}
 struct WirePoint {
   using Tag = rfl::Literal<"point">;
   std::string id;
@@ -77,7 +103,7 @@ struct WireProject {
   std::vector<WireEntity> entities;
   std::vector<WireConstraint> constraints;
 };
-constexpr std::array<std::pair<ConstraintKind, std::string_view>, 13> kKinds = {
+constexpr std::array<std::pair<ConstraintKind, std::string_view>, 15> kKinds = {
     {
         {ConstraintKind::kCoincident, "coincident"},
         {ConstraintKind::kHorizontal, "horizontal"},
@@ -85,6 +111,8 @@ constexpr std::array<std::pair<ConstraintKind, std::string_view>, 13> kKinds = {
         {ConstraintKind::kParallel, "parallel"},
         {ConstraintKind::kPerpendicular, "perpendicular"},
         {ConstraintKind::kTangent, "tangent"},
+        {ConstraintKind::kTangentStart, "tangent_start"},
+        {ConstraintKind::kTangentEnd, "tangent_end"},
         {ConstraintKind::kEqual, "equal"},
         {ConstraintKind::kFix, "fix"},
         {ConstraintKind::kOnCurve, "on_curve"},
@@ -167,7 +195,9 @@ ProjectDecodeResult decode_project(std::string_view bytes) {
       return invalid;
     auto* version = yyjson_obj_get(root, "version");
     if (!yyjson_is_uint(version)) return invalid;
-    if (yyjson_get_uint(version) != 1) return ProjectError::kUnsupportedVersion;
+    const auto format_version = yyjson_get_uint(version);
+    if (format_version != 1 && format_version != 2)
+      return ProjectError::kUnsupportedVersion;
     if (!shape(root, {{"format", T::kString},
                       {"version", T::kInteger},
                       {"units", T::kString},
@@ -223,6 +253,9 @@ ProjectDecodeResult decode_project(std::string_view bytes) {
           kKinds.begin(), kKinds.end(),
           [&](const auto& entry) { return entry.second == v.kind; });
       if (kind == kKinds.end()) return invalid;
+      if (format_version == 1 &&
+          (kind->first == ConstraintKind::kTangentStart ||
+           kind->first == ConstraintKind::kTangentEnd)) return invalid;
       Constraint c{};
       c.id = id(v.id);
       c.kind = kind->first;
@@ -240,7 +273,8 @@ ProjectDecodeResult decode_project(std::string_view bytes) {
     }
     if (!valid_ids) return invalid;
     auto sketch = Sketch::from_snapshot(snapshot);
-    if (!sketch || check_constraints(*sketch).status != SolveStatus::kSolved)
+    if (!sketch || !valid_bound_arc_endpoints(*sketch) ||
+        check_constraints(*sketch).status != SolveStatus::kSolved)
       return invalid;
     return ProjectData{std::move(*sketch), *revision};
   } catch (const std::exception&) {
@@ -254,10 +288,17 @@ std::optional<std::string> encode_project(const ProjectData& project) {
     if (snapshot.entities.size() + snapshot.constraints.size() >
             kProjectMaxRecords ||
         project.revision == UINT64_MAX || !Sketch::from_snapshot(snapshot) ||
+        !valid_bound_arc_endpoints(project.sketch) ||
         check_constraints(project.sketch).status != SolveStatus::kSolved)
       return std::nullopt;
+    const bool has_bindings = std::any_of(
+        snapshot.constraints.begin(), snapshot.constraints.end(),
+        [](const Constraint& c) {
+          return c.kind == ConstraintKind::kTangentStart ||
+                 c.kind == ConstraintKind::kTangentEnd;
+        });
     WireProject wire{"SketchCAD",
-                     1,
+                     has_bindings ? 2u : 1u,
                      "mm",
                      std::to_string(project.revision),
                      std::to_string(snapshot.next_id),

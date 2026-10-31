@@ -465,34 +465,133 @@ class SketchControllerTest : public QObject {
     // Not an input: the controller refuses to change it.
     QVERIFY(!c->set_dimension(dimension(c)["id"].toULongLong(), 70));
   }
-  void chamfer_has_distance_preview_and_one_undo_step() {
+  void chamfer_has_staged_distance_preview_and_one_undo_step() {
     auto* c = make();
     c->set_tool("rectangle");
     tap(c, 10, 10);
     tap(c, 60, 40);
     const auto before = c->document().sketch();
+    const auto revision = c->document().revision();
     c->set_tool("chamfer");
     QCOMPARE(c->tool(), QString("chamfer"));
+    QCOMPARE(c->property("chamfer_step").toString(), QString("first"));
+    QCOMPARE(c->input_field(), QString());
+    QVERIFY(!c->property("can_finish").toBool());
+    tap(c, 30, 10);
+    QCOMPARE(c->property("chamfer_step").toString(), QString("second"));
+    QVERIFY(c->in_progress());
+    QVERIFY(!c->selected_path().isEmpty());
+    QVERIFY(!c->has_selection());  // Staged picks are not editable selections.
+    tap(c, 10, 25);
+    QCOMPARE(c->property("chamfer_step").toString(), QString("distance"));
     QCOMPARE(c->input_field(), QString("distance"));
+    QVERIFY(c->property("can_finish").toBool());
     QCOMPARE(c->input_value(), 2.0);
-    const auto at = c->screen_of(10, 10);
-    c->hover(at.x(), at.y());
     QVERIFY(!c->edit_preview_path().isEmpty());
     QVERIFY(c->enter_value(3));
-    QVERIFY(!c->edit_preview_path().isEmpty());
-    tap(c, 10, 10);
+    QVERIFY(c->document().sketch() == before);
+    QCOMPARE(c->document().revision(), revision);
+    QVERIFY(c->finish());
     QCOMPARE(lines(c).size(), 5u);
     QCOMPARE(c->document().undo_label(), std::string("Chamfer"));
     QVERIFY(c->message().isEmpty());
     QVERIFY(c->edit_preview_path().isEmpty());
     QVERIFY(!c->construction_path().isEmpty());
+    QCOMPARE(c->property("chamfer_step").toString(), QString("first"));
     c->undo();
     QVERIFY(c->document().sketch() == before);
     tap(c, 80, 80);
-    QCOMPARE(c->message(), QString("chamfer_not_corner"));
+    QCOMPARE(c->message(), QString("chamfer_pick_line"));
+    tap(c, 30, 10);
+    tap(c, 10, 25);
     QVERIFY(c->enter_value(100));
-    tap(c, 10, 10);
     QCOMPARE(c->message(), QString("chamfer_too_long"));
+    QVERIFY(!c->property("can_finish").toBool());
+    QVERIFY(!c->finish());
+    QVERIFY(c->document().sketch() == before);
+    QVERIFY(c->enter_value(4));
+    QVERIFY(c->message().isEmpty());
+    QVERIFY(c->property("can_finish").toBool());
+    QVERIFY(c->cancel());
+    QVERIFY(!c->in_progress());
+    QVERIFY(c->message().isEmpty());
+    QVERIFY(c->selected_path().isEmpty());
+    QVERIFY(c->edit_preview_path().isEmpty());
+    QVERIFY(c->document().sketch() == before);
+  }
+
+  void chamfer_grip_and_live_dimensions_are_preview_only() {
+    auto* c = make();
+    c->set_tool("rectangle");
+    tap(c, 10, 10);
+    tap(c, 60, 40);
+    c->set_tool("chamfer");
+    QVERIFY(!c->property("chamfer_handle").toMap()["visible"].toBool());
+    tap(c, 30, 10);
+    tap(c, 10, 25);
+    const auto before = c->document().sketch();
+    const auto revision = c->document().revision();
+    const auto grip = c->property("chamfer_handle").toMap();
+    QVERIFY(grip["visible"].toBool());
+    QCOMPARE(c->preview_dimension_labels().size(), 2);
+    QVERIFY(!c->preview_dimension_path().isEmpty());
+    const double dx = grip["x"].toDouble() - grip["anchor_x"].toDouble();
+    const double dy = grip["y"].toDouble() - grip["anchor_y"].toDouble();
+    QVERIFY(std::abs(std::hypot(dx, dy) - 64) < 1e-6);
+    const auto p = c->screen_of(10, 10);
+    bool resized = false;
+    QVERIFY(QMetaObject::invokeMethod(
+        c, "resize_chamfer", Q_RETURN_ARG(bool, resized),
+        Q_ARG(double, c->scale()), Q_ARG(double, -c->scale())));
+    QVERIFY(resized);
+    QCOMPARE(c->input_value(), 4.0);
+    for (const auto& label : c->preview_dimension_labels())
+      QCOMPARE(label.toMap()["text"].toString(), QString("4"));
+    QVERIFY(c->document().sketch() == before);
+    QCOMPARE(c->document().revision(), revision);
+    const auto moved = c->property("chamfer_handle").toMap();
+    QVERIFY(moved["x"].toDouble() > grip["x"].toDouble());
+    const auto at = c->screen_of(10, 10);
+    QCOMPARE(at, p);  // Drag sizing never pans the view.
+    c->pan(-10000, -10000);
+    const auto bounded = c->property("chamfer_handle").toMap();
+    QVERIFY(bounded["x"].toDouble() >= 28);
+    QVERIFY(bounded["y"].toDouble() >= 28);
+    QVERIFY(c->cancel());
+    QVERIFY(!c->property("chamfer_handle").toMap()["visible"].toBool());
+    QVERIFY(c->preview_dimension_labels().empty());
+    QVERIFY(c->document().sketch() == before);
+  }
+
+  void fillet_has_radius_preview_grip_and_transactional_confirmation() {
+    auto* c = make();
+    c->set_tool("rectangle");
+    tap(c, 10, 10);
+    tap(c, 60, 40);
+    const auto before = c->document().sketch();
+    c->set_tool("fillet");
+    QCOMPARE(c->tool(), QString("fillet"));
+    QCOMPARE(c->property("fillet_step").toString(), QString("first"));
+    tap(c, 30, 10);
+    tap(c, 10, 25);
+    QCOMPARE(c->input_field(), QString("radius"));
+    QVERIFY(c->property("chamfer_handle").toMap()["visible"].toBool());
+    QCOMPARE(c->preview_dimension_labels().size(), 1);
+    QVERIFY(c->preview_dimension_labels()
+                .front()
+                .toMap()["text"]
+                .toString()
+                .startsWith("R"));
+    QVERIFY(c->enter_value(3));
+    QVERIFY(c->document().sketch() == before);
+    QVERIFY(!c->edit_preview_path().isEmpty());
+    QVERIFY(c->finish());
+    QCOMPARE(c->document().undo_label(), std::string("Fillet"));
+    for (const auto& relation : c->constraints())
+      QVERIFY(!relation.toMap()["kind"].toString().isEmpty());
+    QVERIFY(c->preview_dimension_labels().empty());
+    c->undo();
+    QVERIFY(c->document().sketch() == before);
   }
 
   void trim_and_extend_tools() {

@@ -206,3 +206,10 @@ Limitations: checkpoints are written synchronously on the GUI thread; the measur
 `sketchcad.recovery` category, and large sketches may cause a short pause. Process-crash recovery only, no
 power-loss durability. No Windows or Android runtime evidence. The «fit» after restore places a single long
 line edge to edge, as after Open in F01 (existing view behaviour).
+
+
+=== Project schema v2 compatibility (U12, #59)
+
+The recovery envelope remains version 1. Its embedded project payload accepts project schema v1 and v2 according to
+xref:project-format.adoc[]; a fillet checkpoint keeps endpoint tangencies and its derived arc geometry. A future
+embedded project version is 3 or above and is rejected rather than repaired. Envelope version checks remain separate.

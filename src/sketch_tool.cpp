@@ -116,14 +116,9 @@ SnapResult ToolSession::snapped(Position p,
 }
 
 void ToolSession::hover(Position p) {
-  if (tool_ == Tool::kChamfer) {
-    hover_ = p;
+  if (is_corner_tool()) {
     last_snap_.reset();
-    edit_preview_.reset();
-    if (const auto corner =
-            pick_corner(document_.sketch(), p, pick_tolerance_mm_))
-      edit_preview_ =
-          chamfer_preview(document_.sketch(), *corner, chamfer_distance_);
+    // The preview belongs to the selected pair, never to the hover position.
     return;
   }
   if (tool_ == Tool::kTrim || tool_ == Tool::kExtend) {
@@ -146,37 +141,8 @@ void ToolSession::hover(Position p) {
 
 void ToolSession::press(Position p) {
   message_.clear();
-  if (tool_ == Tool::kChamfer) {
-    last_snap_.reset();
-    edit_preview_.reset();
-    hover_.reset();
-    const auto corner = pick_corner(document_.sketch(), p, pick_tolerance_mm_);
-    const auto status =
-        corner ? chamfer_status(document_.sketch(), *corner, chamfer_distance_)
-               : ChamferStatus::kNotCorner;
-    switch (status) {
-      case ChamferStatus::kNotCorner:
-        message_ = "chamfer_not_corner";
-        return;
-      case ChamferStatus::kInvalidDistance:
-        message_ = "invalid_value";
-        return;
-      case ChamferStatus::kTooLong:
-        message_ = "chamfer_too_long";
-        return;
-      case ChamferStatus::kCollinear:
-        message_ = "chamfer_collinear";
-        return;
-      case ChamferStatus::kEqualLength:
-        message_ = "chamfer_equal_length";
-        return;
-      case ChamferStatus::kReady:
-        break;
-    }
-    if (!document_.execute("Chamfer", [&](Sketch& sk) {
-          return chamfer(sk, *corner, chamfer_distance_);
-        }))
-      message_ = "chamfer_failed";
+  if (is_corner_tool()) {
+    press_chamfer(p);
     return;
   }
   if (tool_ == Tool::kSelect) {
@@ -478,12 +444,19 @@ void ToolSession::release(Position) {
 }
 
 bool ToolSession::finish() {
+  if (is_corner_tool()) return finish_chamfer();
   return tool_ == Tool::kPolyline && vertices_.size() >= 2 &&
          commit_polyline(false);
 }
 
 bool ToolSession::cancel() {
   edit_preview_.reset();
+  if (!chamfer_lines_.empty()) {
+    preview_ = Sketch();
+    chamfer_lines_.clear();
+    message_.clear();
+    return true;
+  }
   if (dragging_) {
     document_.cancel_gesture();
     dragging_ = false;
@@ -672,6 +645,7 @@ void ToolSession::update_preview(std::optional<Position> cursor) {
     case Tool::kTrim:
     case Tool::kExtend:
     case Tool::kChamfer:
+    case Tool::kFillet:
       break;
   }
 }
@@ -686,7 +660,11 @@ void ToolSession::preview_dimension(ConstraintKind kind, EntityId id) {
 }
 
 InputField ToolSession::input_field() const {
-  if (tool_ == Tool::kChamfer) return InputField::kDistance;
+  if (is_corner_tool())
+    return chamfer_lines_.size() == 2
+               ? (tool_ == Tool::kFillet ? InputField::kRadius
+                                         : InputField::kDistance)
+               : InputField::kNone;
   if (vertices_.empty()) return InputField::kNone;
   switch (tool_) {
     case Tool::kLine:
@@ -703,13 +681,15 @@ InputField ToolSession::input_field() const {
     case Tool::kTrim:
     case Tool::kExtend:
     case Tool::kChamfer:
+    case Tool::kFillet:
       break;
   }
   return InputField::kNone;
 }
 
 double ToolSession::input_value() const {
-  if (tool_ == Tool::kChamfer) return chamfer_distance_;
+  if (is_corner_tool())
+    return tool_ == Tool::kFillet ? fillet_radius_ : chamfer_distance_;
   if (vertices_.empty() || !hover_) return 0;
   const Position from = vertices_.back().position;
   switch (input_field()) {
@@ -731,10 +711,14 @@ bool ToolSession::enter_value(double value) {
   const InputField field = input_field();
   if (field == InputField::kNone || !std::isfinite(value) || value <= 0)
     return false;
-  if (field == InputField::kDistance) {
-    chamfer_distance_ = value;
+  if (is_corner_tool()) {
+    if (value <= kLengthTolerance) return false;
+    if (tool_ == Tool::kFillet)
+      fillet_radius_ = value;
+    else
+      chamfer_distance_ = value;
     message_.clear();
-    if (hover_) hover(*hover_);
+    update_chamfer_preview();
     return true;
   }
   const Position from = vertices_.back().position;

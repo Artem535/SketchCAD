@@ -1,0 +1,123 @@
+= U12: Sketch fillet
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/59[#59].
+
+User approved a line-line sketch fillet on 31 October 2026, with the same staged tablet interaction as
+xref:sketch-chamfer.adoc[]. The latest instruction restores fillet before vertex merging and the 3D milestone.
+
+== Behavior and limits
+
+Select “Скруглить”, pick two distinct lines sharing a topological corner, adjust the radius via a large offset grip
+or the on-canvas radius dimension/keypad, inspect a dashed tangent arc, then confirm with Done/Enter. Until confirmation
+no document geometry, IDs, constraints, revision or history change. Esc/Cancel, reset, tool switch and Undo/Redo clear
+staging. Invalid second picks retain the first. A numerically overlarge radius retains the pair and input control,
+clears preview and disables confirmation so it can be corrected. Default radius 2 mm, retained independently from
+chamfer setback. Grip works with mouse/stylus/finger including finger-pan mode; it must not pan the view. Release
+never commits. A successful fillet is one transaction and one Undo step. Solver rejection retains a retryable pair.
+
+First increment: one shared endpoint of exactly two straight lines, with no third geometry using it. No line-arc,
+arc-arc or disconnected crossing fillets, automatic whole-polyline rounding or 3D body-edge fillets. Reject collinear
+lines, invalid/nonfinite radius, vanishing or reversed shortened lines and either selected line in an equal-length
+constraint. The grip uses the same 56 px target/64 px midpoint offset and full-vector projection as chamfer.
+
+== Geometry and constraints
+
+For corner P, incident unit directions u1,u2 and interior angle theta in (0, pi), use setback
+`t = r * cot(theta/2)` and centre `C = P + (u1 + u2) * r / abs(cross(u1,u2))`.
+New contacts are `P + t*u1` and `P + t*u2`; the counter-clockwise minor arc spans `pi-theta` between the contacts.
+Keep original line IDs and the old corner as construction virtual sharp with two on-curve constraints. Preserve all
+constraints on it. Convert each incident line length to an overall point distance to the virtual sharp, preserving
+constraint ID/value/reference state and clearing manual placement, exactly as chamfer. Both construction input lines
+produce a construction fillet; mixed inputs produce normal geometry. Add one driving radius dimension regardless of
+automatic dimensions setting. Existing constraints on input lines remain. Degrees of freedom must remain unchanged.
+
+The model needs endpoint-aware tangency so radius/angle/overall-size changes preserve connected contact points.
+Add `ConstraintKind::kTangentStart` and `kTangentEnd`: first=line, second=arc, side=+1 selects the line start and -1
+selects its end. `Sketch::add_arc_tangency(kind,line,arc,point)` validates the explicit endpoint and captures side.
+Each has two length residuals: signed centre-to-contact projection onto the oriented line normal minus radius,
+with the normal branch captured in `internal`, and radial vector dot the line unit direction. The captured normal
+branch, together with preserving the minor/major sweep branch of a doubly bound arc, prevents oversized radius
+edits from silently reversing shortened lines or escaping through a major arc. Such edits fail transactionally.
+This fixes contact position and tangent direction at first order, avoiding the singular combination of generic
+line-circle tangency plus point-on-circle at the contact. Arc start/sweep are derived from its bound contacts after
+solving; unconstrained/ordinary arcs retain their existing angle behavior. Invalid/coincident contacts and invalid
+sweeps fail transactionally. `Sketch::update_line` and `Sketch::update_arc` reject endpoint/centre updates that would
+violate endpoint-tangency or on-curve reference invariants (centre on a bound line endpoint, two bindings of one arc
+sharing the same contact point, or an on-curve point becoming a defining point), keeping live sketches snapshot-valid.
+Trim and extend respect bound arc contacts: a line endpoint or arc end bound by `kTangentStart`/`kTangentEnd` is not a
+free end for `extend`; trimming away a bound line end or bound arc end detaches that endpoint-tangency relation cleanly,
+and splitting a bound line or arc in the middle keeps the endpoint-tangency relation on the piece that retains the bound
+end. New relations participate in diagnosis, drag, validation and project round-trip.
+Persistence adds tags `tangent_start`, `tangent_end` in schema version 2. Writers use v2 when these bindings exist;
+ordinary sketches continue to write v1. Readers accept v1 and v2, but v1 must reject v2-only tags; future versions
+fail explicitly. Old readers report unsupported version rather than lose bindings. Stored arc endpoint angles must
+match contact points; malformed cached angles are rejected, never silently repaired by file loading. No existing
+entity wire shape changes or OCCT/Qt core dependencies.
+
+== Interfaces and implementation plan
+
+. Specification → linked enhancement issue with `area:ui`, `status:ready` before tests. Preserve all dirty #57/#58
+  changes and `.dt/`; no commits or publication authorized.
+. Endpoint-tangency module (independent worker): RED tests for validation, solver/DOF, radius edits, rotated lines,
+  snapshot/project v1/v2 round-trip and invalid data; then add the two relation kinds, `Sketch::add_arc_tangency`, solver
+  residuals, derived arc angles and serialization. Touch constraint.h, sketch.h/.cpp, solver_problem.h,
+  constraint_solver.cpp, project_io.cpp and their dedicated constraint/solver/project tests only. Record logs.
+. Core fillet module: RED tests then `FilletStatus fillet_status(Sketch,corner,r)`,
+  `optional<CurvePiece> fillet_preview(...)`, `bool fillet(Sketch&,corner,r)` in sketch_edit.h/sketch_fillet.cpp.
+  Validate geometry/allocator failure and publish a snapshot only on success. Test right/oblique corners, exact
+  contact geometry, preserved IDs/overall dimensions/DOF, construction, invalid inputs and solver rollback.
+. Tool/UI: extend existing two-line staged corner state for Tool::kFillet without changing chamfer behavior. Radius
+  input, independent retained value, radius live dimension, curve preview/grip, messages/help/icon and existing
+  confirmation/cancel controls. RED tool/controller/QML scenarios, real keypad/mouse/touch, no early mutation.
+. Verify Release and Debug/Werror CTest plus Antora, project round-trip and visual screenshot; independent review
+  and regression fixes. Record outcomes/limitations in issue and handoff. Desktop-only evidence is not Android support.
+
+== Acceptance
+
+A dimensioned rectangle becomes four shortened sides and one tangent arc after a corner fillet. A radius edit and
+an overall width/height edit leave arc contacts coincident with their actual line ends and perpendicular to each
+radial vector. Radius equals the driving value; the old corner/line/constraint IDs and overall dimensions remain.
+Undo/Redo restore exact snapshots; file save/open preserves the result and subsequent radius editing. Rejected
+operations leave geometry/history untouched. Tests include 60, 90 and 120 degree corners, both selection orders,
+limits and nonfinite data, and synthetic input without making physical-tablet claims.
+
+== Execution evidence (31 October 2026)
+
+* Environment: Fedora 44 host, GCC 16.2.1, Qt 6.11.2, Ceres 2.2 / Eigen / reflect-cpp / GoogleTest via vcpkg;
+  builds `build/u11-release` (Release) and `build/u11-werror` (Debug `-Wall -Wextra -Werror -Wno-error=self-move`).
+* Specification and plan preceded issue #59, labelled `enhancement`, `area:ui`, `status:ready`. Existing #57/#58
+  working-tree changes and `.dt/` preserved. No new commit or publication authorized.
+* Core/tool RED recorded in `build/issue59-core-red.log` and `build/issue59-tool-red.log` on missing fillet APIs/tool.
+  Controller RED `build/issue59-controller-red.log`: tool stayed rectangle; QML RED `build/issue59-qml-red.log`:
+  missing `tool_fillet`. Binding worker recorded six behavioral RED failures in `build/issue59-bindings-red-all.log`.
+* Core GREEN covers acute/right/obtuse geometry, stable IDs/DOF, editable radius and overall dimensions,
+  invalid radii, equal-length rejection, construction and allocator exhaustion. Tool tests cover independent retained
+  radius, delayed commit, reset/cancel/Undo/Redo and solver rollback. Real QML mouse grip, radius-label keypad,
+  Done/Cancel and synthetic touch grip in finger-pan mode pass the targeted scenario.
+* Regression RED `build/issue59-contact-red.log`: a point already used as an arc contact could be rounded again
+  after drawing another incident line. Shared corner validation now accounts for endpoint-aware arc references.
+* Regression RED `build/issue59-relation-label-red.log`: endpoint tangencies had empty UI constraint names; map
+  them to the existing tangent label. RED `build/issue59-small-radius-red.log`: sub-tolerance numeric radius replaced
+  the valid staged value; such input now leaves the prior valid preview/value intact and reports invalid input.
+* Regression RED `build/issue59-radius-limit-red.log`: changing the radius of a fixed rectangle to 100 mm flipped
+  shortened lines yet reported solved. Endpoint tangency now captures the oriented normal and preserves the
+  minor/major sweep branch of doubly bound arcs. A second analytic counterexample (R12, centre (32,12), 270-degree
+  arc) is covered by `Fillet.OrientedTangencyCannotEscapeThroughAMajorArcBranch`; the parent run already passed
+  because the worker guard landed during compilation, so its provisionally named log is not RED evidence.
+  Persistence validates stored contact/arc cache consistency and uses v2 tags; ordinary sketches remain v1.
+* Independent review regression RED `build/issue59-review-red.log`: `Sketch::update_line` and `Sketch::update_arc`
+  previously accepted endpoint/centre updates that violated `kTangentStart`/`kTangentEnd`/`kOnCurve` snapshot
+  invariants; `extend`/`extend_preview` treated bound line and arc contacts as free ends; `trim` left endpoint
+  tangencies on the wrong piece when splitting or trimming filleted lines/arcs; and soft-drag angle jitter near `pi`
+  needed clamping within `kAngleTolerance`. Fixed in `src/sketch.cpp`, `src/sketch_edit.cpp` and `src/solver_problem.h`.
+  Test fix noted: the initial `trim_arc_end` cutter `y = x - 18` passed through both arc endpoints `(18,0)` and `(20,2)`
+  instead of cutting the arc interior, causing whole-arc deletion; updated to interior cutter `(18,2)-(22,-2)` and
+  asserted the trimmed start angle `-pi/4` survives `solve()`.
+* Final GREEN: 275/275 CTest in both `build/u11-release` (`build/issue59-release-green.log`) and `build/u11-werror`
+  (`build/issue59-werror-green.log`), `git diff --check` clean, Antora build clean.
+* Visually checked `build/u11-release/sketch_u12_fillet_preview.png` and `sketch_u12_fillet.png`: radius R3, offset
+  grip, dashed arc and actual rounded rectangle are visible with overall dimensions and DOF 2 retained.
+* Limitations: line-line shared corners only (no line-arc, arc-arc, crossing non-shared segments or 3D body-edge
+  fillets); desktop mouse and synthetic touch verified only — Android APK, physical tablet/stylus hardware and remote CI
+  are not claimed.

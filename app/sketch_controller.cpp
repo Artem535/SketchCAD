@@ -28,7 +28,7 @@ constexpr double kPointMarkerPx = 3;
 constexpr double kSelectedMarkerPx = 6;
 constexpr int kMajorEvery = 5;
 
-constexpr std::array<std::pair<Tool, const char*>, 10> kTools{{
+constexpr std::array<std::pair<Tool, const char*>, 11> kTools{{
     {Tool::kSelect, "select"},
     {Tool::kLine, "line"},
     {Tool::kPolyline, "polyline"},
@@ -39,6 +39,7 @@ constexpr std::array<std::pair<Tool, const char*>, 10> kTools{{
     {Tool::kTrim, "trim"},
     {Tool::kExtend, "extend"},
     {Tool::kChamfer, "chamfer"},
+    {Tool::kFillet, "fillet"},
 }};
 
 QString status_message(sketchcad::SolveStatus status);
@@ -155,14 +156,86 @@ void SketchController::hover(double x, double y) {
   emit changed();
 }
 
+QString SketchController::chamfer_step() const {
+  if (session_.tool() != Tool::kChamfer) return {};
+  switch (session_.selected().size()) {
+    case 0:
+      return QStringLiteral("first");
+    case 1:
+      return QStringLiteral("second");
+    default:
+      return QStringLiteral("distance");
+  }
+}
+
+QString SketchController::fillet_step() const {
+  if (session_.tool() != Tool::kFillet) return {};
+  switch (session_.selected().size()) {
+    case 0:
+      return QStringLiteral("first");
+    case 1:
+      return QStringLiteral("second");
+    default:
+      return QStringLiteral("radius");
+  }
+}
+
+QVariantMap SketchController::chamfer_handle() const {
+  const auto origin = session_.chamfer_corner_position();
+  const auto& piece = session_.edit_preview();
+  if (!origin || !piece || width_ < 56 || height_ < 56) return {};
+  const auto corner = view_.to_screen(*origin);
+  const auto a = view_.to_screen(piece->a);
+  const auto b = view_.to_screen(piece->b);
+  double x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
+  if (piece->is_arc) {
+    const double angle = piece->start + piece->sweep / 2;
+    const auto middle =
+        view_.to_screen({piece->center.x + piece->radius * std::cos(angle),
+                         piece->center.y + piece->radius * std::sin(angle)});
+    x = middle.x;
+    y = middle.y;
+  }
+  const double length = std::hypot(x - corner.x, y - corner.y);
+  if (!(length > 0)) return {};
+  const double hx =
+      std::clamp(x + 64 * (x - corner.x) / length, 28., width_ - 28);
+  const double hy =
+      std::clamp(y + 64 * (y - corner.y) / length, 28., height_ - 28);
+  return {{"visible", true},
+          {"x", hx},
+          {"y", hy},
+          {"anchor_x", x},
+          {"anchor_y", y},
+          {"angle",
+           std::atan2(y - corner.y, x - corner.x) * 180 / std::numbers::pi},
+          {"leader", QStringLiteral("M %1 %2 L %3 %4")
+                         .arg(num(x), num(y), num(hx), num(hy))}};
+}
+
+bool SketchController::resize_chamfer(double dx, double dy) {
+  if (!std::isfinite(dx) || !std::isfinite(dy)) return false;
+  if (!session_.resize_chamfer({dx / view_.scale(), -dy / view_.scale()}))
+    return false;
+  refresh_tool_message();
+  refresh_scene();
+  emit changed();
+  return true;
+}
+
+void SketchController::refresh_tool_message() {
+  message_ = QString::fromStdString(session_.message());
+  if ((message_ == QStringLiteral("chamfer_failed") ||
+       message_ == QStringLiteral("fillet_failed")) &&
+      last_status_ != sketchcad::SolveStatus::kSolved)
+    message_ = status_message(last_status_);
+}
+
 void SketchController::press(double x, double y) {
   message_.clear();
   last_status_ = sketchcad::SolveStatus::kSolved;
   session_.press(world(x, y));
-  message_ = QString::fromStdString(session_.message());
-  if (message_ == QStringLiteral("chamfer_failed") &&
-      last_status_ != sketchcad::SolveStatus::kSolved)
-    message_ = status_message(last_status_);
+  refresh_tool_message();
   snap_hint_ = session_.tool() != Tool::kSelect;
   refresh_scene();
   emit changed();
@@ -208,7 +281,9 @@ void SketchController::fit() {
 }
 
 bool SketchController::finish() {
+  last_status_ = sketchcad::SolveStatus::kSolved;
   const bool ok = session_.finish();
+  refresh_tool_message();
   refresh_scene();
   emit changed();
   return ok;
@@ -220,6 +295,7 @@ bool SketchController::cancel() {
     return true;
   }
   const bool ok = session_.cancel();
+  refresh_tool_message();
   snap_hint_ = false;
   refresh_scene();
   emit changed();
@@ -374,7 +450,8 @@ void SketchController::refresh_scene() {
   preview_path_.clear();
   const Sketch& preview = session_.preview();
   for (const auto& [id, entity] : preview.entities())
-    if (!std::holds_alternative<SketchPoint>(entity))
+    if (session_.tool() != Tool::kFillet &&
+        !std::holds_alternative<SketchPoint>(entity))
       preview_path_ += curve_path(preview, entity);
 }
 
@@ -517,6 +594,9 @@ constexpr std::array<Action, 13> kActions{{
     {"radius", sketchcad::ConstraintKind::kRadius},
 }};
 QString key_of(sketchcad::ConstraintKind kind) {
+  if (kind == sketchcad::ConstraintKind::kTangentStart ||
+      kind == sketchcad::ConstraintKind::kTangentEnd)
+    return QStringLiteral("tangent");
   for (const auto& a : kActions)
     if (a.kind == kind) return a.key;
   return {};
@@ -882,7 +962,10 @@ double SketchController::input_value() const { return session_.input_value(); }
 
 bool SketchController::enter_value(double value) {
   const bool ok = session_.enter_value(value);
-  message_ = ok ? QString() : QStringLiteral("invalid_value");
+  if (ok)
+    refresh_tool_message();
+  else
+    message_ = QStringLiteral("invalid_value");
   refresh_scene();
   emit changed();
   return ok;

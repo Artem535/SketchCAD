@@ -116,7 +116,11 @@ SolveResult solve_once(Sketch& sketch, bool retry) {
   Problem problem(sketch);
   if (!problem.build()) return {SolveStatus::kInvalidInput, {}};
   const SolveResult initial = problem.check();
-  if (initial.status == SolveStatus::kSolved) return initial;
+  if (initial.status == SolveStatus::kSolved) {
+    sketch = problem.apply();
+    return initial;
+  }
+  if (initial.status == SolveStatus::kInvalidInput) return initial;
   if (!std::isfinite(initial.max_length_residual) ||
       !std::isfinite(initial.max_angle_residual))
     return {SolveStatus::kInvalidInput, {}};

@@ -44,6 +44,10 @@ class SketchController : public QObject {
   Q_PROPERTY(int entity_count READ entity_count NOTIFY changed)
   Q_PROPERTY(bool has_selection READ has_selection NOTIFY changed)
   Q_PROPERTY(bool in_progress READ in_progress NOTIFY changed)
+  Q_PROPERTY(bool can_finish READ can_finish NOTIFY changed)
+  Q_PROPERTY(QString chamfer_step READ chamfer_step NOTIFY changed)
+  Q_PROPERTY(QString fillet_step READ fillet_step NOTIFY changed)
+  Q_PROPERTY(QVariantMap chamfer_handle READ chamfer_handle NOTIFY changed)
   Q_PROPERTY(QString message READ message NOTIFY changed)
   Q_PROPERTY(double scale READ scale NOTIFY changed)
   // Current snap grid step in mm (depends on zoom).
@@ -117,6 +121,10 @@ class SketchController : public QObject {
   int entity_count() const;
   bool has_selection() const { return session_.selection().has_value(); }
   bool in_progress() const { return session_.in_progress(); }
+  bool can_finish() const { return session_.can_finish(); }
+  QString chamfer_step() const;
+  QString fillet_step() const;
+  QVariantMap chamfer_handle() const;
   // Translation key of the last rejected action, empty when none.
   QString message() const { return message_; }
   double scale() const { return view_.scale(); }
@@ -171,6 +179,7 @@ class SketchController : public QObject {
   Q_INVOKABLE qulonglong apply(const QString& key);
   Q_INVOKABLE bool remove_constraint(qulonglong id);
   Q_INVOKABLE bool enter_value(double value);
+  Q_INVOKABLE bool resize_chamfer(double dx, double dy);
   // U09: moving a dimension by its text, as one gesture.
   Q_INVOKABLE bool begin_dimension_drag(qulonglong id);
   Q_INVOKABLE void drag_dimension(double x, double y);
@@ -219,6 +228,7 @@ class SketchController : public QObject {
   bool grid_on_curves_ = false;
   bool snap_hint_ = false;
   sketchcad::SolveStatus last_status_ = sketchcad::SolveStatus::kSolved;
+  void refresh_tool_message();
   QString message_;
   QString geometry_path_;
   QString selected_path_;
