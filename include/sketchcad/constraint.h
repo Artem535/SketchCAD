@@ -19,6 +19,8 @@ enum class ConstraintKind {
   kParallel,
   kPerpendicular,
   kTangent,
+  kTangentStart,
+  kTangentEnd,
   kEqual,
   kFix,
   // A point on a line (infinite), circle or arc (its full circle).
@@ -55,10 +57,13 @@ struct Constraint {
   // kFix: position captured at creation.
   Position target{0, 0};
   // Circle-circle kTangent: internal instead of external contact.
+  // Arc endpoint tangency: captured negative normal branch, i.e.
+  // cross(line.end-line.start, center-contact) < 0 at creation.
   bool internal = false;
   // Dimensions: millimetres, or radians for kAngle.
   double value = 0;
-  // Point-line kDistance: side of the line at creation (+1 or -1).
+  // Point-line kDistance: side at creation (+1 or -1).
+  // kTangentStart/kTangentEnd: +1 binds line.start, -1 binds line.end.
   int side = 1;
   // Dimensions: set when the user moved the dimension; automatic otherwise.
   std::optional<DimensionPlacement> placement;

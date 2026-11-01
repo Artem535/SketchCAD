@@ -64,7 +64,7 @@ class ProjectFileTest : public QObject {
              project_file::Error::kInvalidProject);
     QVERIFY(old.open(QIODevice::WriteOnly));
     old.write(
-        "{\"format\":\"SketchCAD\",\"version\":2,\"units\":\"mm\",\"revision\":"
+        "{\"format\":\"SketchCAD\",\"version\":3,\"units\":\"mm\",\"revision\":"
         "\"0\",\"next_id\":\"1\",\"entities\":[],\"constraints\":[]}");
     old.close();
     QCOMPARE(std::get<project_file::Error>(project_file::read(url)),

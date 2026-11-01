@@ -2,6 +2,7 @@
 
 #include <map>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "sketchcad/document.h"
@@ -21,12 +22,14 @@ enum class Tool {
   // U04 part 2.
   kTrim,
   kExtend,
+  kChamfer,
+  kFillet,
 };
 
 enum class DeleteResult { kDeleted, kNothingSelected, kPointInUse };
 
 // Value the next typed number sets while drawing (default-dimensions.adoc).
-enum class InputField { kNone, kLength, kWidth, kHeight, kRadius };
+enum class InputField { kNone, kLength, kWidth, kHeight, kRadius, kDistance };
 
 // Drawing and selection state machine over a Document, in world mm.
 // Every finished shape is one Document command; unfinished shapes exist
@@ -36,6 +39,9 @@ class ToolSession {
   explicit ToolSession(Document& document);
 
   Tool tool() const { return tool_; }
+  bool is_corner_tool() const {
+    return tool_ == Tool::kChamfer || tool_ == Tool::kFillet;
+  }
   // Switching the tool cancels the shape in progress.
   void set_tool(Tool);
 
@@ -53,6 +59,7 @@ class ToolSession {
   // Clears interaction state before a file operation, retaining user settings.
   void reset();
   bool finish();
+  bool can_finish() const;
   bool cancel();
 
   // Driving dimensions added to every finished shape (on by default).
@@ -64,8 +71,13 @@ class ToolSession {
   InputField input_field() const;
   double input_value() const;
   bool enter_value(double value);
+  // Preview-only equal setback adjustment by a world-coordinate drag delta.
+  bool resize_chamfer(Position delta);
+  std::optional<Position> chamfer_corner_position() const;
+  const std::string& message() const { return message_; }
   bool in_progress() const {
-    return !vertices_.empty() || !dimension_picks_.empty();
+    return !vertices_.empty() || !dimension_picks_.empty() ||
+           !chamfer_lines_.empty();
   }
 
   // Most recently selected entity.
@@ -74,7 +86,9 @@ class ToolSession {
     return selected_.back();
   }
   // Up to two selected entities in tap order.
-  const std::vector<EntityId>& selected() const { return selected_; }
+  const std::vector<EntityId>& selected() const {
+    return is_corner_tool() ? chamfer_lines_ : selected_;
+  }
   void clear_selection() { selected_.clear(); }
   DeleteResult delete_selection();
   // Toggles the construction flag of the selected curves in one command:
@@ -108,6 +122,11 @@ class ToolSession {
   void press_dimension(Position);
   void preview_reference(Position cursor);
 
+  void press_chamfer(Position);
+  std::optional<EntityId> chamfer_corner() const;
+  void update_chamfer_preview();
+  bool finish_chamfer();
+
   SnapResult snapped(Position, std::optional<EntityId> exclude = {}) const;
   void place(const SnapResult&);
   void preview_dimension(ConstraintKind kind, EntityId id);
@@ -137,6 +156,10 @@ class ToolSession {
   std::optional<SnapResult> last_snap_;
   std::vector<EntityId> dimension_picks_;
   std::optional<CurvePiece> edit_preview_;
+  std::vector<EntityId> chamfer_lines_;
+  double chamfer_distance_ = 2;
+  double fillet_radius_ = 2;
+  std::string message_;
   Sketch preview_;
 };
 }  // namespace sketchcad

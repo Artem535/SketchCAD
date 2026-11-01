@@ -79,7 +79,8 @@ choice (no settings storage before F01), device checks (P01).
   4-column key grid, keys 56 dp radius 16 on `surface2`, Apply key `primary`/`onPrimary`. Object names from U02 kept.
 * *Toast* (`toast`) at top centre: messages (U02 keys, all of them errors) appear as a toast for 2.6 s on the `err`
   background; text is white in the light theme and `errContainer` in the dark one (white on the pale dark `err` is
-  unreadable; the mockup has that defect). The status line of U01/U02 is removed.
+  unreadable; the mockup has that defect). Clearing the controller message after correction or cancellation hides
+  the toast immediately and stops its timer (U11 staged workflow, #57). The status line of U01/U02 is removed.
 
 == Controller additions
 * `selection_properties`: list of `{label, value, unit}` for the selection, values formatted like dimension labels:

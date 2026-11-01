@@ -26,9 +26,10 @@ constexpr double kPickPx = 16;
 constexpr double kSnapPx = 12;
 constexpr double kPointMarkerPx = 3;
 constexpr double kSelectedMarkerPx = 6;
+constexpr double kGapMarkerPx = 6.5;
 constexpr int kMajorEvery = 5;
 
-constexpr std::array<std::pair<Tool, const char*>, 9> kTools{{
+constexpr std::array<std::pair<Tool, const char*>, 11> kTools{{
     {Tool::kSelect, "select"},
     {Tool::kLine, "line"},
     {Tool::kPolyline, "polyline"},
@@ -38,7 +39,11 @@ constexpr std::array<std::pair<Tool, const char*>, 9> kTools{{
     {Tool::kDimension, "dimension"},
     {Tool::kTrim, "trim"},
     {Tool::kExtend, "extend"},
+    {Tool::kChamfer, "chamfer"},
+    {Tool::kFillet, "fillet"},
 }};
+
+QString status_message(sketchcad::SolveStatus status);
 
 QString num(double v) { return QString::number(v, 'f', 2); }
 QString move_to(ScreenPoint p) {
@@ -152,9 +157,156 @@ void SketchController::hover(double x, double y) {
   emit changed();
 }
 
+QString SketchController::chamfer_step() const {
+  if (session_.tool() != Tool::kChamfer) return {};
+  switch (session_.selected().size()) {
+    case 0:
+      return QStringLiteral("first");
+    case 1:
+      return QStringLiteral("second");
+    default:
+      return QStringLiteral("distance");
+  }
+}
+
+QString SketchController::fillet_step() const {
+  if (session_.tool() != Tool::kFillet) return {};
+  switch (session_.selected().size()) {
+    case 0:
+      return QStringLiteral("first");
+    case 1:
+      return QStringLiteral("second");
+    default:
+      return QStringLiteral("radius");
+  }
+}
+
+QVariantMap SketchController::chamfer_handle() const {
+  const auto origin = session_.chamfer_corner_position();
+  const auto& piece = session_.edit_preview();
+  if (!origin || !piece || width_ < 56 || height_ < 56) return {};
+  const auto corner = view_.to_screen(*origin);
+  const auto a = view_.to_screen(piece->a);
+  const auto b = view_.to_screen(piece->b);
+  double x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
+  if (piece->is_arc) {
+    const double angle = piece->start + piece->sweep / 2;
+    const auto middle =
+        view_.to_screen({piece->center.x + piece->radius * std::cos(angle),
+                         piece->center.y + piece->radius * std::sin(angle)});
+    x = middle.x;
+    y = middle.y;
+  }
+  const double length = std::hypot(x - corner.x, y - corner.y);
+  if (!(length > 0)) return {};
+  const double hx =
+      std::clamp(x + 64 * (x - corner.x) / length, 28., width_ - 28);
+  const double hy =
+      std::clamp(y + 64 * (y - corner.y) / length, 28., height_ - 28);
+  return {{"visible", true},
+          {"x", hx},
+          {"y", hy},
+          {"anchor_x", x},
+          {"anchor_y", y},
+          {"angle",
+           std::atan2(y - corner.y, x - corner.x) * 180 / std::numbers::pi},
+          {"leader", QStringLiteral("M %1 %2 L %3 %4")
+                         .arg(num(x), num(y), num(hx), num(hy))}};
+}
+
+bool SketchController::resize_chamfer(double dx, double dy) {
+  if (!std::isfinite(dx) || !std::isfinite(dy)) return false;
+  if (!session_.resize_chamfer({dx / view_.scale(), -dy / view_.scale()}))
+    return false;
+  refresh_tool_message();
+  refresh_scene();
+  emit changed();
+  return true;
+}
+
+int SketchController::hole_count() const {
+  int total = 0;
+  for (const auto& face : profile_analysis_.faces)
+    total += static_cast<int>(face.holes.size());
+  return total;
+}
+
+bool SketchController::merge_vertices(double tolerance,
+                                     bool collapse_short_edges) {
+  if (document_.gesture_active()) {
+    message_ = QStringLiteral("invalid_action");
+    emit changed();
+    return false;
+  }
+  conflict_entities_.clear();
+  if (!std::isfinite(tolerance) || !(tolerance > 0) || tolerance > 1e6) {
+    message_ = QStringLiteral("invalid_value");
+    refresh_scene();
+    emit changed();
+    return false;
+  }
+  Sketch probe = document_.sketch();
+  const auto probe_result = sketchcad::merge_nearby_vertices(
+      probe, tolerance, collapse_short_edges);
+  switch (probe_result.status) {
+    case sketchcad::MergeStatus::kInvalidTolerance:
+      message_ = QStringLiteral("invalid_value");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kNothingToMerge:
+      merge_tolerance_ = tolerance;
+      message_ = QStringLiteral("merge_nothing");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kCollapsedEntity:
+      message_ = QStringLiteral("merge_collapsed");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kConflict:
+      message_ = QStringLiteral("conflict");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kMerged:
+      break;
+  }
+  last_status_ = sketchcad::SolveStatus::kSolved;
+  const bool ok = document_.execute("Merge vertices", [&](Sketch& s) {
+    return sketchcad::merge_nearby_vertices(s, tolerance, collapse_short_edges)
+               .status ==
+           sketchcad::MergeStatus::kMerged;
+  });
+  if (ok) {
+    session_.cancel();
+    session_.clear_selection();
+    merge_tolerance_ = tolerance;
+    message_.clear();
+  } else {
+    message_ = last_status_ != sketchcad::SolveStatus::kSolved
+                   ? status_message(last_status_)
+                   : QStringLiteral("conflict");
+  }
+  refresh_scene();
+  emit changed();
+  return ok;
+}
+
+void SketchController::refresh_tool_message() {
+  message_ = QString::fromStdString(session_.message());
+  if ((message_ == QStringLiteral("chamfer_failed") ||
+       message_ == QStringLiteral("fillet_failed")) &&
+      last_status_ != sketchcad::SolveStatus::kSolved)
+    message_ = status_message(last_status_);
+}
+
 void SketchController::press(double x, double y) {
   message_.clear();
+  last_status_ = sketchcad::SolveStatus::kSolved;
   session_.press(world(x, y));
+  refresh_tool_message();
   snap_hint_ = session_.tool() != Tool::kSelect;
   refresh_scene();
   emit changed();
@@ -200,7 +352,9 @@ void SketchController::fit() {
 }
 
 bool SketchController::finish() {
+  last_status_ = sketchcad::SolveStatus::kSolved;
   const bool ok = session_.finish();
+  refresh_tool_message();
   refresh_scene();
   emit changed();
   return ok;
@@ -212,6 +366,7 @@ bool SketchController::cancel() {
     return true;
   }
   const bool ok = session_.cancel();
+  refresh_tool_message();
   snap_hint_ = false;
   refresh_scene();
   emit changed();
@@ -294,6 +449,42 @@ static QString arc_path(const sketchcad::ViewTransform& view, Position c,
   return path;
 }
 
+static QString loop_path(const sketchcad::ViewTransform& view,
+                         const sketchcad::ProfileLoop& loop) {
+  if (loop.edges.empty()) return {};
+  if (loop.edges.size() == 1 &&
+      loop.edges.front().kind == sketchcad::ProfileEdgeKind::kCircle) {
+    const auto& e = loop.edges.front();
+    const double sweep =
+        e.sweep_angle != 0 ? e.sweep_angle : 2 * std::numbers::pi;
+    return arc_path(view, e.center, e.radius, 0, sweep) + QStringLiteral("Z ");
+  }
+  QString path = move_to(view.to_screen(loop.edges.front().start));
+  for (const auto& e : loop.edges) {
+    if (e.kind == sketchcad::ProfileEdgeKind::kLine) {
+      path += line_to(view.to_screen(e.end));
+    } else if (e.kind == sketchcad::ProfileEdgeKind::kArc) {
+      const int pieces = std::max(
+          1, static_cast<int>(
+                 std::ceil(std::abs(e.sweep_angle) / std::numbers::pi - 1e-9)));
+      const double rp = e.radius * view.scale();
+      for (int i = 1; i <= pieces; ++i) {
+        const double angle = e.start_angle + e.sweep_angle * i / pieces;
+        const ScreenPoint p =
+            i == pieces
+                ? view.to_screen(e.end)
+                : view.to_screen({e.center.x + e.radius * std::cos(angle),
+                                  e.center.y + e.radius * std::sin(angle)});
+        path += QStringLiteral("A %1 %1 0 0 %2 %3 %4 ")
+                    .arg(num(rp), e.sweep_angle > 0 ? "0" : "1", num(p.x),
+                         num(p.y));
+      }
+    }
+  }
+  path += QStringLiteral("Z ");
+  return path;
+}
+
 QString SketchController::curve_path(const Sketch& sketch,
                                      const Entity& entity) const {
   const auto position = [&](sketchcad::EntityId id) {
@@ -324,9 +515,10 @@ void SketchController::refresh_scene() {
   construction_path_.clear();
   points_path_.clear();
   for (const auto& [id, entity] : sketch.entities()) {
-    if (const auto* p = std::get_if<SketchPoint>(&entity))
-      points_path_ += marker_path(p->position, kPointMarkerPx);
-    else if (std::visit([](const auto& e) { return e.construction; }, entity))
+    if (const auto* p = std::get_if<SketchPoint>(&entity)) {
+      (p->construction ? construction_path_ : points_path_) +=
+          marker_path(p->position, kPointMarkerPx);
+    } else if (std::visit([](const auto& e) { return e.construction; }, entity))
       construction_path_ += curve_path(sketch, entity);
     else
       geometry_path_ += curve_path(sketch, entity);
@@ -335,6 +527,24 @@ void SketchController::refresh_scene() {
   for (EntityId id : session_.selected())
     selected_path_ += entity_path(sketch, id, kSelectedMarkerPx);
   refresh_analysis();
+  profile_fill_path_.clear();
+  for (const auto& face : profile_analysis_.faces) {
+    profile_fill_path_ += loop_path(view_, face.outer);
+    for (const auto& hole : face.holes)
+      profile_fill_path_ += loop_path(view_, hole);
+  }
+  open_endpoints_path_.clear();
+  if (!session_.in_progress()) {
+    for (const auto& ep : profile_analysis_.open_endpoints)
+      open_endpoints_path_ += marker_path(ep.position, kGapMarkerPx);
+    for (const auto& pos : profile_analysis_.invalid_intersections) {
+      const ScreenPoint s = view_.to_screen(pos);
+      open_endpoints_path_ +=
+          marker_path(pos, kGapMarkerPx) +
+          QStringLiteral("M %1 %2 L %3 %4 M %1 %4 L %3 %2 ")
+              .arg(num(s.x - 4), num(s.y - 4), num(s.x + 4), num(s.y + 4));
+    }
+  }
   if (selected_constraint_ && !sketch.constraint(selected_constraint_))
     selected_constraint_ = 0;
   constraint_path_.clear();
@@ -365,7 +575,8 @@ void SketchController::refresh_scene() {
   preview_path_.clear();
   const Sketch& preview = session_.preview();
   for (const auto& [id, entity] : preview.entities())
-    if (!std::holds_alternative<SketchPoint>(entity))
+    if (session_.tool() != Tool::kFillet &&
+        !std::holds_alternative<SketchPoint>(entity))
       preview_path_ += curve_path(preview, entity);
 }
 
@@ -508,6 +719,9 @@ constexpr std::array<Action, 13> kActions{{
     {"radius", sketchcad::ConstraintKind::kRadius},
 }};
 QString key_of(sketchcad::ConstraintKind kind) {
+  if (kind == sketchcad::ConstraintKind::kTangentStart ||
+      kind == sketchcad::ConstraintKind::kTangentEnd)
+    return QStringLiteral("tangent");
   for (const auto& a : kActions)
     if (a.kind == kind) return a.key;
   return {};
@@ -550,6 +764,13 @@ void SketchController::refresh_analysis() {
     analysed_revision_ = document_.revision();
     analysed_ = true;
     applicable_selection_.reset();
+  }
+  if (profile_revision_ != document_.revision() || !profile_analysed_ ||
+      document_.gesture_active() || profile_was_gesture_) {
+    profile_analysis_ = sketchcad::analyze_profiles(sketch);
+    profile_revision_ = document_.revision();
+    profile_analysed_ = true;
+    profile_was_gesture_ = document_.gesture_active();
   }
   if (applicable_selection_ != session_.selected()) {
     applicable_.clear();
@@ -862,6 +1083,8 @@ QString SketchController::input_field() const {
     case sketchcad::InputField::kWidth: return QStringLiteral("width");
     case sketchcad::InputField::kHeight: return QStringLiteral("height");
     case sketchcad::InputField::kRadius: return QStringLiteral("radius");
+    case sketchcad::InputField::kDistance:
+      return QStringLiteral("distance");
     case sketchcad::InputField::kNone: break;
   }
   return {};
@@ -871,7 +1094,10 @@ double SketchController::input_value() const { return session_.input_value(); }
 
 bool SketchController::enter_value(double value) {
   const bool ok = session_.enter_value(value);
-  message_ = ok ? QString() : QStringLiteral("invalid_value");
+  if (ok)
+    refresh_tool_message();
+  else
+    message_ = QStringLiteral("invalid_value");
   refresh_scene();
   emit changed();
   return ok;
@@ -966,6 +1192,7 @@ void SketchController::prepare_file_operation() {
   conflict_entities_.clear();
   message_.clear();
   analysed_ = false;
+  profile_analysed_ = false;
   refresh_scene();
   emit changed();
 }

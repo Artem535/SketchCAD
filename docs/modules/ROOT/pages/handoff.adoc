@@ -2,6 +2,38 @@
 :toc:
 :toclevels: 3
 
+Актуальный срез: 31 октября 2026, U13: объединение вершин и проверка профилей, ветка `feat/3d-profiles-extrude`.
+Пошаговая фаска, маркер и скругление (#57/#58/#59) уже вошли в локальный коммит `57db96d`; не переделывать их.
+Текущее изменение https://github.com/Artem535/SketchCAD/issues/60[#60] находится в рабочем дереве без нового коммита.
+Спецификация, план и свидетельства: xref:sketch-profiles.adoc[].
+
+Реализованы объединение близких концов основных отрезков с заданным допуском (по умолчанию 0.5 мм),
+перепривязка ограничений/ID и транзакционный solve/rollback, одна операция Undo/Redo. Меню «Объединить вершины…»
+и индикатор открытых концов открывают цифровую панель допуска. Успешное объединение сбрасывает незавершённый
+предпросмотр; отказ сохраняет начатое построение, активный drag не прерывается командой объединения.
+Аналитическое извлечение линий/дуг/окружностей распознаёт внешние контуры, отверстия и вложенные островки,
+исключает вспомогательную геометрию, показывает заливку и кольца открытых концов/пересечений. Площадь считается
+локально для точности при больших координатах; перекрытия дуг проверяются аналитически с учётом roundoff на шве.
+Профили обновляются во время drag/cancel; верхняя панель адаптирована к ширине 720 px.
+
+Локально 295/295 CTest в Release (`build/issue60-release-green.log`, 18.49 s) и Debug/Werror
+(`build/issue60-werror-green.log`, 18.45 s). Независимое ревью нашло два дефекта; оба воспроизведены RED,
+исправлены и перепроверены отдельным harness. Остальных actionable findings в проверенной области не осталось.
+Antora и `git diff --check` проходят. Проверены `sketch_u13_profiles_open.png`, `sketch_u13_profiles_closed.png`,
+`sketch_u13_profiles_compact.png` в `build/u11-release/`.
+Физический планшет/Android/стилус, remote CI и 3D-выдавливание не проверены и не заявлены.
+Сохранены `.dt/` и `skills/`. Новые commit/push/PR требуют отдельного разрешения пользователя.
+Далее — OCCT / spike 3D-просмотра (xref:adr-0001-3d-viewer.adoc[], #19) и первое параметрическое выдавливание.
+
+Хост — Fedora 44 (Qt 6.11.2, GCC 16.2.1). Сессия агента может оказаться в toolbox Ubuntu 26.04 (`/run/.toolboxenv`):
+тогда деревья `build/u11-*` собирать на хосте через `host-spawn bash -lc '...'`, а `build/ubuntu` — внутри toolbox.
+Старые `build/fedora*` содержат пути Qt из toolbox: для U11 созданы `build/u11-release` и `build/u11-werror`.
+Зависимости переиспользованы через vcpkg toolchain с `VCPKG_MANIFEST_INSTALL=OFF` и
+`VCPKG_INSTALLED_DIR=/home/a.durynin/Projects/C++/SketchCAD/build/fedora/vcpkg_installed`.
+Для offscreen проверок очищать унаследованное `QT_QPA_PLATFORMTHEME=gtk3`:
+`QT_QPA_PLATFORMTHEME= QT_STYLE_OVERRIDE=Basic ctest --test-dir build/u11-release --output-on-failure -j 4`.
+F02 уже слит через PR #55 (`d56ffa2`), issue #14 закрыта. Следующие абзацы — исторические срезы.
+
 Срез обновлён 21 октября 2026 года для F02. F01 (#13) слит в `main` через PR #54.
 F02 (#14, автосохранение и восстановление после сбоя) реализован в ветке `codex/14-autosave-recovery`:
 копия каждые 5 с после изменения (не реже 30 с) в `AppLocalDataLocation/recovery`, блокировка на сессию,
@@ -27,7 +59,7 @@ Debug: `-Wall -Wextra -Werror -Wno-error=self-move`, без санитайзер
 . Прочитать `AGENTS.md` (обязательный порядок работы, раздел <<workflow>>) и `CLAUDE.md` (сборка, архитектура).
   Вывод команд в этой среде сжимается RTK (`~/.claude/RTK.md`); если вывод пустой или искажён — `rtk proxy <команда>`.
 . Проверить состояние: `git status`, `git log --oneline -5`, открытые PR (раздел <<git>>) и их CI.
-. Проверить PR для F01 (#13) и его CI; PR #52 уже слит.
+. Для текущего среза U11/U12 сначала прочитать актуальный срез выше; F01/F02 уже слиты.
 . Следующие шаги — раздел <<next>>.
 
 Репозиторий: https://github.com/Artem535/SketchCAD[Artem535/SketchCAD]. Checkout: `/home/a.durynin/Projects/C++/SketchCAD`.
@@ -52,7 +84,7 @@ Debug: `-Wall -Wextra -Werror -Wno-error=self-move`, без санитайзер
 . Тесты и зафиксированное ожидаемое падение (RED) до реализации.
 . Реализация, полный прогон проверок, PR со ссылкой на issue через `Closes #N` в описании.
 
-Практика, сложившаяся в сессиях:
+Практика, сложиться в сессиях:
 
 * *Коммиты и PR*
   ** В коммитах пишем `Refs #N`, в PR — `Closes #N`.
@@ -147,10 +179,10 @@ SketchCAD — параметрическая механическая CAD для
 |xref:sketch-model.adoc[], xref:document-commands.adoc[]
 
 |`constraint`, `solver`, `solver_problem.h`
-|Ограничения, включая `kOnCurve` (U04: точка на линии, окружности или дуге). Размеры `kLength`, `kDistance`,
-`kAngle`, `kRadius`. `solve()` проверяет каждый residual после Ceres. Справочные размеры
+|Ограничения, включая `kOnCurve` (U04) и `kTangentStart`/`kTangentEnd` (U12: конец отрезка на начале/конце дуги по касательной).
+Размеры `kLength`, `kDistance`, `kAngle`, `kRadius`. `solve()` проверяет каждый residual после Ceres. Справочные размеры
 (`Constraint::reference`, U10) в задачу не входят.
-|xref:constraint-solver.adoc[], xref:dimensions.adoc[]
+|xref:constraint-solver.adoc[], xref:dimensions.adoc[], xref:sketch-fillet.adoc[]
 
 |`diagnostics`
 |DOF, ранг, зависимые и нарушенные ограничения (ADR-0003). Без жёстких ограничений возвращает «согласовано»
@@ -168,53 +200,55 @@ SketchCAD — параметрическая механическая CAD для
 `src/curve_geometry.h` — внутренняя геометрия пересечений, общая для привязок и обрезки.
 |xref:sketch-viewport.adoc[], xref:sketch-editing.adoc[]
 
-|`sketch_tool`
+|`sketch_tool`, `sketch_tool_chamfer`
 |`ToolSession` — инструменты:
 * выбор, линия, ломаная, прямоугольник, окружность, дуга;
 * «Размер» (U10);
-* «Обрезать» и «Удлинить» (U04, часть 2).
+* «Обрезать» и «Удлинить» (U04, часть 2);
+* «Фаска» (U11) и «Скруглить» (U12) — пошаговый выбор двух отрезков, маркер и точный ввод.
 
 Режимы рисования:
 * живые и автоматические размеры, ввод числа при рисовании (U08);
 * вершина, взятая с привязки к кривой, получает `kOnCurve`, и у такого отрезка нет авторазмера длины.
-|xref:default-dimensions.adoc[], xref:reference-dimensions.adoc[]
+|xref:default-dimensions.adoc[], xref:reference-dimensions.adoc[], xref:sketch-chamfer.adoc[], xref:sketch-fillet.adoc[]
 
 |`dimension_layout`
 |Раскладка размеров по ЕСКД в экранных px (ADR-0004). Сторона размера — от центра связной группы точек (#41).
 Ручное положение — U09. `dimension_placement_at` — общая функция для переноса размера и для инструмента «Размер».
 |xref:dimension-style.adoc[], xref:dimension-placement.adoc[]
 
-|`sketch_edit`
-|`trim`, `extend` и их предпросмотр в духе nanoCAD. Окружность становится дугой на месте (`circle_to_arc`, тот же ID).
-|xref:sketch-editing.adoc[] (часть 2)
+|`sketch_edit`, `sketch_chamfer`, `sketch_fillet`
+|`trim`, `extend`, `chamfer`, `fillet` и их предпросмотр. Окружность становится дугой на месте (`circle_to_arc`, тот же ID).
+Фаска и скругление сохраняют мнимую вершину угла и габаритные размеры.
+|xref:sketch-editing.adoc[], xref:sketch-chamfer.adoc[], xref:sketch-fillet.adoc[]
 
 |`app/`
 |`SketchController` — мост в QML. Main.qml — оболочка Material по макету; список инструментов прокручивается,
 переключатели и «Справка» остаются видны внизу. Inspector — правая панель. DimensionEditor — экранная клавиатура.
-Help/HelpPopup — 28 терминов. Theme — светлая и тёмная темы.
+Help/HelpPopup — термины справки. Theme — светлая и тёмная темы.
 |xref:tablet-shell.adoc[], xref:ui-help.adoc[], xref:constraint-ui.adoc[]
 |===
 
 Тесты:
 
-* Core на GoogleTest, по файлу на модуль; новый — `sketch_edit_test`.
+* Core на GoogleTest, по файлу на модуль (`sketch_edit_test`, `sketch_fillet_test`).
 * `sketch_controller_test` — Qt Test.
 * `qml_test` — реальные клики offscreen и скриншоты рядом с бинарником (`sketch_u0N*.png`, `sketch_u10_reference.png`,
-  `sketch_u04_trim.png`).
+  `sketch_u04_trim.png`, `sketch_u11_chamfer_grip.png`, `sketch_u12_fillet*.png`).
 * `qml_smoke`.
 
 [[git]]
 == Состояние задач и Git
 
-`main` после U04 = `1f4c236` (PR #52 слит, #12 и #53 закрыты).
-F01: PR #54 слит в `main` (`c17d600`).
-F02: ветка `codex/14-autosave-recovery` → `main`, `Closes #14`; локально 229/229 в Release и Debug.
-PR не слит без явной команды; ручную приёмку восстановления пользователем ещё не заявлять.
+`main` после F02 = `d56ffa2` (PR #55 слит, #14 закрыта).
+Текущая ветка `feat/u11-chamfer`: локальные коммиты U11 (#56), а также незакоммиченные изменения #57, #58 и U12 (#59).
+Локально 275/275 CTest в `build/u11-release` и `build/u11-werror`.
 
 Открытые issues:
 
+* #56, #57, #58 — U11 фаска и планшетный предпросмотр.
+* #59 — U12 скругление угла эскиза.
 * #3 — P01, Android: нужен выбор планшета пользователем.
-* #14 — F02, автосохранение и восстановление, на review.
 * #15 — X01, экспорт в DXF.
 * #16 — R01, RU/EN и пакеты.
 * #17 — R02, приёмка.
@@ -225,16 +259,15 @@ PR не слит без явной команды; ручную приёмку �
 [[next]]
 == Следующие шаги
 
-. Проверить F02 (#14) в приложении: изменить эскиз, подождать > 5 с, аварийно завершить процесс
-  (`kill -9`), запустить снова, восстановить копию, «Сохранить как…» под новым именем. PR сливать только по
-  явной команде.
-. После F02: X01 (#15, DXF) → R01 (#16, RU/EN) → P01 (#3, Android).
-. Возможные доработки по просьбам пользователя, ещё не заведённые:
-  ** справочный угол и справочное расстояние от точки до линии (вне рамок U10);
-  ** выбор режущих кромок для обрезки (вне рамок U04);
-  ** Удлинение до продолжения прямой границы реализовано в PR #52, follow-up #53.
+. U11 (#56/#57/#58) и U12 (#59) локально проверены (275/275 CTest). Получить явное решение пользователя о
+  коммитах/ветках/PR перед публикацией.
+. Переход к 3D по согласованному порядку из xref:roadmap.adoc[]:
+  .. Объединение близких вершин и проверка/извлечение замкнутых профилей (внешние контуры и отверстия из отрезков,
+     дуг и окружностей, включая фаски и скругления, без вспомогательной геометрии) в Qt/OCCT-независимом ядре.
+  .. Подключение Open CASCADE (OCCT), 3D-вид детали (xref:adr-0001-3d-viewer.adoc[ADR-0001], issue #19) и первое
+     параметрическое выдавливание (`Extrude`).
 
-Решения за пользователем: модель планшета для P01 (#3), timebox SPK-3D (#19), лицензия L01 (#2).
+Решения за пользователем: модель планшета для P01 (#3), поставка OCCT и направление 3D-просмотра (#19), лицензия L01 (#2).
 
 [[feedback]]
 == Замечания пользователя и что с ними сделано
@@ -270,6 +303,9 @@ PR не слит без явной команды; ручную приёмку �
 
 |Обрезать и удлинить «как в nanoCAD»
 |U04, часть 2 (PR #52).
+
+|Фаска и скругление с пошаговым выбором двух отрезков и удобным маркером под палец/стилус
+|U11 (#56–#58) и U12 (#59).
 |===
 
 == Уроки и ловушки
@@ -297,7 +333,26 @@ PR не слит без явной команды; ручную приёмку �
 * Переводов RU/EN нет; строки обёрнуты в `qsTr` (R01).
 * Копия для восстановления пишется синхронно в потоке интерфейса; на больших эскизах возможна короткая пауза.
   Восстановление защищает от падения процесса, не от внезапного отключения питания.
-* `kOnCurve` и касание считают дугу полной окружностью, а линию — бесконечной.
-* У концов дуг нет точек: к ним нельзя привязать ограничение.
+* `kOnCurve` и обычное касание `kTangent` считают дугу полной окружностью, а линию — бесконечной; привязать конец
+  отрезка к началу/концу дуги по касательной позволяют `kTangentStart`/`kTangentEnd` (U12).
+* У свободных (не привязанных через U12) концов дуг нет отдельных сущностей-точек.
 * Справочный угол и расстояние от точки до линии не поддержаны.
 * Пересекающиеся размеры не разносятся автоматически (их двигают вручную, U09).
+
+== Acceptance follow-up, 1 November 2026 (#60)
+
+Maximum corner grip previously left a 4e-7 mm line between chamfer and fillet.
+Shared contour-aware bounds now reject numeric slivers and clamp grip sizes safely.
+Release and Debug/Werror pass 297/297, Antora and diff whitespace pass.
+See xref:sketch-profiles.adoc[] for RED/GREEN evidence and limitations.
+The original recovery and a separate repaired project (chamfer 9.6 mm) are in
+`build/issue60-user-recovery/`. App closure is not reproduced; no crash-fix claim.
+No new commit/push/PR.
+
+== Explicit short-edge collapse, 1 November 2026 (#60)
+
+The merge keypad now offers an unchecked collapse option and an explicit notice that
+point-distance dimensions involving collapsed endpoints become reference dimensions.
+Default merge remains non-destructive. Adjacent chamfers can become a single vertex,
+with closed-profile validation, fixed/unsupported-constraint rejection and one-step Undo/Redo.
+See xref:sketch-profiles.adoc[] for exact scope and tests. No commit/push/PR.

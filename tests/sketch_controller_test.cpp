@@ -465,6 +465,135 @@ class SketchControllerTest : public QObject {
     // Not an input: the controller refuses to change it.
     QVERIFY(!c->set_dimension(dimension(c)["id"].toULongLong(), 70));
   }
+  void chamfer_has_staged_distance_preview_and_one_undo_step() {
+    auto* c = make();
+    c->set_tool("rectangle");
+    tap(c, 10, 10);
+    tap(c, 60, 40);
+    const auto before = c->document().sketch();
+    const auto revision = c->document().revision();
+    c->set_tool("chamfer");
+    QCOMPARE(c->tool(), QString("chamfer"));
+    QCOMPARE(c->property("chamfer_step").toString(), QString("first"));
+    QCOMPARE(c->input_field(), QString());
+    QVERIFY(!c->property("can_finish").toBool());
+    tap(c, 30, 10);
+    QCOMPARE(c->property("chamfer_step").toString(), QString("second"));
+    QVERIFY(c->in_progress());
+    QVERIFY(!c->selected_path().isEmpty());
+    QVERIFY(!c->has_selection());  // Staged picks are not editable selections.
+    tap(c, 10, 25);
+    QCOMPARE(c->property("chamfer_step").toString(), QString("distance"));
+    QCOMPARE(c->input_field(), QString("distance"));
+    QVERIFY(c->property("can_finish").toBool());
+    QCOMPARE(c->input_value(), 2.0);
+    QVERIFY(!c->edit_preview_path().isEmpty());
+    QVERIFY(c->enter_value(3));
+    QVERIFY(c->document().sketch() == before);
+    QCOMPARE(c->document().revision(), revision);
+    QVERIFY(c->finish());
+    QCOMPARE(lines(c).size(), 5u);
+    QCOMPARE(c->document().undo_label(), std::string("Chamfer"));
+    QVERIFY(c->message().isEmpty());
+    QVERIFY(c->edit_preview_path().isEmpty());
+    QVERIFY(!c->construction_path().isEmpty());
+    QCOMPARE(c->property("chamfer_step").toString(), QString("first"));
+    c->undo();
+    QVERIFY(c->document().sketch() == before);
+    tap(c, 80, 80);
+    QCOMPARE(c->message(), QString("chamfer_pick_line"));
+    tap(c, 30, 10);
+    tap(c, 10, 25);
+    QVERIFY(c->enter_value(100));
+    QCOMPARE(c->message(), QString("chamfer_too_long"));
+    QVERIFY(!c->property("can_finish").toBool());
+    QVERIFY(!c->finish());
+    QVERIFY(c->document().sketch() == before);
+    QVERIFY(c->enter_value(4));
+    QVERIFY(c->message().isEmpty());
+    QVERIFY(c->property("can_finish").toBool());
+    QVERIFY(c->cancel());
+    QVERIFY(!c->in_progress());
+    QVERIFY(c->message().isEmpty());
+    QVERIFY(c->selected_path().isEmpty());
+    QVERIFY(c->edit_preview_path().isEmpty());
+    QVERIFY(c->document().sketch() == before);
+  }
+
+  void chamfer_grip_and_live_dimensions_are_preview_only() {
+    auto* c = make();
+    c->set_tool("rectangle");
+    tap(c, 10, 10);
+    tap(c, 60, 40);
+    c->set_tool("chamfer");
+    QVERIFY(!c->property("chamfer_handle").toMap()["visible"].toBool());
+    tap(c, 30, 10);
+    tap(c, 10, 25);
+    const auto before = c->document().sketch();
+    const auto revision = c->document().revision();
+    const auto grip = c->property("chamfer_handle").toMap();
+    QVERIFY(grip["visible"].toBool());
+    QCOMPARE(c->preview_dimension_labels().size(), 2);
+    QVERIFY(!c->preview_dimension_path().isEmpty());
+    const double dx = grip["x"].toDouble() - grip["anchor_x"].toDouble();
+    const double dy = grip["y"].toDouble() - grip["anchor_y"].toDouble();
+    QVERIFY(std::abs(std::hypot(dx, dy) - 64) < 1e-6);
+    const auto p = c->screen_of(10, 10);
+    bool resized = false;
+    QVERIFY(QMetaObject::invokeMethod(
+        c, "resize_chamfer", Q_RETURN_ARG(bool, resized),
+        Q_ARG(double, c->scale()), Q_ARG(double, -c->scale())));
+    QVERIFY(resized);
+    QCOMPARE(c->input_value(), 4.0);
+    for (const auto& label : c->preview_dimension_labels())
+      QCOMPARE(label.toMap()["text"].toString(), QString("4"));
+    QVERIFY(c->document().sketch() == before);
+    QCOMPARE(c->document().revision(), revision);
+    const auto moved = c->property("chamfer_handle").toMap();
+    QVERIFY(moved["x"].toDouble() > grip["x"].toDouble());
+    const auto at = c->screen_of(10, 10);
+    QCOMPARE(at, p);  // Drag sizing never pans the view.
+    c->pan(-10000, -10000);
+    const auto bounded = c->property("chamfer_handle").toMap();
+    QVERIFY(bounded["x"].toDouble() >= 28);
+    QVERIFY(bounded["y"].toDouble() >= 28);
+    QVERIFY(c->cancel());
+    QVERIFY(!c->property("chamfer_handle").toMap()["visible"].toBool());
+    QVERIFY(c->preview_dimension_labels().empty());
+    QVERIFY(c->document().sketch() == before);
+  }
+
+  void fillet_has_radius_preview_grip_and_transactional_confirmation() {
+    auto* c = make();
+    c->set_tool("rectangle");
+    tap(c, 10, 10);
+    tap(c, 60, 40);
+    const auto before = c->document().sketch();
+    c->set_tool("fillet");
+    QCOMPARE(c->tool(), QString("fillet"));
+    QCOMPARE(c->property("fillet_step").toString(), QString("first"));
+    tap(c, 30, 10);
+    tap(c, 10, 25);
+    QCOMPARE(c->input_field(), QString("radius"));
+    QVERIFY(c->property("chamfer_handle").toMap()["visible"].toBool());
+    QCOMPARE(c->preview_dimension_labels().size(), 1);
+    QVERIFY(c->preview_dimension_labels()
+                .front()
+                .toMap()["text"]
+                .toString()
+                .startsWith("R"));
+    QVERIFY(c->enter_value(3));
+    QVERIFY(c->document().sketch() == before);
+    QVERIFY(!c->edit_preview_path().isEmpty());
+    QVERIFY(c->finish());
+    QCOMPARE(c->document().undo_label(), std::string("Fillet"));
+    for (const auto& relation : c->constraints())
+      QVERIFY(!relation.toMap()["kind"].toString().isEmpty());
+    QVERIFY(c->preview_dimension_labels().empty());
+    c->undo();
+    QVERIFY(c->document().sketch() == before);
+  }
+
   void trim_and_extend_tools() {
     auto* c = make();
     line(c);  // (10, 10) - (60, 10)
@@ -641,6 +770,159 @@ class SketchControllerTest : public QObject {
     QCOMPARE(c->document().sketch().constraint(id)->placement, before);
     QCOMPARE(c->document().revision(), steps);
   }
+  void explicit_collapse_is_one_undo_step() {
+    auto* c = make();
+    c->set_tool("rectangle");
+    tap(c, 0, 0);
+    tap(c, 50, 20);
+    c->set_tool("chamfer");
+    tap(c, 25, 20);
+    tap(c, 0, 15);
+    QVERIFY(c->enter_value(10.51));
+    QVERIFY(c->finish());
+    tap(c, 25, 0);
+    tap(c, 0, 4);
+    QVERIFY(c->enter_value(9.48992));
+    QVERIFY(c->finish());
+    const auto before = c->document().sketch();
+    QVERIFY(!c->merge_vertices(.5));
+    QVERIFY(c->merge_vertices(.5, true));
+    QVERIFY(c->profile_ready());
+    QVERIFY(c->undo());
+    QVERIFY(c->document().sketch() == before);
+    QVERIFY(c->redo());
+    QVERIFY(c->profile_ready());
+  }
+
+  void profile_extraction_and_merge_vertices_workflow() {
+    auto* c = make();
+    QCOMPARE(c->profile_count(), 0);
+    QCOMPARE(c->hole_count(), 0);
+    QCOMPARE(c->open_endpoint_count(), 0);
+    QCOMPARE(c->invalid_intersection_count(), 0);
+    QVERIFY(!c->profile_ready());
+    QCOMPARE(c->merge_tolerance(), 0.5);
+
+    // Draw 4 disconnected segments forming a 50x30 rectangle with ~0.4 mm gaps.
+    c->set_tool("line");
+    tap(c, 10.0, 10.0);
+    tap(c, 59.7, 10.0);
+    tap(c, 60.0, 10.2);
+    tap(c, 60.0, 39.8);
+    tap(c, 59.8, 40.0);
+    tap(c, 10.2, 40.0);
+    tap(c, 10.0, 39.7);
+    tap(c, 10.0, 10.3);
+    QCOMPARE(c->open_endpoint_count(), 8);
+    QVERIFY(!c->profile_ready());
+    QVERIFY(c->profile_fill_path().isEmpty());
+    QVERIFY(!c->open_endpoints_path().isEmpty());
+
+    const auto revision = c->document().revision();
+    QVERIFY(!c->merge_vertices(0.0));
+    QCOMPARE(c->message(), QString("invalid_value"));
+    QCOMPARE(c->document().revision(), revision);
+
+    QVERIFY(!c->merge_vertices(0.1));
+    QCOMPARE(c->message(), QString("merge_nothing"));
+    QCOMPARE(c->document().revision(), revision);
+
+    QVERIFY(c->merge_vertices(0.6));
+    QCOMPARE(c->merge_tolerance(), 0.6);
+    QCOMPARE(c->document().undo_label(), std::string("Merge vertices"));
+    QCOMPARE(c->open_endpoint_count(), 0);
+    QCOMPARE(c->profile_count(), 1);
+    QCOMPARE(c->hole_count(), 0);
+    QVERIFY(c->profile_ready());
+    QVERIFY(!c->profile_fill_path().isEmpty());
+    QVERIFY(c->open_endpoints_path().isEmpty());
+
+    // Undo restores the open gaps in one step; Redo re-closes.
+    QVERIFY(c->undo());
+    QCOMPARE(c->open_endpoint_count(), 8);
+    QVERIFY(!c->profile_ready());
+    QVERIFY(c->redo());
+    QVERIFY(c->profile_ready());
+
+    // Add a circular hole inside and fillet a corner: profile remains ready.
+    c->set_tool("circle");
+    tap(c, 35, 25);
+    tap(c, 41, 25);
+    QCOMPARE(c->profile_count(), 1);
+    QCOMPARE(c->hole_count(), 1);
+    QVERIFY(c->profile_ready());
+    QVERIFY(c->profile_fill_path().count('Z') >= 2);
+
+    c->set_tool("fillet");
+    tap(c, 30, 10);
+    tap(c, 10, 25);
+    QVERIFY(c->enter_value(4));
+    QVERIFY(c->finish());
+    QCOMPARE(c->profile_count(), 1);
+    QCOMPARE(c->hole_count(), 1);
+    QVERIFY(c->profile_ready());
+  }
+
+  void merge_vertices_cancels_only_successful_unfinished_previews() {
+    auto* c = make();
+    c->set_tool("line");
+    for (const auto& p :
+         {QPointF(10, 10), QPointF(59.7, 10), QPointF(60, 10.2),
+          QPointF(60, 39.8), QPointF(59.8, 40), QPointF(10.2, 40),
+          QPointF(10, 39.7), QPointF(10, 10.3)})
+      tap(c, p.x(), p.y());
+    const auto before = c->document().sketch();
+    const auto revision = c->document().revision();
+    tap(c, 30, 25);  // Start another line, but don't commit it.
+    QVERIFY(c->in_progress());
+    QVERIFY(!c->merge_vertices(0.1));
+    QVERIFY(c->in_progress());
+    QVERIFY(c->document().sketch() == before);
+    QCOMPARE(c->document().revision(), revision);
+    QVERIFY(c->merge_vertices(0.6));
+    QVERIFY(!c->in_progress());
+    QCOMPARE(c->tool(), QString("line"));
+    QVERIFY(c->preview_dimension_labels().empty());
+    QVERIFY(c->profile_ready());
+    QVERIFY(c->undo());
+    QVERIFY(c->document().sketch() == before);
+  }
+
+  void merge_vertices_rejects_active_drag_without_losing_selection() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    const auto p = c->screen_of(10, 10);
+    c->press(p.x(), p.y());
+    const auto to = c->screen_of(12, 12);
+    c->drag(to.x(), to.y());
+    QVERIFY(c->document().gesture_active());
+    QVERIFY(c->has_selection());
+    const auto before = c->document().sketch();
+    QVERIFY(!c->merge_vertices(0.6));
+    QCOMPARE(c->message(), QString("invalid_action"));
+    QVERIFY(c->has_selection());
+    QVERIFY(c->document().gesture_active());
+    QVERIFY(c->document().sketch() == before);
+    c->release(to.x(), to.y());
+    QVERIFY(!c->document().gesture_active());
+  }
+
+  void profile_endpoint_markers_follow_live_drag_and_cancel() {
+    auto* c = make();
+    line(c);
+    c->set_tool("select");
+    const auto markers = c->open_endpoints_path();
+    QVERIFY(!markers.isEmpty());
+    const auto p = c->screen_of(10, 10), to = c->screen_of(12, 12);
+    c->press(p.x(), p.y());
+    c->drag(to.x(), to.y());
+    QVERIFY(c->document().gesture_active());
+    QVERIFY(c->open_endpoints_path() != markers);
+    QVERIFY(c->cancel());
+    QCOMPARE(c->open_endpoints_path(), markers);
+  }
+
   void unknown_tool_name_is_ignored() {
     auto* c = make();
     c->set_tool("rectangle");

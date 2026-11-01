@@ -88,6 +88,7 @@ ToolSession::ToolSession(Document& document) : document_(document) {}
 
 void ToolSession::reset() {
   cancel();
+  message_.clear();
   if (document_.gesture_active()) document_.cancel_gesture();
   tool_ = Tool::kSelect;
   selected_.clear();
@@ -102,6 +103,8 @@ void ToolSession::reset() {
 }
 void ToolSession::set_tool(Tool tool) {
   cancel();
+  message_.clear();
+  hover_.reset();
   edit_preview_.reset();
   if (tool != Tool::kSelect) selected_.clear();
   tool_ = tool;
@@ -113,6 +116,11 @@ SnapResult ToolSession::snapped(Position p,
 }
 
 void ToolSession::hover(Position p) {
+  if (is_corner_tool()) {
+    last_snap_.reset();
+    // The preview belongs to the selected pair, never to the hover position.
+    return;
+  }
   if (tool_ == Tool::kTrim || tool_ == Tool::kExtend) {
     edit_preview_.reset();
     if (const auto hit = pick_curve(document_.sketch(), p, pick_tolerance_mm_))
@@ -132,6 +140,11 @@ void ToolSession::hover(Position p) {
 }
 
 void ToolSession::press(Position p) {
+  message_.clear();
+  if (is_corner_tool()) {
+    press_chamfer(p);
+    return;
+  }
   if (tool_ == Tool::kSelect) {
     dragged_point_.reset();
     curve_press_.reset();
@@ -431,11 +444,19 @@ void ToolSession::release(Position) {
 }
 
 bool ToolSession::finish() {
+  if (is_corner_tool()) return finish_chamfer();
   return tool_ == Tool::kPolyline && vertices_.size() >= 2 &&
          commit_polyline(false);
 }
 
 bool ToolSession::cancel() {
+  edit_preview_.reset();
+  if (!chamfer_lines_.empty()) {
+    preview_ = Sketch();
+    chamfer_lines_.clear();
+    message_.clear();
+    return true;
+  }
   if (dragging_) {
     document_.cancel_gesture();
     dragging_ = false;
@@ -623,6 +644,8 @@ void ToolSession::update_preview(std::optional<Position> cursor) {
     case Tool::kDimension:
     case Tool::kTrim:
     case Tool::kExtend:
+    case Tool::kChamfer:
+    case Tool::kFillet:
       break;
   }
 }
@@ -637,6 +660,11 @@ void ToolSession::preview_dimension(ConstraintKind kind, EntityId id) {
 }
 
 InputField ToolSession::input_field() const {
+  if (is_corner_tool())
+    return chamfer_lines_.size() == 2
+               ? (tool_ == Tool::kFillet ? InputField::kRadius
+                                         : InputField::kDistance)
+               : InputField::kNone;
   if (vertices_.empty()) return InputField::kNone;
   switch (tool_) {
     case Tool::kLine:
@@ -652,12 +680,16 @@ InputField ToolSession::input_field() const {
     case Tool::kDimension:
     case Tool::kTrim:
     case Tool::kExtend:
+    case Tool::kChamfer:
+    case Tool::kFillet:
       break;
   }
   return InputField::kNone;
 }
 
 double ToolSession::input_value() const {
+  if (is_corner_tool())
+    return tool_ == Tool::kFillet ? fillet_radius_ : chamfer_distance_;
   if (vertices_.empty() || !hover_) return 0;
   const Position from = vertices_.back().position;
   switch (input_field()) {
@@ -669,6 +701,7 @@ double ToolSession::input_value() const {
     case InputField::kHeight:
       return std::abs(hover_->y - vertices_.front().position.y);
     case InputField::kNone:
+    case InputField::kDistance:
       break;
   }
   return 0;
@@ -678,6 +711,16 @@ bool ToolSession::enter_value(double value) {
   const InputField field = input_field();
   if (field == InputField::kNone || !std::isfinite(value) || value <= 0)
     return false;
+  if (is_corner_tool()) {
+    if (value <= kLengthTolerance) return false;
+    if (tool_ == Tool::kFillet)
+      fillet_radius_ = value;
+    else
+      chamfer_distance_ = value;
+    message_.clear();
+    update_chamfer_preview();
+    return true;
+  }
   const Position from = vertices_.back().position;
   const Position toward = hover_.value_or(Position{from.x + 1, from.y});
   const auto sign = [](double d) { return d < 0 ? -1.0 : 1.0; };

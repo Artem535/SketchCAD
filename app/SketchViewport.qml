@@ -49,6 +49,15 @@ Item {
             fillColor: "transparent"
             PathSvg { path: root.controller.axes_path }
         }
+        // Closed profile fill (U13); OddEvenFill leaves inner holes clear.
+        ShapePath {
+            strokeColor: "transparent"
+            strokeWidth: 0
+            fillColor: Qt.rgba(root.accent.r, root.accent.g, root.accent.b,
+                               root.theme.dark ? 0.14 : 0.09)
+            fillRule: ShapePath.OddEvenFill
+            PathSvg { path: root.controller.profile_fill_path }
+        }
         // ESKD dimension lines and arrows (ADR-0004).
         ShapePath {
             strokeColor: root.theme.muted
@@ -124,6 +133,13 @@ Item {
             strokeWidth: 1.5
             fillColor: root.accent
             PathSvg { path: root.controller.fixed_path }
+        }
+        // Open contour endpoints and untrimmed crossings (U13).
+        ShapePath {
+            strokeColor: root.theme.err
+            strokeWidth: 2
+            fillColor: Qt.rgba(root.theme.err.r, root.theme.err.g, root.theme.err.b, 0.16)
+            PathSvg { path: root.controller.open_endpoints_path }
         }
         ShapePath {
             strokeColor: root.accent
@@ -253,6 +269,61 @@ Item {
         }
     }
 
+    Shape {
+        anchors.fill: parent
+        visible: root.controller.chamfer_handle.visible === true
+        ShapePath {
+            strokeColor: root.accent
+            strokeWidth: 1.5
+            strokeStyle: ShapePath.DashLine
+            fillColor: "transparent"
+            PathSvg { path: root.controller.chamfer_handle.leader || "" }
+        }
+    }
+
+    // The hit area is larger than the grip; its offset keeps the finger
+    // away from the actual chamfer. This control also works in pan mode.
+    Item {
+        id: chamferHandle
+        objectName: root.controller.tool === "fillet" ? "filletHandle" : "chamferHandle"
+        readonly property var grip: root.controller.chamfer_handle
+        visible: grip.visible === true
+        width: 56
+        height: 56
+        x: (grip.x || 0) - width / 2
+        y: (grip.y || 0) - height / 2
+        Rectangle {
+            anchors.centerIn: parent
+            width: 34
+            height: 34
+            radius: 17
+            color: gripDrag.active ? root.theme.primary : root.theme.primaryContainer
+            border.color: root.accent
+            border.width: 2
+            Label {
+                anchors.centerIn: parent
+                text: "↔"
+                font.pixelSize: 24
+                color: gripDrag.active ? root.theme.onPrimary : root.accent
+                rotation: chamferHandle.grip.angle || 0
+            }
+        }
+        DragHandler {
+            id: gripDrag
+            objectName: "chamferGripDrag"
+            target: null
+            acceptedButtons: Qt.LeftButton
+            acceptedDevices: PointerDevice.AllDevices
+            // The canvas pan handler is also a DragHandler; let this
+            // local grip take over, while still allowing a two-finger pinch.
+            grabPermissions: PointerHandler.CanTakeOverFromAnything
+                             | PointerHandler.ApprovesTakeOverByHandlersOfDifferentType
+            // Project the full vector once: independent axis clamping
+            // would alter a perpendicular drag at a size limit.
+            onTranslationChanged: (delta) => root.controller.resize_chamfer(delta.x, delta.y)
+        }
+    }
+
     // Snap indicator: ring on a point, small ring on a curve, × on an
     // intersection, small diamond on the grid.
     Item {
@@ -315,7 +386,10 @@ Item {
         onActiveChanged: {
             if (active) {
                 last = point.position
-                dimensionId = root.dimensionAt(last)
+                // Chamfer taps select lines; dimension touch targets can
+                // overlap them and must not open an unrelated editor.
+                dimensionId = (root.controller.tool === "chamfer" || root.controller.tool === "fillet")
+                              ? 0 : root.dimensionAt(last)
                 moved = false
                 pressed = last
                 onLabel = dimensionId === 0 && root.onLiveLabel(last)
@@ -355,7 +429,7 @@ Item {
     // One finger pans when fingers do not draw.
     DragHandler {
         target: null
-        enabled: !root.controller.finger_draws
+        enabled: !root.controller.finger_draws && !gripDrag.active
         acceptedDevices: PointerDevice.TouchScreen
         xAxis.onActiveValueChanged: (delta) => root.controller.pan(delta, 0)
         yAxis.onActiveValueChanged: (delta) => root.controller.pan(0, delta)

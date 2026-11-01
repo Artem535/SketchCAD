@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QInputDevice>
+#include <QPointingDevice>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -324,6 +325,323 @@ class QmlTest : public QObject {
     QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
                                        "/sketch_f01_opened.png"));
   }
+  void chamfer_tool_edits_a_rectangle_with_numeric_input() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_auto_dimensions(true);
+    click(item("tool_rectangle"));
+    tap(controller, 20, 20);
+    tap(controller, 60, 50);
+    QVERIFY(item("tool_chamfer"));
+    QQuickItem* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    rail->setProperty(
+        "contentY", rail->property("contentHeight").toReal() - rail->height());
+    QTest::qWait(20);
+    click(item("tool_chamfer"));
+    QCOMPARE(controller.tool(), QString("chamfer"));
+    QVERIFY(item("chamferPrompt"));
+    QCOMPARE(item("chamferPrompt")->property("text").toString(),
+             QString("Выберите первый отрезок"));
+    QVERIFY(!item("chamferDistance")->isVisible());
+    const auto before = controller.document().sketch();
+    const auto revision = controller.document().revision();
+    tap(controller, 40, 20);
+    QCOMPARE(item("chamferPrompt")->property("text").toString(),
+             QString("Выберите второй отрезок"));
+    QVERIFY(!item("chamferDistance")->isVisible());
+    tap(controller, 20, 35);
+    QCOMPARE(item("chamferPrompt")->property("text").toString(),
+             QString("Задайте отступ и подтвердите"));
+    QVERIFY(item("chamferDistance")->isVisible());
+    QVERIFY(item("finishShape")->isVisible());
+    // A filled chip, not a bare caption over the grid (U11 acceptance).
+    const QColor chip = color_of("chamferDistance_background");
+    QVERIFY(chip.isValid());
+    QCOMPARE(chip.alpha(), 255);
+    click(item("chamferDistance"));
+    QTRY_VERIFY(item("dimensionEditor"));
+    type("100");
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QTRY_VERIFY(!item("finishShape")->isEnabled());
+    QCOMPARE(controller.message(), QString("chamfer_too_long"));
+    QVERIFY(shown("toast"));
+    QVERIFY(controller.edit_preview_path().isEmpty());
+    QVERIFY(controller.document().sketch() == before);
+    QTest::qWait(200);
+    click(item("chamferDistance"));
+    QTRY_VERIFY(item("dimensionEditor"));
+    click(item("key_3"));
+    click(item("applyDimension"));
+    QTRY_COMPARE(controller.input_value(), 3.0);
+    QVERIFY(!shown("toast"));
+    QTRY_VERIFY(item("finishShape")->isEnabled());
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(controller.document().sketch() == before);
+    QCOMPARE(controller.document().revision(), revision);
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u11_chamfer_preview.png"));
+    click(item("finishShape"));
+    QCOMPARE(controller.document().undo_label(), std::string("Chamfer"));
+    std::size_t lines = 0;
+    for (const auto& [id, e] : controller.document().sketch().entities())
+      lines += std::holds_alternative<sketchcad::SketchLine>(e);
+    QCOMPARE(lines, 5u);
+    QCOMPARE(controller.dimensions().size(), 4);
+    QVERIFY(window_->property("helpKeys").toStringList().contains("chamfer"));
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u11_chamfer.png"));
+  }
+
+  void chamfer_keyboard_confirmation_and_cancel() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_tool("rectangle");
+    tap(controller, 20, 20);
+    tap(controller, 60, 50);
+    const auto before = controller.document().sketch();
+    controller.set_tool("chamfer");
+    tap(controller, 40, 20);
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QTRY_VERIFY(!controller.in_progress());
+    QVERIFY(controller.document().sketch() == before);
+    tap(controller, 40, 20);
+    tap(controller, 20, 35);
+    QVERIFY(!controller.edit_preview_path().isEmpty());
+    click(item("closeContext"));
+    QTRY_VERIFY(!controller.in_progress());
+    QVERIFY(controller.document().sketch() == before);
+    tap(controller, 40, 20);
+    tap(controller, 20, 35);
+    // Typing opens the keypad. Enter accepts the size without committing.
+    QTest::keyClick(window_, Qt::Key_4);
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QTest::keyClick(window_, Qt::Key_Return);
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QCOMPARE(controller.input_value(), 4.0);
+    QVERIFY(controller.document().sketch() == before);
+    QTest::qWait(200);
+    QTest::keyClick(window_, Qt::Key_Return);
+    QTRY_COMPARE(controller.document().undo_label(), std::string("Chamfer"));
+    controller.undo();
+    QVERIFY(controller.document().sketch() == before);
+  }
+
+  void chamfer_preview_grip_and_dimensions_work_with_mouse_and_keypad() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_tool("rectangle");
+    tap(controller, 20, 20);
+    tap(controller, 60, 50);
+    controller.set_tool("chamfer");
+    tap(controller, 40, 20);
+    tap(controller, 20, 35);
+    const auto before = controller.document().sketch();
+    const auto revision = controller.document().revision();
+    QQuickItem* grip = item("chamferHandle");
+    QVERIFY(grip);
+    QVERIFY(grip->isVisible());
+    QVERIFY(grip->width() >= 56 && grip->height() >= 56);
+    QCOMPARE(controller.preview_dimension_labels().size(), 2);
+    const auto at =
+        grip->mapToScene({grip->width() / 2, grip->height() / 2}).toPoint();
+    const auto origin = controller.screen_of(20, 20);
+    const double initial = controller.input_value();
+    QTest::mousePress(window_, Qt::LeftButton, Qt::NoModifier, at);
+    QTest::mouseMove(window_, at + QPoint(12, -12), 20);
+    QTest::mouseMove(window_, at + QPoint(32, -32), 20);
+    QTest::mouseRelease(window_, Qt::LeftButton, Qt::NoModifier,
+                        at + QPoint(32, -32));
+    QVERIFY(controller.input_value() > initial);
+    QVERIFY(controller.document().sketch() == before);
+    QCOMPARE(controller.document().revision(), revision);
+    QCOMPARE(controller.screen_of(20, 20), origin);
+    QVERIFY(!controller.document().gesture_active());
+    for (int i = 0; i < 2; ++i) {
+      const auto name = "previewDimensionLabel_" + QByteArray::number(i);
+      click(item(name.constData()));
+      QTRY_VERIFY(shown("dimensionEditor"));
+      click(item(i == 0 ? "key_3" : "key_4"));
+      click(item("applyDimension"));
+      QTRY_VERIFY(!shown("dimensionEditor"));
+      QCOMPARE(controller.input_value(), i == 0 ? 3.0 : 4.0);
+      for (const auto& label : controller.preview_dimension_labels())
+        QCOMPARE(label.toMap()["text"].toString(),
+                 i == 0 ? QString("3") : QString("4"));
+      QVERIFY(controller.document().sketch() == before);
+      QTest::qWait(200);
+    }
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u11_chamfer_grip.png"));
+    click(item("finishShape"));
+    QCOMPARE(controller.document().undo_label(), std::string("Chamfer"));
+    QVERIFY(!grip->isVisible());
+    QVERIFY(controller.preview_dimension_labels().empty());
+    controller.undo();
+    QVERIFY(controller.document().sketch() == before);
+  }
+
+  void chamfer_grip_touch_resizes_in_finger_pan_mode_without_panning_data() {
+    QTest::addColumn<QString>("corner_tool");
+    QTest::newRow("chamfer") << QString("chamfer");
+    QTest::newRow("fillet") << QString("fillet");
+  }
+  void chamfer_grip_touch_resizes_in_finger_pan_mode_without_panning() {
+    QFETCH(QString, corner_tool);
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_tool("rectangle");
+    tap(controller, 20, 20);
+    tap(controller, 60, 50);
+    controller.set_tool(corner_tool);
+    tap(controller, 40, 20);
+    tap(controller, 20, 35);
+    controller.set_finger_draws(false);
+    const auto before = controller.document().sketch();
+    const auto origin = controller.screen_of(20, 20);
+    const auto initial = controller.input_value();
+    auto* grip =
+        item(corner_tool == "fillet" ? "filletHandle" : "chamferHandle");
+    QVERIFY(grip);
+    QVERIFY(grip->isVisible());
+    const auto at =
+        grip->mapToScene({grip->width() / 2, grip->height() / 2}).toPoint();
+    std::unique_ptr<QPointingDevice> touch{QTest::createTouchDevice()};
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    auto sequence = QTest::touchEvent(window_, touch.get(), false);
+    sequence.press(0, at, window_).commit();
+    QTest::qWait(20);
+    sequence.move(0, at + QPoint(15, -15), window_).commit();
+    QTest::qWait(20);
+    sequence.move(0, at + QPoint(40, -40), window_).commit();
+    QTest::qWait(20);
+    sequence.release(0, at + QPoint(40, -40), window_).commit();
+    QVERIFY(controller.input_value() > initial);
+    QCOMPARE(controller.screen_of(20, 20), origin);
+    QVERIFY(controller.document().sketch() == before);
+    click(item("closeContext"));
+    QVERIFY(!controller.in_progress());
+    QVERIFY(!grip->isVisible());
+    QVERIFY(controller.preview_dimension_labels().empty());
+    QVERIFY(controller.document().sketch() == before);
+  }
+
+  void chamfer_grip_perpendicular_drag_at_limit_does_not_change_size() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_tool("rectangle");
+    tap(controller, 20, 20);
+    tap(controller, 60, 50);
+    controller.set_tool("chamfer");
+    tap(controller, 40, 20);
+    tap(controller, 20, 35);
+    QVERIFY(controller.resize_chamfer(10000, -10000));
+    const double limit = controller.input_value();
+    auto* grip = item("chamferHandle");
+    QVERIFY(grip);
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    const auto at =
+        grip->mapToScene({grip->width() / 2, grip->height() / 2}).toPoint();
+    QTest::mousePress(window_, Qt::LeftButton, Qt::NoModifier, at);
+    QTest::mouseMove(window_, at + QPoint(12, 12), 20);
+    QTest::mouseMove(window_, at + QPoint(32, 32), 20);
+    QTest::mouseRelease(window_, Qt::LeftButton, Qt::NoModifier,
+                        at + QPoint(32, 32));
+    QVERIFY(std::abs(controller.input_value() - limit) < 1e-8);
+  }
+
+  void fillet_tool_radius_grip_keypad_confirm_and_undo() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_auto_dimensions(true);
+    controller.set_tool("rectangle");
+    tap(controller, 20, 20);
+    tap(controller, 60, 50);
+    const auto before = controller.document().sketch();
+    auto* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    rail->setProperty(
+        "contentY", rail->property("contentHeight").toReal() - rail->height());
+    QTest::qWait(20);
+    QVERIFY(item("tool_fillet"));
+    click(item("tool_fillet"));
+    QCOMPARE(controller.tool(), QString("fillet"));
+    tap(controller, 40, 20);
+    tap(controller, 20, 35);
+    QVERIFY(item("filletPrompt"));
+    QVERIFY(item("filletRadius")->isVisible());
+    auto* grip = item("filletHandle");
+    QVERIFY(grip);
+    QVERIFY(grip->isVisible());
+    QCOMPARE(controller.preview_dimension_labels().size(), 1);
+    const auto initial = controller.input_value();
+    const auto origin = controller.screen_of(20, 20);
+    const auto at = grip->mapToScene({28, 28}).toPoint();
+    QTest::mousePress(window_, Qt::LeftButton, Qt::NoModifier, at);
+    QTest::mouseMove(window_, at + QPoint(12, -12), 20);
+    QTest::mouseMove(window_, at + QPoint(24, -24), 20);
+    QTest::mouseRelease(window_, Qt::LeftButton, Qt::NoModifier,
+                        at + QPoint(24, -24));
+    QVERIFY(controller.input_value() > initial);
+    QCOMPARE(controller.screen_of(20, 20), origin);
+    QVERIFY(controller.document().sketch() == before);
+    click(item("previewDimensionLabel_0"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("key_3"));
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QCOMPARE(controller.input_value(), 3.0);
+    QVERIFY(controller.document().sketch() == before);
+    QTest::qWait(200);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u12_fillet_preview.png"));
+    click(item("finishShape"));
+    QCOMPARE(controller.document().undo_label(), std::string("Fillet"));
+    std::size_t arcs = 0;
+    for (const auto& [id, e] : controller.document().sketch().entities())
+      arcs += std::holds_alternative<sketchcad::SketchArc>(e);
+    QCOMPARE(arcs, 1u);
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u12_fillet.png"));
+    controller.undo();
+    QVERIFY(controller.document().sketch() == before);
+    tap(controller, 40, 20);
+    tap(controller, 20, 35);
+    click(item("closeContext"));
+    QVERIFY(!controller.in_progress());
+    QVERIFY(controller.document().sketch() == before);
+  }
+
+  void wheel_over_tool_rail_does_not_zoom() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    QQuickItem* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    const double scale = controller.scale();
+    const QPointF at = rail->mapToScene(
+        {rail->width() / 2, rail->height() / 2});
+    // Scrolls down past the end of the list, as in U11 acceptance.
+    for (int i = 0; i < 12; ++i) {
+      QWheelEvent wheel(at, window_->mapToGlobal(at), QPoint(), QPoint(0, -120),
+                        Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase,
+                        false);
+      QCoreApplication::sendEvent(window_, &wheel);
+      QTest::qWait(20);
+    }
+    QCOMPARE(controller.scale(), scale);
+    QTRY_VERIFY(rail->property("contentY").toReal() > 0);
+  }
   void trim_tool_cuts_at_the_crossing() {
     SketchController controller;
     QQmlApplicationEngine engine;
@@ -561,12 +879,13 @@ class QmlTest : public QObject {
         "tangent",    "equal",      "fix",      "length",      "distance",
         "angle",      "radius",     "on_curve", "construction"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 28);
+    QCOMPARE(keys.size(), 32);
     for (const QString& key :
          actions + QStringList{"constraint", "dimension", "dof", "defined",
                                "redundant", "conflict", "snap", "finger",
                                "autodim", "input", "modes", "reference", "trim",
-                               "extend"}) {
+                               "extend", "chamfer", "fillet", "profiles",
+                               "merge_vertices"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",
@@ -646,6 +965,156 @@ class QmlTest : public QObject {
     QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
                                        "/sketch_u07_help.png"));
   }
+  void collapse_short_edge_through_keypad() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_tool("rectangle");
+    tap(controller, 20, 20);
+    tap(controller, 70, 40);
+    controller.set_tool("chamfer");
+    tap(controller, 45, 40);
+    tap(controller, 20, 35);
+    QVERIFY(controller.enter_value(10.51));
+    QVERIFY(controller.finish());
+    tap(controller, 45, 20);
+    tap(controller, 20, 24);
+    QVERIFY(controller.enter_value(9.48992));
+    QVERIFY(controller.finish());
+    const auto before = controller.document().sketch();
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("mergeVerticesAction"));
+    click(item("mergeVerticesAction"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("applyDimension"));
+    QVERIFY(shown("dimensionEditor"));
+    QVERIFY(controller.document().sketch() == before);
+    click(item("collapseShortEdges"));
+    QTRY_VERIFY(shown("collapseDimensionsNotice"));
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_collapse_keypad.png"));
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(controller.profile_ready());
+    QVERIFY(controller.undo());
+    QVERIFY(controller.document().sketch() == before);
+    QVERIFY(controller.redo());
+    QVERIFY(controller.profile_ready());
+  }
+
+  void profiles_and_merge_vertices_from_pill_and_menu() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    window_->setProperty("darkTheme", false);
+    click(item("snapToggle"));
+    QVERIFY(!shown("profileStatus"));
+
+    // Draw an almost-closed 4-segment loop with ~0.5 mm corner gaps.
+    click(item("tool_line"));
+    tap(controller, 20.0, 20.0);
+    tap(controller, 69.6, 20.0);
+    tap(controller, 70.0, 20.3);
+    tap(controller, 70.0, 59.6);
+    tap(controller, 69.7, 60.0);
+    tap(controller, 20.4, 60.0);
+    tap(controller, 20.0, 59.7);
+    tap(controller, 20.0, 20.4);
+    click(item("tool_select"));
+
+    QTRY_VERIFY(shown("profileStatus"));
+    QVERIFY(!controller.profile_ready());
+    QCOMPARE(controller.open_endpoint_count(), 8);
+    QVERIFY(!controller.open_endpoints_path().isEmpty());
+    QCOMPARE(color_of("profileStatus_background"), QColor("#fbe5e3"));
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_profiles_open.png"));
+
+    // Menu action opens keypad prefilled with default tolerance (0.5 mm);
+    // a tiny tolerance keeps the keypad open with an inline message.
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("mergeVerticesAction"));
+    click(item("mergeVerticesAction"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QCOMPARE(text_of("dimensionValue"), QString("0.5"));
+    QVERIFY(shown("collapseShortEdges"));
+    QVERIFY(!item("collapseShortEdges")->property("checked").toBool());
+    click(item("collapseShortEdges"));
+    QVERIFY(item("collapseShortEdges")->property("checked").toBool());
+    QVERIFY(shown("collapseDimensionsNotice"));
+    type("0.1");
+    click(item("applyDimension"));
+    QVERIFY(shown("dimensionEditor"));
+    QVERIFY(!text_of("dimensionError").isEmpty());
+    click(item("cancelDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+
+    // Tapping the open-gap pill opens the tolerance keypad and merges corners.
+    click(item("profileStatus"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QVERIFY(!item("collapseShortEdges")->property("checked").toBool());
+    type("1");
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QCOMPARE(controller.document().undo_label(), std::string("Merge vertices"));
+    QVERIFY(controller.profile_ready());
+    QCOMPARE(controller.profile_count(), 1);
+    QCOMPARE(color_of("profileStatus_background"), QColor("#e2f4ee"));
+
+    // Add a circular hole inside and fillet a corner: profile stays closed.
+    click(item("tool_circle"));
+    tap(controller, 45, 40);
+    tap(controller, 52, 40);
+    QCOMPARE(controller.hole_count(), 1);
+    QVERIFY(controller.profile_ready());
+    auto* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    rail->setProperty(
+        "contentY", rail->property("contentHeight").toReal() - rail->height());
+    QTest::qWait(20);
+    click(item("tool_fillet"));
+    tap(controller, 45, 20);
+    tap(controller, 20, 40);
+    click(item("finishShape"));
+    QVERIFY(controller.profile_ready());
+    QCOMPARE(controller.profile_count(), 1);
+    QCOMPARE(controller.hole_count(), 1);
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_profiles_closed.png"));
+  }
+
+  void profile_controls_fit_the_minimum_tablet_width() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    window_->resize(720, 800);
+    QTest::qWait(30);
+    controller.set_tool("rectangle");
+    auto at = controller.screen_of(20, 20);
+    controller.press(at.x(), at.y());
+    controller.release(at.x(), at.y());
+    at = controller.screen_of(60, 50);
+    controller.press(at.x(), at.y());
+    controller.release(at.x(), at.y());
+    QTRY_VERIFY(controller.profile_ready());
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    const auto* pill = item("profileStatus");
+    const auto* dof = item("dofStatus");
+    const auto* menu = item("moreButton");
+    QVERIFY(pill && dof && menu);
+    const auto pill_at = pill->mapToScene({0, 0});
+    const auto dof_at = dof->mapToScene({0, 0});
+    const auto menu_at = menu->mapToScene({0, 0});
+    QVERIFY(pill_at.x() >= 0);
+    QVERIFY(pill_at.x() + pill->width() <= dof_at.x());
+    QVERIFY(dof_at.x() + dof->width() <= menu_at.x());
+    QVERIFY(menu_at.x() + menu->width() <= window_->width());
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_profiles_compact.png"));
+  }
+
   void dimensions_in_eskd_style() {
     SketchController controller;
     QQmlApplicationEngine engine;

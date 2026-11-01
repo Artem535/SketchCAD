@@ -188,3 +188,32 @@ TEST(Diagnostics, PointOnAFixedLineKeepsOneFreedom) {
   ASSERT_TRUE(s.add_constraint(K::kOnCurve, p, l));
   expect_dof(s, 1);
 }
+
+TEST(ArcBindings, DerivedAnglesRemoveDofWithoutSingularContactRows) {
+  Sketch s;
+  const auto c = *s.create_point({2, 2});
+  const auto px = *s.create_point({2, 0}), fx = *s.create_point({10, 0});
+  const auto py = *s.create_point({0, 2}), fy = *s.create_point({0, 10});
+  const auto lx = *s.create_line(fx, px), ly = *s.create_line(py, fy);
+  const auto arc = *s.create_arc(c, 2, 0, 1);
+  ASSERT_TRUE(s.add_arc_tangency(ConstraintKind::kTangentStart, ly, arc, py));
+  ASSERT_TRUE(s.add_arc_tangency(ConstraintKind::kTangentEnd, lx, arc, px));
+  const auto d = diagnose(s);
+  ASSERT_EQ(d.status, DiagnosisStatus::kConsistent);
+  EXPECT_EQ(d.rank, 6);
+  EXPECT_EQ(
+      d.dof,
+      7);  // 5 points + radius + 2 angles, minus 4 contacts + 2 derived angles.
+}
+
+TEST(ArcBindings, CoincidentContactDiagnosisIsUnknown) {
+  Sketch s;
+  const auto c = *s.create_point({0, 2});
+  const auto p = *s.create_point({0, 0}), q = *s.create_point({5, 0});
+  const auto p2 = *s.create_point({0, 0}), q2 = *s.create_point({-5, 0});
+  const auto l = *s.create_line(p, q), l2 = *s.create_line(q2, p2);
+  const auto arc = *s.create_arc(c, 2, 0, 1);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, l, arc, p));
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, l2, arc, p2));
+  EXPECT_EQ(diagnose(s).status, DiagnosisStatus::kUnknown);
+}

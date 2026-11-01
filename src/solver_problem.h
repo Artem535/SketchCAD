@@ -5,6 +5,7 @@
 #include <ceres/ceres.h>
 
 #include <Eigen/Dense>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <map>
@@ -26,6 +27,7 @@ enum class Shape {
   kParallel,
   kPerpendicular,
   kLineTangent,
+  kArcContact,
   kCurveTangent,
   kEqualLength,
   kEqualRadius,
@@ -40,7 +42,10 @@ enum class Shape {
 };
 
 inline int residual_count(Shape shape) {
-  return shape == Shape::kCoincident || shape == Shape::kFix ? 2 : 1;
+  return shape == Shape::kCoincident || shape == Shape::kFix ||
+                 shape == Shape::kArcContact
+             ? 2
+             : 1;
 }
 inline bool angular(Shape shape) {
   return shape == Shape::kParallel || shape == Shape::kPerpendicular ||
@@ -138,6 +143,18 @@ struct Cost {
         r[0] = (ux * (y(0) - y(1)) - uy * (x(0) - x(1))) / len(ux, uy);
         break;
       }
+      case Shape::kArcContact: {
+        // Slots: line start/end, centre. Both residuals are lengths.
+        const int contact = side == 1 ? 0 : 1;
+        const T dx = x(contact) - x(2), dy = y(contact) - y(2);
+        const T ux = x(1) - x(0), uy = y(1) - y(0);
+        // Captured left/right normal prevents a reversed shortened line
+        // from satisfying the relation on the opposite tangency branch.
+        r[0] = T(internal ? -1 : 1) * (uy * dx - ux * dy) /
+                   len(ux, uy) - rad(0);
+        r[1] = (dx * ux + dy * uy) / len(ux, uy);
+        break;
+      }
       case Shape::kPointOnCircle:
         // Slots: the point, then the centre; an arc counts as its circle.
         r[0] = len(x(0) - x(1), y(0) - y(1)) - rad(0);
@@ -172,6 +189,13 @@ class Problem {
   // Translates every constraint; false if a residual is undefined for the
   // current geometry (degenerate line or concentric curves).
   bool build() {
+    const bool bound = std::any_of(
+        sketch_.constraints().begin(), sketch_.constraints().end(),
+        [](const auto& entry) {
+          return entry.second.kind == ConstraintKind::kTangentStart ||
+                 entry.second.kind == ConstraintKind::kTangentEnd;
+        });
+    if (bound && !Sketch::from_snapshot(sketch_.snapshot())) return false;
     // Reference dimensions (U10) are shown, never solved.
     for (const auto& [id, c] : sketch_.constraints())
       if (!c.reference && !add(c)) return false;
@@ -180,6 +204,7 @@ class Problem {
 
   // Evaluates all residuals at the current values.
   SolveResult check() const {
+    if (!derived_angles()) return {SolveStatus::kInvalidInput, {}};
     SolveResult result{SolveStatus::kSolved, {}};
     for (const Term& term : terms_) {
       std::array<double, 2> r{};
@@ -287,6 +312,24 @@ class Problem {
     for (int r = 0; r < crs.num_rows; ++r)
       for (int k = crs.rows[r]; k < crs.rows[r + 1]; ++k)
         dense(r, crs.cols[k]) = crs.values[k];
+    // Diagnostics counts two arc angles in its public parameter total.
+    // Each bound end eliminates one of these coordinates. Include its
+    // independent definition row/column in the rank calculation, while
+    // keeping Ceres' residuals and parameter blocks strictly geometric.
+    std::vector<EntityId> bindings;
+    for (const auto& [id, c] : sketch_.constraints())
+      if (c.kind == ConstraintKind::kTangentStart ||
+          c.kind == ConstraintKind::kTangentEnd)
+        bindings.push_back(id);
+    const Eigen::Index old_rows = dense.rows(), old_cols = dense.cols();
+    dense.conservativeResize(old_rows + bindings.size(),
+                             old_cols + bindings.size());
+    dense.bottomRows(bindings.size()).setZero();
+    dense.rightCols(bindings.size()).setZero();
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
+      dense(old_rows + i, old_cols + i) = 1;
+      rows.push_back(bindings[i]);
+    }
     return dense;
   }
 
@@ -329,10 +372,76 @@ class Problem {
       else if (const auto* a = std::get_if<SketchArc>(&e))
         result.update_arc(id, a->center, r, a->start_angle, a->sweep_angle);
     }
+    const auto angles = derived_angles();
+    if (angles)
+      for (const auto& [id, angles_at] : *angles) {
+        const auto a = std::get<SketchArc>(*result.entity(id));
+        result.update_arc(id, a.center, a.radius, angles_at.first,
+                          angles_at.second);
+      }
     return result;
   }
 
  private:
+  // Derive CCW start/sweep without adding angle parameters to Ceres. An
+  // unbound end retains its angle; ordinary arcs never enter this map.
+  std::optional<std::map<EntityId, std::pair<double, double>>> derived_angles()
+      const {
+    std::map<EntityId, std::pair<double, double>> angles;
+    std::map<EntityId, unsigned> bound_ends;
+    const auto now = [&](EntityId id) {
+      const auto it = points_.find(id);
+      return it == points_.end() ? position(id)
+                                 : Position{it->second[0], it->second[1]};
+    };
+    for (const auto& [id, c] : sketch_.constraints()) {
+      if (c.kind != ConstraintKind::kTangentStart &&
+          c.kind != ConstraintKind::kTangentEnd)
+        continue;
+      bound_ends[c.second] |= c.kind == ConstraintKind::kTangentStart ? 1u : 2u;
+      const auto a = std::get<SketchArc>(*sketch_.entity(c.second));
+      auto [it, inserted] = angles.try_emplace(c.second, a.start_angle,
+                                               a.start_angle + a.sweep_angle);
+      const auto l = std::get<SketchLine>(*sketch_.entity(c.first));
+      const Position p = now(c.side == 1 ? l.start : l.end),
+                     center = now(a.center);
+      const double dx = p.x - center.x, dy = p.y - center.y;
+      if (!std::isfinite(dx) || !std::isfinite(dy) ||
+          std::hypot(dx, dy) <= kLengthTolerance)
+        return std::nullopt;
+      const double angle = std::atan2(dy, dx);
+      (c.kind == ConstraintKind::kTangentStart ? it->second.first
+                                               : it->second.second) = angle;
+    }
+    for (auto& [id, pair] : angles) {
+      double sweep = std::fmod(pair.second - pair.first, 2 * std::numbers::pi);
+      if (sweep < 0) sweep += 2 * std::numbers::pi;
+      const auto a = std::get<SketchArc>(*sketch_.entity(id));
+      // Two bound ends define an oriented arc branch. A discontinuous
+      // minor/major switch can otherwise satisfy both captured normals by
+      // extending a contact beyond its shortened line (oversized fillet).
+      if (bound_ends[id] == 3) {
+        if ((std::abs(a.sweep_angle) <= std::numbers::pi &&
+             sweep > std::numbers::pi + kAngleTolerance) ||
+            (std::abs(a.sweep_angle) > std::numbers::pi &&
+             sweep < std::numbers::pi - kAngleTolerance))
+          return std::nullopt;
+        if (std::abs(a.sweep_angle) <= std::numbers::pi)
+          sweep = std::min(sweep, std::numbers::pi);
+        else if (sweep <= std::numbers::pi)
+          sweep = std::nextafter(std::numbers::pi, 2 * std::numbers::pi);
+      }
+      const auto radius = radii_.find(id);
+      const double r = radius == radii_.end() ? a.radius : radius->second;
+      if (!std::isfinite(sweep) || sweep <= kAngleTolerance ||
+          2 * std::numbers::pi - sweep <= kAngleTolerance ||
+          2 * r * std::sin(sweep / 2) <= kLengthTolerance)
+        return std::nullopt;
+      pair.second = sweep;
+    }
+    return angles;
+  }
+
   // Adds one residual block per constraint, in `terms_` order.
   std::vector<ceres::ResidualBlockId> populate(ceres::Problem& problem,
                                                double weight = 1) {
@@ -441,6 +550,14 @@ class Problem {
                               : Shape::kEqualLength;
         defined = add_line(term, c.first);
         defined = add_line(term, c.second) && defined;
+        break;
+      case ConstraintKind::kTangentStart:
+      case ConstraintKind::kTangentEnd:
+        term.cost.shape = Shape::kArcContact;
+        term.cost.internal = c.internal;
+        term.cost.side = c.side;
+        defined = add_line(term, c.first);
+        add_curve(term, c.second);
         break;
       case ConstraintKind::kTangent:
         if (is_line(c.first)) {

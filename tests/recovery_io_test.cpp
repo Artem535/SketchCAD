@@ -130,7 +130,7 @@ TEST(RecoveryIo, RejectsInvalidPayload) {
   for (const auto& bytes :
        {changed(v, "\\\"format\\\":\\\"SketchCAD\\\"",
                 "\\\"format\\\":\\\"Other\\\""),
-        changed(v, "\\\"version\\\":1", "\\\"version\\\":2"),
+        changed(v, "\\\"version\\\":1", "\\\"version\\\":3"),
         changed(v, "\\\"entities\\\":[]", "\\\"entities\\\":[1]")})
     EXPECT_EQ(error_of(bytes), RecoveryError::kInvalidProject) << bytes;
 }

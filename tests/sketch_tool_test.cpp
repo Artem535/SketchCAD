@@ -11,6 +11,7 @@
 #include "sketchcad/diagnostics.h"
 #include "sketchcad/dimension_layout.h"
 #include "sketchcad/solver.h"
+#include "sketchcad/sketch_profile.h"
 using namespace sketchcad;
 namespace {
 constexpr double kPi = std::numbers::pi;
@@ -64,6 +65,458 @@ TEST_F(Tools, LineIsOneCommandAndPreviewOnlyWhileDrawing) {
   EXPECT_TRUE(session.preview().entities().empty());
   EXPECT_EQ(session.tool(), Tool::kLine);
 }
+
+TEST_F(Tools, ChamferIsStagedUntilOneSolvedCommandAndUndoRedoRestoreIt) {
+  doc.set_commit_step(solver_step());
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const Sketch before = sketch();
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kChamfer);
+  EXPECT_EQ(session.input_field(), InputField::kNone);
+  session.hover({0, 0});
+  EXPECT_FALSE(session.edit_preview());
+  session.press({10, 0});
+  EXPECT_TRUE(session.in_progress());
+  EXPECT_EQ(session.selected().size(), 1u);
+  EXPECT_FALSE(session.finish());
+  session.press({0, 5});
+  ASSERT_TRUE(session.edit_preview());
+  EXPECT_EQ(session.selected().size(), 2u);
+  EXPECT_EQ(session.input_field(), InputField::kDistance);
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_EQ(doc.revision(), revision);
+  session.hover({20, 10});  // Hover must not retarget the staged corner.
+  session.press({20, 5});   // Extra taps must not commit or replace picks.
+  ASSERT_TRUE(session.edit_preview());
+  EXPECT_DOUBLE_EQ(session.edit_preview()->a.x, 2);
+  EXPECT_EQ(doc.revision(), revision);
+  ASSERT_TRUE(session.finish());
+  EXPECT_EQ(doc.undo_label(), "Chamfer");
+  EXPECT_EQ(count<SketchLine>(sketch()), 5u);
+  EXPECT_EQ(session.tool(), Tool::kChamfer);
+  EXPECT_TRUE(session.message().empty());
+  EXPECT_FALSE(session.in_progress());
+  EXPECT_TRUE(session.selected().empty());
+  EXPECT_FALSE(session.edit_preview());
+  const Sketch after = sketch();
+  ASSERT_TRUE(session.undo());
+  EXPECT_TRUE(sketch() == before);
+  ASSERT_TRUE(session.redo());
+  EXPECT_TRUE(sketch() == after);
+}
+
+TEST_F(Tools, ChamferDistanceRefreshesStablePreviewAndSurvivesToolChanges) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  session.set_tool(Tool::kChamfer);
+  EXPECT_FALSE(session.enter_value(3));
+  session.press({10, 0});
+  session.press({0, 5});
+  EXPECT_DOUBLE_EQ(session.input_value(), 2);
+  ASSERT_TRUE(session.edit_preview());
+  const auto revision = doc.revision();
+  session.hover({50, 50});
+  EXPECT_TRUE(session.enter_value(3));
+  ASSERT_TRUE(session.edit_preview());
+  EXPECT_DOUBLE_EQ(session.edit_preview()->a.x, 3);
+  EXPECT_FALSE(session.enter_value(0));
+  EXPECT_FALSE(session.enter_value(NAN));
+  EXPECT_EQ(doc.revision(), revision);
+  EXPECT_DOUBLE_EQ(session.input_value(), 3);
+  ASSERT_TRUE(session.enter_value(30));
+  EXPECT_EQ(session.message(), "chamfer_too_long");
+  EXPECT_FALSE(session.edit_preview());
+  EXPECT_FALSE(session.finish());
+  EXPECT_EQ(session.selected().size(), 2u);
+  ASSERT_TRUE(session.enter_value(4));
+  ASSERT_TRUE(session.edit_preview());
+  EXPECT_TRUE(session.message().empty());
+  EXPECT_EQ(doc.revision(), revision);
+  session.set_tool(Tool::kSelect);
+  EXPECT_FALSE(session.in_progress());
+  session.set_tool(Tool::kChamfer);
+  EXPECT_DOUBLE_EQ(session.input_value(), 4);
+  EXPECT_EQ(session.input_field(), InputField::kNone);
+  EXPECT_FALSE(session.edit_preview());
+  session.press({10, 0});
+  session.press({0, 5});
+  ASSERT_TRUE(session.finish());
+  for (const auto& [id, c] : sketch().constraints()) {
+    if (c.kind == ConstraintKind::kDistance) {
+      EXPECT_DOUBLE_EQ(c.value, 4);
+    }
+  }
+}
+
+TEST_F(Tools, InvalidChamferPicksKeepTheFirstLineAndHistory) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const Sketch before = sketch();
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kChamfer);
+  session.press({50, 50});
+  EXPECT_EQ(session.message(), "chamfer_pick_line");
+  EXPECT_FALSE(session.in_progress());
+  session.press({10, 0});
+  const auto first = session.selected();
+  ASSERT_EQ(first.size(), 1u);
+  session.press({15, 0});  // Same line.
+  EXPECT_FALSE(session.message().empty());
+  EXPECT_EQ(session.selected(), first);
+  session.press({10, 10});  // Opposite line, no common endpoint.
+  EXPECT_EQ(session.message(), "chamfer_not_corner");
+  EXPECT_EQ(session.selected(), first);
+  session.press({50, 50});
+  EXPECT_EQ(session.message(), "chamfer_pick_line");
+  EXPECT_EQ(session.selected(), first);
+  EXPECT_FALSE(session.finish());
+  EXPECT_EQ(doc.revision(), revision);
+  EXPECT_TRUE(sketch() == before);
+  session.press({0, 5});
+  EXPECT_TRUE(session.message().empty());
+  EXPECT_TRUE(session.edit_preview());
+  EXPECT_EQ(doc.revision(), revision);
+}
+
+TEST_F(Tools, ChamferRollsBackAndRetainsThePairWhenCommitRejectsIt) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const Sketch before = sketch();
+  const auto revision = doc.revision();
+  doc.set_commit_step([](Sketch&) { return false; });
+  session.set_tool(Tool::kChamfer);
+  session.press({10, 0});
+  session.press({0, 5});
+  EXPECT_FALSE(session.finish());
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_EQ(doc.revision(), revision);
+  EXPECT_EQ(doc.undo_label(), "Rectangle");
+  EXPECT_EQ(session.message(), "chamfer_failed");
+  EXPECT_EQ(session.selected().size(), 2u);
+  EXPECT_TRUE(session.in_progress());
+  EXPECT_TRUE(session.edit_preview());
+  doc.set_commit_step(solver_step());
+  EXPECT_TRUE(session.finish());
+  EXPECT_EQ(count<SketchLine>(sketch()), 5u);
+}
+
+TEST_F(Tools, ChamferCancelResetAndUndoDiscardStaging) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const Sketch before = sketch();
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kChamfer);
+  session.press({10, 0});
+  EXPECT_TRUE(session.cancel());
+  EXPECT_FALSE(session.in_progress());
+  EXPECT_TRUE(session.selected().empty());
+  session.press({10, 0});
+  session.press({0, 5});
+  ASSERT_TRUE(session.enter_value(3));
+  EXPECT_TRUE(session.cancel());
+  EXPECT_FALSE(session.edit_preview());
+  EXPECT_EQ(session.input_field(), InputField::kNone);
+  EXPECT_EQ(doc.revision(), revision);
+  EXPECT_TRUE(sketch() == before);
+  session.press({10, 0});
+  session.press({0, 5});
+  session.reset();
+  EXPECT_TRUE(session.message().empty());
+  EXPECT_FALSE(session.in_progress());
+  EXPECT_FALSE(session.edit_preview());
+  EXPECT_EQ(session.tool(), Tool::kSelect);
+  session.set_tool(Tool::kChamfer);
+  EXPECT_DOUBLE_EQ(session.input_value(), 3);
+  session.press({10, 0});
+  session.press({0, 5});
+  ASSERT_TRUE(session.undo());
+  EXPECT_TRUE(sketch().entities().empty());
+  EXPECT_FALSE(session.in_progress());
+  EXPECT_TRUE(session.selected().empty());
+  ASSERT_TRUE(session.redo());
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_FALSE(session.finish());
+}
+
+TEST_F(Tools, ChamferRejectsNonLinesAndUnsupportedCornersWithoutMutation) {
+  // Topology fixtures: a T junction, two crossing unconnected lines,
+  // collinear lines and a corner with an equal-length constraint.
+  for (int fixture = 0; fixture < 4; ++fixture) {
+    Document document;
+    ToolSession tool(document);
+    tool.set_pick_tolerance(0.5);
+    ASSERT_TRUE(document.execute("Fixture", [&](Sketch& s) {
+      const auto p = *s.create_point({0, 0});
+      const auto a = *s.create_point({10, 0});
+      const auto b =
+          *s.create_point(fixture == 2 ? Position{-10, 0} : Position{0, 10});
+      const auto first = *s.create_line(p, a);
+      const auto second =
+          *s.create_line(fixture == 1 ? *s.create_point({0, -10}) : p, b);
+      if (fixture == 0) s.create_line(p, *s.create_point({-10, 0}));
+      if (fixture == 3) s.add_constraint(ConstraintKind::kEqual, first, second);
+      const auto center = *s.create_point({30, 30});
+      s.create_circle(center, 5);
+      return true;
+    }));
+    const auto before = document.sketch();
+    const auto revision = document.revision();
+    tool.set_tool(Tool::kChamfer);
+    tool.press({35, 30});  // A circle is not a line.
+    EXPECT_EQ(tool.message(), "chamfer_pick_line");
+    EXPECT_FALSE(tool.in_progress());
+    tool.press({5, 0});
+    tool.press(fixture == 2 ? Position{-5, 0} : Position{0, 5});
+    EXPECT_EQ(tool.selected().size(), 1u);
+    EXPECT_FALSE(tool.message().empty());
+    EXPECT_FALSE(tool.edit_preview());
+    EXPECT_FALSE(tool.can_finish());
+    EXPECT_FALSE(tool.finish());
+    EXPECT_TRUE(document.sketch() == before);
+    EXPECT_EQ(document.revision(), revision);
+  }
+}
+
+TEST_F(Tools, ChamferFindsTheSharedEndpointInEitherSelectionOrder) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const auto before = sketch();
+  session.set_tool(Tool::kChamfer);
+  for (const bool reverse : {false, true}) {
+    session.press(reverse ? Position{20, 5} : Position{10, 10});
+    session.press(reverse ? Position{10, 10} : Position{20, 5});
+    ASSERT_TRUE(session.edit_preview());
+    const auto piece = *session.edit_preview();
+    EXPECT_NEAR(std::hypot(piece.a.x - 20, piece.a.y - 10), 2, 1e-10);
+    EXPECT_NEAR(std::hypot(piece.b.x - 20, piece.b.y - 10), 2, 1e-10);
+    EXPECT_TRUE(session.can_finish());
+    EXPECT_TRUE(session.cancel());
+    EXPECT_TRUE(sketch() == before);
+  }
+}
+
+TEST_F(Tools, ChamferPreviewHasTwoEditableSetbackDimensionsAndCleansUp) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const auto before = sketch();
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kChamfer);
+  session.press({10, 0});
+  session.press({0, 5});
+  ASSERT_EQ(session.preview().constraints().size(), 2u);
+  for (const auto& [id, c] : session.preview().constraints()) {
+    EXPECT_EQ(c.kind, ConstraintKind::kDistance);
+    EXPECT_DOUBLE_EQ(c.value, 2);
+    EXPECT_NEAR(*measure(session.preview(), c.kind, c.first, c.second), 2,
+                1e-9);
+  }
+  ASSERT_TRUE(session.enter_value(3));
+  for (const auto& [id, c] : session.preview().constraints())
+    EXPECT_DOUBLE_EQ(c.value, 3);
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_EQ(doc.revision(), revision);
+  EXPECT_EQ(doc.undo_label(), "Rectangle");
+  ASSERT_TRUE(session.enter_value(30));
+  EXPECT_TRUE(session.preview().entities().empty());
+  ASSERT_TRUE(session.enter_value(3));
+  EXPECT_EQ(session.preview().constraints().size(), 2u);
+  EXPECT_TRUE(session.cancel());
+  EXPECT_TRUE(session.preview().entities().empty());
+  session.press({10, 0});
+  session.press({0, 5});
+  ASSERT_TRUE(session.finish());
+  EXPECT_TRUE(session.preview().entities().empty());
+  ASSERT_TRUE(session.undo());
+  EXPECT_TRUE(sketch() == before);
+}
+
+TEST_F(Tools, CornerGripLimitsKeepFilletedPlateUsable) {
+  for (const Tool tool : {Tool::kChamfer, Tool::kFillet}) {
+    for (const double delta : {-1000., 1000.}) {
+      Document plate;
+      ASSERT_TRUE(plate.execute("Plate", [](Sketch& s) {
+        const auto rect = s.create_rectangle({12, 32}, 42, 22);
+        return rect && fillet(s, rect->points[3], 12.370427255361118) &&
+               fillet(s, rect->points[1], 12.370427255361118);
+      }));
+      ToolSession corner(plate);
+      corner.set_pick_tolerance(1);
+      corner.set_tool(tool);
+      corner.press({30, 32});
+      corner.press({12, 36});
+      ASSERT_TRUE(corner.can_finish());
+      const Sketch before = plate.sketch();
+      ASSERT_TRUE(corner.resize_chamfer({delta, delta}));
+      EXPECT_EQ(plate.sketch(), before);
+      ASSERT_TRUE(corner.can_finish());
+      ASSERT_TRUE(corner.finish());
+      const auto profile = analyze_profiles(plate.sketch());
+      EXPECT_TRUE(profile.ready_for_extrude());
+      EXPECT_EQ(profile.faces.size(), 1u);
+      EXPECT_NE(diagnose(plate.sketch()).status, DiagnosisStatus::kUnknown);
+      ASSERT_TRUE(corner.undo());
+      EXPECT_EQ(plate.sketch(), before);
+    }
+  }
+}
+
+TEST_F(Tools, ChamferGripProjectsDragClampsAndNeverMutatesDocument) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const auto before = sketch();
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kChamfer);
+  EXPECT_FALSE(session.resize_chamfer({1, 1}));
+  session.press({10, 0});
+  session.press({0, 5});
+  EXPECT_EQ(session.chamfer_corner_position(), (Position{0, 0}));
+  ASSERT_TRUE(session.resize_chamfer({1, 1}));
+  EXPECT_NEAR(session.input_value(), 4, 1e-10);
+  ASSERT_TRUE(session.edit_preview());
+  EXPECT_NEAR(session.edit_preview()->a.x, 4, 1e-10);
+  EXPECT_EQ(session.preview().constraints().size(), 2u);
+  EXPECT_FALSE(session.resize_chamfer({NAN, 1}));
+  EXPECT_FALSE(session.resize_chamfer({1, INFINITY}));
+  EXPECT_NEAR(session.input_value(), 4, 1e-10);
+  ASSERT_TRUE(session.resize_chamfer({100, 100}));
+  EXPECT_LT(session.input_value(), 10 - kLengthTolerance);
+  EXPECT_TRUE(session.can_finish());
+  const auto at_upper_limit = session.input_value();
+  ASSERT_TRUE(session.resize_chamfer({-1, -1}));
+  EXPECT_NEAR(session.input_value(), at_upper_limit - 2, 1e-9);
+  ASSERT_TRUE(session.resize_chamfer({-100, -100}));
+  EXPECT_GT(session.input_value(), kLengthTolerance);
+  EXPECT_TRUE(session.can_finish());
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_EQ(doc.revision(), revision);
+  EXPECT_EQ(doc.undo_label(), "Rectangle");
+  EXPECT_FALSE(doc.gesture_active());
+  ASSERT_TRUE(session.enter_value(3));
+  ASSERT_TRUE(session.finish());
+  EXPECT_EQ(doc.undo_label(), "Chamfer");
+  EXPECT_TRUE(session.preview().entities().empty());
+  EXPECT_FALSE(session.chamfer_corner_position());
+  ASSERT_TRUE(session.undo());
+  EXPECT_TRUE(sketch() == before);
+}
+
+TEST_F(Tools, ChamferGripProjectionWorksAtObliqueCornersAndCancelsCleanly) {
+  ASSERT_TRUE(doc.execute("Corner", [](Sketch& s) {
+    const auto p = *s.create_point({0, 0});
+    const auto a = *s.create_point({20, 0});
+    const auto b = *s.create_point({10, 10 * std::sqrt(3.)});
+    return s.create_line(p, a) && s.create_line(p, b);
+  }));
+  const auto before = sketch();
+  session.set_tool(Tool::kChamfer);
+  session.press({10, 0});
+  session.press({5, 5 * std::sqrt(3.)});
+  // At 60 degrees the midpoint travels by (0.75, sqrt(3)/4) per mm.
+  ASSERT_TRUE(session.resize_chamfer({0.75, std::sqrt(3.) / 4}));
+  EXPECT_NEAR(session.input_value(), 3, 1e-10);
+  EXPECT_TRUE(sketch() == before);
+  session.resize_chamfer({-std::sqrt(3.) / 4, 0.75});
+  EXPECT_NEAR(session.input_value(), 3, 1e-10);  // Perpendicular: unchanged.
+  session.set_tool(Tool::kSelect);
+  EXPECT_FALSE(session.resize_chamfer({1, 1}));
+  EXPECT_TRUE(session.preview().entities().empty());
+  EXPECT_TRUE(sketch() == before);
+}
+
+TEST_F(Tools, ChamferPickClearsThePreviousDrawingSnapWithoutHover) {
+  snapping();
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  ASSERT_TRUE(session.last_snap());
+  session.set_tool(Tool::kChamfer);
+  session.press({10, 0});
+  EXPECT_EQ(doc.undo_label(), "Rectangle");
+  EXPECT_FALSE(session.last_snap());
+}
+
+TEST_F(Tools, FilletStagesRadiusGripAndCommitWithExactUndoRedo) {
+  doc.set_commit_step(solver_step());
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const auto before = sketch();
+  const auto revision = doc.revision();
+  session.set_tool(Tool::kFillet);
+  EXPECT_EQ(session.input_field(), InputField::kNone);
+  session.press({10, 0});
+  session.press({0, 5});
+  ASSERT_TRUE(session.edit_preview());
+  EXPECT_TRUE(session.edit_preview()->is_arc);
+  EXPECT_EQ(session.input_field(), InputField::kRadius);
+  ASSERT_EQ(session.preview().constraints().size(), 1u);
+  EXPECT_EQ(session.preview().constraints().begin()->second.kind,
+            ConstraintKind::kRadius);
+  ASSERT_TRUE(session.enter_value(3));
+  EXPECT_FALSE(session.enter_value(kLengthTolerance / 2));
+  EXPECT_DOUBLE_EQ(session.input_value(), 3);
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_EQ(doc.revision(), revision);
+  session.hover({100, 100});
+  ASSERT_TRUE(session.edit_preview());
+  EXPECT_NEAR(session.edit_preview()->radius, 3, 1e-10);
+  ASSERT_TRUE(session.resize_chamfer({1, 1}));
+  EXPECT_GT(session.input_value(), 3);
+  ASSERT_TRUE(session.enter_value(30));
+  EXPECT_FALSE(session.can_finish());
+  EXPECT_EQ(session.message(), "fillet_too_long");
+  ASSERT_TRUE(session.enter_value(2));
+  ASSERT_TRUE(session.finish());
+  EXPECT_EQ(doc.undo_label(), "Fillet");
+  EXPECT_FALSE(session.in_progress());
+  EXPECT_TRUE(session.preview().entities().empty());
+  const auto after = sketch();
+  ASSERT_TRUE(session.undo());
+  EXPECT_TRUE(sketch() == before);
+  ASSERT_TRUE(session.redo());
+  EXPECT_TRUE(sketch() == after);
+}
+
+TEST_F(Tools, FilletCancelAndSolverRejectionAreAtomicAndRetainRadius) {
+  session.set_tool(Tool::kRectangle);
+  session.press({0, 0});
+  session.press({20, 10});
+  const auto before = sketch();
+  session.set_tool(Tool::kFillet);
+  session.press({10, 0});
+  session.press({10, 10});
+  EXPECT_EQ(session.selected().size(), 1u);
+  EXPECT_EQ(session.message(), "fillet_not_corner");
+  session.press({0, 5});
+  ASSERT_TRUE(session.enter_value(3));
+  doc.set_commit_step([](Sketch&) { return false; });
+  EXPECT_FALSE(session.finish());
+  EXPECT_EQ(session.message(), "fillet_failed");
+  EXPECT_TRUE(session.in_progress());
+  EXPECT_TRUE(sketch() == before);
+  EXPECT_TRUE(session.cancel());
+  EXPECT_TRUE(session.preview().entities().empty());
+  session.set_tool(Tool::kChamfer);
+  EXPECT_DOUBLE_EQ(session.input_value(), 2);
+  session.set_tool(Tool::kFillet);
+  EXPECT_DOUBLE_EQ(session.input_value(), 3);
+  session.press({10, 0});
+  session.press({0, 5});
+  session.reset();
+  EXPECT_FALSE(session.in_progress());
+  EXPECT_TRUE(session.preview().entities().empty());
+  EXPECT_TRUE(sketch() == before);
+}
+
 TEST_F(Tools, LineReusesSnappedPointAsSharedVertex) {
   snapping();
   session.set_tool(Tool::kLine);

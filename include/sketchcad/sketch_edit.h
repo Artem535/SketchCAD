@@ -21,6 +21,32 @@ struct CurvePiece {
 bool trim(Sketch&, EntityId curve, Position at);
 bool extend(Sketch&, EntityId curve, Position at);
 
+enum class ChamferStatus {
+  kReady,
+  kNotCorner,
+  kInvalidDistance,
+  kTooLong,
+  kCollinear,
+  kEqualLength
+};
+ChamferStatus chamfer_status(const Sketch&, EntityId corner, double distance);
+bool chamfer(Sketch&, EntityId corner, double distance);
+std::optional<CurvePiece> chamfer_preview(const Sketch&, EntityId corner,
+                                          double distance);
+
+enum class FilletStatus {
+  kReady,
+  kNotCorner,
+  kInvalidRadius,
+  kTooLong,
+  kCollinear,
+  kEqualLength
+};
+FilletStatus fillet_status(const Sketch&, EntityId corner, double radius);
+bool fillet(Sketch&, EntityId corner, double radius);
+std::optional<CurvePiece> fillet_preview(const Sketch&, EntityId corner,
+                                         double radius);
+
 // The piece that trim would remove, or extend would add.
 std::optional<CurvePiece> trim_preview(const Sketch&, EntityId curve,
                                        Position at);

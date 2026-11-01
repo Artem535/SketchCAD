@@ -1,10 +1,11 @@
 #include "sketchcad/sketch_view.h"
 
-#include "curve_geometry.h"
-
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+
+#include "curve_geometry.h"
+#include "sketch_corner.h"
 
 namespace sketchcad {
 namespace {
@@ -193,6 +194,26 @@ std::optional<EntityId> pick_curve(const Sketch& s, Position p,
     if (d && (*d < best_distance || (*d == best_distance && !best))) {
       best = id;
       best_distance = *d;
+    }
+  }
+  return best;
+}
+
+std::optional<EntityId> pick_corner(const Sketch& s, Position p,
+                                    double tolerance_mm) {
+  if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+      !std::isfinite(tolerance_mm) || tolerance_mm < 0)
+    return std::nullopt;
+  std::optional<EntityId> best;
+  double best_distance = tolerance_mm;
+  for (const auto& [id, e] : s.entities()) {
+    const auto* point = std::get_if<SketchPoint>(&e);
+    if (!point) continue;
+    const double d = distance(p, point->position);
+    if ((d < best_distance || (d == best_distance && !best)) &&
+        detail::corner_lines(s, id)) {
+      best = id;
+      best_distance = d;
     }
   }
   return best;

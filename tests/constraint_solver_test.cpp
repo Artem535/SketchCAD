@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 #include "sketchcad/solver.h"
 using namespace sketchcad;
@@ -46,6 +47,20 @@ std::pair<double, bool> oracle(const Sketch& s, const Constraint& c) {
       return {std::sin(direction(s, c.first) - direction(s, c.second)), true};
     case K::kPerpendicular:
       return {std::cos(direction(s, c.first) - direction(s, c.second)), true};
+    case K::kTangentStart:
+    case K::kTangentEnd: {
+      const auto l = std::get<SketchLine>(*s.entity(c.first));
+      const Position p = at(s, c.side == 1 ? l.start : l.end);
+      const auto [center, radius] = curve(s, c.second);
+      const auto [a, b] = ends(s, c.first);
+      const double dot =
+          ((p.x - center.x) * (b.x - a.x) + (p.y - center.y) * (b.y - a.y)) /
+          length(a, b);
+      const double normal = ((b.x - a.x) * (center.y - p.y) -
+                             (b.y - a.y) * (center.x - p.x)) / length(a, b);
+      return {std::max(std::abs((c.internal ? -1 : 1) * normal - radius),
+                       std::abs(dot)), false};
+    }
     case K::kTangent: {
       const auto [c2, r2] = curve(s, c.second);
       if (is_line(s, c.first)) {
@@ -462,4 +477,159 @@ TEST(ProjectValidation, ChecksStoredPositionsWithoutSolving) {
   const Sketch before = s;
   EXPECT_EQ(check_constraints(s).status, SolveStatus::kUnsatisfied);
   EXPECT_TRUE(s == before);
+}
+
+// Issue #59: endpoint bindings must constrain contact and derive arc angles.
+TEST(ArcBindings, InitialSolvedSynchronizesAnglesAndRadiusEdit) {
+  Sketch s;
+  const auto far_x = *s.create_point({10, 0});
+  const auto contact_x = *s.create_point({2, 0});
+  const auto contact_y = *s.create_point({0, 2});
+  const auto far_y = *s.create_point({0, 10});
+  const auto center = *s.create_point({2, 2});
+  const auto lx = *s.create_line(far_x, contact_x);
+  const auto ly = *s.create_line(contact_y, far_y);
+  const auto arc = *s.create_arc(center, 2, 0.1, 0.2);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, ly, arc, contact_y));
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, lx, arc, contact_x));
+  s.add_constraint(K::kFix, far_x);
+  s.add_constraint(K::kFix, far_y);
+  s.add_constraint(K::kHorizontal, lx);
+  s.add_constraint(K::kVertical, ly);
+  const auto radius = *s.add_dimension(K::kRadius, arc, 0, 2);
+  ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+  auto a = std::get<SketchArc>(*s.entity(arc));
+  EXPECT_NEAR(std::cos(a.start_angle), -1, 1e-7);
+  EXPECT_NEAR(a.sweep_angle, std::acos(-1.0) / 2, 1e-7);
+  ASSERT_TRUE(s.set_dimension(radius, 3));
+  ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+  a = std::get<SketchArc>(*s.entity(arc));
+  const auto c = at(s, center);
+  for (const auto& [p, angle] :
+       {std::pair{contact_y, a.start_angle},
+        std::pair{contact_x, a.start_angle + a.sweep_angle}}) {
+    EXPECT_NEAR(at(s, p).x, c.x + a.radius * std::cos(angle), 1e-6);
+    EXPECT_NEAR(at(s, p).y, c.y + a.radius * std::sin(angle), 1e-6);
+  }
+  EXPECT_NEAR(at(s, contact_x).x, 3, 1e-6);
+  EXPECT_NEAR(at(s, contact_y).y, 3, 1e-6);
+}
+
+TEST(ArcBindings, SingleBindingPreservesOtherEndAndOrdinaryArcs) {
+  Sketch s;
+  const auto c = *s.create_point({0, 2});
+  const auto p = *s.create_point({0, 0}), q = *s.create_point({5, 0});
+  const auto l = *s.create_line(p, q);
+  const auto arc = *s.create_arc(c, 2, 0, 1);
+  const auto ordinary = *s.create_arc(c, 4, 0.3, -1.1);
+  const auto before = s.entity(ordinary);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, l, arc, p));
+  ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+  const auto a = std::get<SketchArc>(*s.entity(arc));
+  EXPECT_NEAR(
+      std::remainder(a.start_angle + a.sweep_angle - 1, 2 * std::acos(-1.0)), 0,
+      1e-7);
+  EXPECT_NEAR(std::sin(a.start_angle), -1, 1e-7);
+  EXPECT_EQ(s.entity(ordinary), before);
+}
+
+TEST(ArcBindings, CoincidentContactsRejectedTransactionally) {
+  Sketch s;
+  const auto c = *s.create_point({0, 2});
+  const auto p = *s.create_point({0, 0}), q = *s.create_point({5, 0});
+  const auto p2 = *s.create_point({0, 0}), q2 = *s.create_point({-5, 0});
+  const auto l = *s.create_line(p, q), l2 = *s.create_line(q2, p2);
+  const auto arc = *s.create_arc(c, 2, 0, 1);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, l, arc, p));
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, l2, arc, p2));
+  const auto before = s.snapshot();
+  EXPECT_NE(check_constraints(s).status, SolveStatus::kSolved);
+  EXPECT_NE(solve(s).status, SolveStatus::kSolved);
+  EXPECT_EQ(s.snapshot().entities, before.entities);
+  EXPECT_EQ(s.snapshot().constraints, before.constraints);
+}
+
+TEST(ArcBindings, ObliqueContactsAndRotation) {
+  const double pi = std::acos(-1.0);
+  for (const double theta : {pi / 3, pi / 2, 2 * pi / 3}) {
+    for (const double rotation : {0.37, 2.6, -2.1}) {
+      Sketch s;
+      const auto transform = [&](double x, double y) {
+        return Position{7 + x * std::cos(rotation) - y * std::sin(rotation),
+                        -4 + x * std::sin(rotation) + y * std::cos(rotation)};
+      };
+      const double t = 2 / std::tan(theta / 2);
+      const auto p = *s.create_point(transform(t, 0));
+      const auto q = *s.create_point(transform(12, 0));
+      const auto p2 =
+          *s.create_point(transform(t * std::cos(theta), t * std::sin(theta)));
+      const auto q2 = *s.create_point(
+          transform(12 * std::cos(theta), 12 * std::sin(theta)));
+      const auto c = *s.create_point(transform(t, 2));
+      const auto l = *s.create_line(q, p), l2 = *s.create_line(p2, q2);
+      const auto arc = *s.create_arc(c, 2, 0.2, 0.4);
+      ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, l2, arc, p2));
+      ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, l, arc, p));
+      s.add_constraint(K::kFix, q);
+      s.add_constraint(K::kFix, q2);
+      const auto origin = *s.create_point(transform(0, 0));
+      s.add_constraint(K::kFix, origin);
+      s.add_constraint(K::kOnCurve, origin, l);
+      s.add_constraint(K::kOnCurve, origin, l2);
+      const auto radius = *s.add_dimension(K::kRadius, arc, 0, 2);
+      ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+      ASSERT_TRUE(s.set_dimension(radius, 3));
+      ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+      const auto a = std::get<SketchArc>(*s.entity(arc));
+      EXPECT_NEAR(a.sweep_angle, pi - theta, 1e-6);
+      for (const auto& [line, point, angle] :
+           {std::tuple{l2, p2, a.start_angle},
+            std::tuple{l, p, a.start_angle + a.sweep_angle}}) {
+        const auto center = at(s, c), contact = at(s, point);
+        EXPECT_NEAR(contact.x, center.x + 3 * std::cos(angle), 1e-6);
+        EXPECT_NEAR(contact.y, center.y + 3 * std::sin(angle), 1e-6);
+        const auto [u, v] = ends(s, line);
+        EXPECT_NEAR((contact.x - center.x) * (v.x - u.x) +
+                        (contact.y - center.y) * (v.y - u.y),
+                    0, 1e-6);
+      }
+    }
+  }
+}
+
+TEST(ArcBindings, CoordinateEditRestoresCapturedNormalBranch) {
+  Sketch s;
+  const auto p = *s.create_point({0, 0}), q = *s.create_point({4, 0});
+  const auto center = *s.create_point({0, 2});
+  const auto line = *s.create_line(q, p);
+  const auto arc = *s.create_arc(center, 2, -std::acos(-1.0) / 2, 1);
+  const auto binding = s.add_arc_tangency(K::kTangentStart, line, arc, p);
+  ASSERT_TRUE(binding);
+  ASSERT_TRUE(s.constraint(*binding)->internal);
+  s.add_constraint(K::kFix, p);
+  s.add_constraint(K::kFix, q);
+  s.add_dimension(K::kRadius, arc, 0, 2);
+  ASSERT_TRUE(s.update_point(center, {0, -2}));
+  ASSERT_NE(check_constraints(s).status, SolveStatus::kSolved);
+  ASSERT_EQ(solve(s).status, SolveStatus::kSolved);
+  EXPECT_NEAR(at(s, center).y, 2, 1e-6);
+  EXPECT_TRUE(s.constraint(*binding)->internal);
+  EXPECT_LE(oracle(s, *s.constraint(*binding)).first, kLengthTolerance);
+  EXPECT_EQ(check_constraints(s).status, SolveStatus::kSolved);
+}
+
+TEST(ArcBindings, InitiallySatisfiedContactsCannotSwitchMajorToMinorBranch) {
+  Sketch s;
+  const auto center = *s.create_point({2, 2});
+  const auto px = *s.create_point({2, 0}), py = *s.create_point({0, 2});
+  const auto lx = *s.create_line(*s.create_point({10, 0}), px);
+  const auto ly = *s.create_line(py, *s.create_point({0, 10}));
+  const auto arc = *s.create_arc(center, 2, std::acos(-1.0),
+                                  3 * std::acos(-1.0) / 2);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, ly, arc, py));
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, lx, arc, px));
+  const auto before = s;
+  EXPECT_NE(check_constraints(s).status, SolveStatus::kSolved);
+  EXPECT_NE(solve(s).status, SolveStatus::kSolved);
+  EXPECT_EQ(s, before);
 }

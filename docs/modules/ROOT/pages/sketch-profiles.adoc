@@ -1,0 +1,276 @@
+= U13: Vertex merging and closed profile extraction
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/60[#60].
+
+User-approved bridge increment between 2D sketching (xref:sketch-fillet.adoc[]) and 3D part extrusion
+(xref:roadmap.adoc[], xref:adr-0001-3d-viewer.adoc[ADR-0001]).
+
+== Purpose
+
+Tablet sketching without an exact endpoint snap can leave sub-millimetre gaps between adjacent segments, preventing
+3D solid extrusion. Conversely, valid 3D extrusion needs deterministic extraction of closed outer contours and inner
+holes (including straight segments, trimmed/filleted arcs, chamfered corners, and full circles) while ignoring
+construction geometry such as chamfer/fillet virtual sharps and layout guides.
+
+All geometry analysis and vertex merging live in `sketchcad_core` (`include/sketchcad/sketch_profile.h`,
+`src/sketch_profile.cpp`) with zero dependency on Qt or OCCT.
+
+== Part 1: Merge nearby vertices (`merge_nearby_vertices`)
+
+=== Behavior and constraints
+
+`MergeResult merge_nearby_vertices(Sketch& sketch, double tolerance)` merges nearby non-construction line endpoints
+within `tolerance` millimetres into shared topological `SketchPoint` entities:
+
+* *Tolerance validation*: `tolerance` must be finite and in `(0, 1e6]` mm; otherwise `MergeStatus::kInvalidTolerance`
+  is returned and `sketch` is unchanged.
+* *Eligible vertices*: non-construction `SketchPoint` entities referenced as `start` or `end` of at least one
+  non-construction `SketchLine`, excluding any point referenced as `center` of a `SketchCircle` or `SketchArc` so
+  circle/arc centres are never collapsed into contour corners.
+* *Deterministic clustering*: undirected edges connect eligible vertices `u` and `v` when
+  `hypot(pos(u) - pos(v)) <= tolerance`. Each connected component of size `>= 2` merges into a single canonical
+  surviving `EntityId`:
+  ** A member with a `kFix` constraint has highest priority, then a contact bound by `kTangentStart`/`kTangentEnd`,
+     then an ordinary endpoint, so fixed targets and bound contacts remain anchored; ties pick the lowest `EntityId`.
+  ** Otherwise the lowest `EntityId` in the component survives.
+* *Entity and constraint rebinding*:
+  ** `SketchLine` endpoints are remapped to their cluster survivors. If remapping collapses any line (`start == end`),
+     the operation is rejected with `MergeStatus::kCollapsedEntity` and `sketch` is unchanged.
+  ** Point references in constraints (`kCoincident`, `kHorizontal`, `kVertical`, `kOnCurve`, `kFix`, `kDistance`) are
+     remapped to survivors:
+     *** Now-topological self-relations (`kCoincident(s, s)`, point-point `kHorizontal(s, s)` / `kVertical(s, s)`, and
+         `kOnCurve(s, line)` when `s` becomes an endpoint of `line`) are removed.
+     *** Exact duplicate constraints after remapping are deduplicated, retaining the lowest ID. Dimension values,
+         reference flags and placement payloads remain significant; differing payloads are never silently dropped.
+     *** Self point-point `kDistance(s, s)` or snapshot-invalid rebindings (such as merging both ends of one arc onto
+         one point) reject with `MergeStatus::kConflict`.
+* *Transactional solve*: the rebuilt `SketchSnapshot` is validated via `Sketch::from_snapshot` and solved with
+  `solve(...)`. Only on `SolveStatus::kSolved` is `sketch` replaced (`MergeStatus::kMerged` with `merged_points > 0`).
+  When no eligible pair lies within `tolerance`, `MergeStatus::kNothingToMerge` (`merged_points == 0`) leaves `sketch`
+  unchanged without creating an Undo step.
+* *UI and Undo*:
+  ** Default merge tolerance in `SketchController` is `0.5` mm (retained across invocations in the session).
+  ** A successful merge cancels any unfinished drawing/corner preview and clears stale selections, retaining the
+     active tool. Failed or no-op merges preserve unfinished interaction state. Merging during a live document drag
+     gesture is rejected without changing geometry or interaction state.
+  ** Invoking “Объединить вершины…” from the overflow menu or tapping the open-gap status pill opens the numeric
+     keypad (`DimensionEditor`) prefilled with the current tolerance; confirming runs one transactional `Document`
+     command (`"Merge vertices"`) undoable in a single Undo/Redo step.
+
+== Part 2: Closed profile validation and extraction (`analyze_profiles`)
+
+=== Input filtering and node graph
+
+`ProfileAnalysis analyze_profiles(const Sketch& sketch)` inspects `sketch` without mutating it:
+
+* *Construction exclusion*: construction lines/arcs/circles and standalone helper points do not form contours,
+  including chamfer/fillet virtual sharps. Normal curves still use their referenced point coordinates, including a
+  construction-marked centre, so a fillet arc remains part of the contour.
+* *Analytical curve primitives*:
+  ** Non-construction `SketchLine` segments (`ProfileEdgeKind::kLine`).
+  ** Non-construction `SketchArc` curves (`ProfileEdgeKind::kArc`) with exact `center`, `radius`, `start_angle`, and
+     signed `sweep_angle`.
+  ** Non-construction `SketchCircle` curves (`ProfileEdgeKind::kCircle`) with exact `center` and `radius`.
+* *Endpoint coincidence (`kProfileEndpointTolerance = 1e-5` mm)*:
+  ** Line and arc endpoints merge into contour graph nodes when they share a `SketchPoint`, are linked by `kCoincident`
+     or `kTangentStart`/`kTangentEnd`, or lie within `1e-5` mm (well above the solver's `1e-7` mm length residual
+     tolerance and well below unmerged user sketch gaps).
+  ** Adjacent edges in a closed loop have their shared boundary `Position` unified to the node position so downstream
+     3D wire builders receive exact matching vertex coordinates.
+
+=== Validation diagnostics
+
+* *Open endpoints (`open_endpoints`)*: every contour node of incident degree `1` is reported with its `Position`,
+  optional `SketchPoint` ID, and incident curve ID. Open chains do not produce `ProfileFace` entries.
+* *Invalid intersections and branching (`invalid_intersections`)*:
+  ** Any contour node of degree `>= 3` (T-junction or shared boundary edge),
+  ** Degenerate non-construction curves (zero-length segments or invalid curve bounds) block readiness instead of
+     being silently ignored. Full circles use `SketchCircle`; an exact full-turn `SketchArc` is outside the current
+     model contract (`abs(sweep) < 2*pi`) and is not newly enabled by this increment.
+  ** Any non-endpoint crossing or overlap between two non-construction curves (line-line, line-arc, line-circle,
+     arc-arc, arc-circle, circle-circle).
+  ** Connected curve components participating in a branching node or curve crossing are excluded from `faces` and
+     their offending positions are reported in `invalid_intersections`.
+
+=== Loop orientation, exact area, and outer/hole nesting
+
+* Each clean closed cycle (a standalone `SketchCircle` or a simple cycle of `degree == 2` nodes with no crossings)
+  forms a `ProfileLoop` whose signed area is integrated analytically via Green's theorem over exact line segments and
+  circular arcs (`+pi * r^2` for a CCW circle, exact circular-sector/chord terms for `SketchArc` fillets).
+  Nonfinite or zero integrated areas are diagnosed and block readiness. Small finite positive areas are retained
+  rather than discarded by an arbitrary fixed area cutoff, provided their endpoints pass the graph tolerances.
+  Translate to a local integration origin to avoid cancellation at large world coordinates. Arc overlaps are tested
+  analytically in angular intervals, so short overlaps between sampling positions also block readiness. Ignore only
+  machine-roundoff-sized angular interval intersections at a shared seam; truly overlapping short arcs stay invalid.
+* Containment between disjoint simple loops is decided by exact horizontal ray casting against analytical line segments,
+  circular arcs, and circles.
+* Loops at even containment depth (`0, 2, ...`) are oriented counter-clockwise (`signed_area > 0`) as outer boundaries
+  of `ProfileFace` records; loops at odd containment depth (`1, 3, ...`) are oriented clockwise (`signed_area < 0`) and
+  attached as `holes` of their immediate enclosing outer loop, with `face.area = outer.signed_area + sum(hole.signed_area)`.
+* `ProfileAnalysis::ready_for_extrude()` is `true` iff `!faces.empty() && open_endpoints.empty() && invalid_intersections.empty()`.
+
+== Canvas and shell presentation
+
+* `SketchViewport` renders a subtle translucent fill (`profile_fill_path`, even-odd fill rule so holes stay clear)
+  inside valid `ProfileFace` regions, and error-coloured rings (`open_endpoints_path`) around open contour endpoints
+  and invalid crossings whenever no drawing tool gesture is in progress.
+* The top bar displays a compact contour status pill (`profileStatus`) when the sketch contains non-construction curves:
+  closed face/hole summary in `ok` green when `ready_for_extrude()`, or open-endpoint / crossing count in `err` red.
+  Count open endpoints explicitly (“Открытых концов”), rather than calling two ends of one gap two gaps.
+* Profile data and endpoint markers follow live geometry during selection drags and return to the committed geometry
+  on cancellation. Cache invalidation must include live gestures, not only committed revision changes.
+* At the minimum supported 720 px window width the contour status and merge action remain reachable without
+  overlapping the other top-bar controls. Below 1150 px, elide the project text, abbreviate the DOF pill (full status
+  remains in its tooltip) and hide the mode strip, whose other modes are currently disabled.
+* `Help.qml` defines plain-language Russian explanations for `profiles` and `merge_vertices`.
+
+== Acceptance criteria
+
+* Merging an unclosed polyline/rectangle with gaps `<= tolerance` welds the endpoints into shared `SketchPoint` IDs,
+  preserves driving/horizontal/vertical/chamfer/fillet constraints via `solve`, and reverts in one Undo step.
+* Merging rejects non-positive/non-finite tolerances, sliver-line collapses (`tolerance >= segment length`), and
+  conflicting fixed points without mutating the sketch or history.
+* `analyze_profiles` extracts exact CCW outer loops and CW inner holes across rectangles, polygons, chamfered corners,
+  filleted corners (`SketchArc` + construction virtual sharp), circular holes, oblong arc-line slot holes, multiple
+  islands, and nested islands-in-holes, matching analytical areas to `< 1e-6` mm^2.
+* Open endpoints and untrimmed crossings are reported accurately and highlighted in QML; closing gaps via
+  “Объединить вершины…” clears open-endpoint markers and marks the profile ready.
+
+
+== Continuation plan (31 October 2026)
+
+User requested checking updates and continuation. Fillet is now committed locally as `57db96d`; preserve that baseline,
+the current dirty #60 implementation, `.dt/` and `skills/`. Existing spec/issue/labels/RED evidence precede this pass.
+
+. Rebuild the current implementation, run full Release CTest and record baseline before changes.
+. Independent core worker: reproduce/fix analytical arc-overlap gaps, translated-area precision, full-turn arcs,
+  degenerate-curve diagnostics and exact constraint deduplication if confirmed, with RED-before-fix tests.
+. Controller/UI: RED regression for successful merge cancelling unfinished previews, failed/no-op merge preservation
+  and gesture rejection; test status/keypad/fill at narrow tablet width and fix concrete issues. No document mutation
+  without an explicit merge confirmation; keep one-step Undo and retain active tool.
+. Full Release and Debug/Werror CTest, Antora, whitespace and screenshot checks; independent final review; update
+  handoff and issue with evidence. No commit/push/PR unless explicitly authorized. OCCT/extrusion remains subsequent.
+
+
+== Execution evidence (31 October 2026)
+
+* On continuation, the user updates already contained fillet commit `57db96d` and the dirty #60 implementation.
+  Verified live issue #60 is open with `enhancement`, `area:sketch`, `area:ui`, `status:ready`; current branch is
+  `feat/3d-profiles-extrude`. Preserved `.dt/`, `skills/` and all existing work; no new commit or publication.
+* Existing RED evidence: `build/issue60-core-red.log`, `issue60-controller-red.log`, `issue60-qml-red.log`.
+  Current implementation baseline rebuilt and passed 285/285 Release CTest before continuation fixes.
+* Core worker RED `build/issue60-core-review-red.log`: rectangle at (1e9,1e9) had area 256 instead of 200,
+  narrow arc overlaps escaped sampling, a zero-length line beside a valid face did not block readiness, and exact
+  axis/distance duplicates remained after merging. Fixed via local area integration, analytical angular intervals,
+  degenerate-curve diagnostics and complete-payload dimension/axis deduplication. A separate overflow RED is in
+  `build/issue60-core-review-area-red.log`; nonfinite face area no longer reports ready.
+* Full-turn-arc setup was rejected by `Sketch::create_arc`, not by profile analysis; it was removed as an invalid
+  test setup and the specification was corrected to keep full circles represented by `SketchCircle`.
+* Controller RED `build/issue60-interaction-red.log`: successful merge left a drawing preview in progress and merging
+  during a live drag did not reject it explicitly. Corrected cancellation/selection lifecycle and gesture guard.
+  RED `build/issue60-live-profile-red.log`: endpoint rings remained at old positions during a drag. Profile cache
+  now refreshes for live gestures and after their cancellation, separately from the heavier hard-constraint diagnosis.
+* QML RED `build/issue60-compact-red.log`: overflow menu fell outside the 720 px window after adding profile status.
+  Compact mode hides the currently disabled mode strip, elides project text and abbreviates DOF while preserving
+  the full tooltip. `build/issue60-interaction-green.log`, `issue60-ui-green.log` cover state/cancel/keypad/menu,
+  single-step Undo/Redo, profile fill/holes and compact control reachability.
+* Independent review reproduced false overlap for adjacent R10 arcs (start 0.2, sweep 1; start 1.2, sweep 2pi-1),
+  and silent loss of a valid triangle of area 4.5e-10 beside a larger circle. RED
+  `build/issue60-core-review-seam-small-red.log`; GREEN `issue60-core-review-seam-small-green.log` (20/20).
+  Roundoff-sized seam intersection is ignored while a true 1e-10 rad overlap still fails in either direction;
+  small finite positive areas are retained. Independent `/tmp/u13-independent-final.cpp` rechecked both cases and
+  found no remaining actionable finding in its scope. Worker core-only CTest: 288/288.
+* Final parent verification: 295/295 CTest in Release, 18.49 s (`build/issue60-release-green.log`), and Debug/Werror,
+  18.45 s (`build/issue60-werror-green.log`). Antora build and whitespace checks pass. Reviewed screenshots
+  `sketch_u13_profiles_open.png`, `sketch_u13_profiles_closed.png` (filleted outer profile and clear circular hole),
+  and `sketch_u13_profiles_compact.png` (720 px), under `build/u11-release/`.
+* Desktop checks are not physical tablet, Android APK, real stylus, remote CI or OCCT/extrusion evidence. Final
+  manual acceptance remains pending. Intended future PR should use `Closes #60`; publication is a user decision.
+
+== Acceptance regression: corner grip saturation (#60)
+
+A user recovery snapshot reproduces a 4e-7 mm retained line between a fillet and chamfer,
+caused by dragging the corner grip to its maximum. The endpoint graph merges its ends,
+profile analysis reports an intersection, merging correctly rejects a collapsed line,
+and DOF diagnosis reports ill conditioning. Do not relax these validation checks.
+
+* Corner operations must retain lines longer than the contour endpoint tolerance (1e-5 mm).
+  Use a 4e-5 mm safety margin for both chamfer and fillet; numeric input rejects a smaller
+  remainder without mutation, while dragging clamps with an additional safety margin.
+* Minimum grip sizes must likewise avoid producing indistinguishable corner endpoints.
+* Regression: the recovered 42 x 22 plate, opposite fillets R12.370427255361118 and a
+  maximum-size adjacent chamfer, remains a closed face with available diagnosis after
+  confirmation. Preview and numeric validation must agree.
+* Existing saved geometry must not be silently repaired or have constraints removed.
+  Keep the original recovery copy; provide a separately repaired project for inspection.
+* Closing/crash remains unconfirmed: no system coredump was found. Do not claim a crash fix.
+
+=== Regression verification (1 November 2026)
+
+* RED: `build/issue60-corner-limit-red.log`, numeric corner operations accepted a retained
+  4e-7 mm leg; both grip limits produced invalid profiles, maximum grips also lost diagnosis.
+* GREEN: `build/issue60-corner-limit-green.log`. Shared internal margin is four times the
+  endpoint tolerance; grip bounds use twice that margin to avoid rounding onto numeric rejection.
+  Tests cover chamfer/fillet, minimum/maximum grip, preview-only mutation and Undo.
+* Full Release 297/297 (`build/issue60-corner-release.log`, 18.91 s); Debug/Werror
+  297/297 (`build/issue60-corner-werror.log`, 20.09 s); Antora and whitespace checks pass.
+* Original recovery preserved under `build/issue60-user-recovery/original.sketchcad-recovery`.
+  Separate `repaired.sketchcad` reduces both chamfer leg dimensions to 9.6 mm without removing
+  constraints; solve, profile readiness, diagnosis and project encode/decode verified.
+* User explicitly authorized publishing the dimensions in GitHub #60. No commit, push or PR.
+
+== Explicit short-edge collapse (#60)
+
+The merge keypad offers an unchecked option to collapse short non-construction line
+edges. Default merge behavior remains unchanged. In explicit collapse mode, a line
+whose endpoints map to one survivor is removed transactionally. Only simple chain
+vertices (two incident non-construction lines, no arc bindings or construction
+line incidence) may participate; branching or entire-loop erasure is rejected.
+
+Axis constraints on a removed line become tautologies and are removed. On-curve
+relations to an axis-aligned removed line become equivalent point-point axis
+relations, retaining their IDs. Other relations to removed edges, including
+positive driving length, tangency or parallelism, reject the whole operation.
+Point distance dimensions involving collapsed endpoints become reference dimensions
+with IDs and placement retained; the keypad explicitly states this consequence.
+Fixed targets and all other driving constraints remain enforced. Unsupported
+oblique on-curve conversion rejects. Solve must succeed before commit, and the
+operation must not introduce new branching or intersections, or erase a closed
+face. Success is one Undo step; failure changes neither geometry nor history.
+
+Acceptance: rectangle 50x20, successive adjacent chamfers 10.51 and
+9.48992 leaves a short side. Default merge rejects; explicit collapse with 0.5mm
+removes that side and produces one valid closed five-edge face. All retained
+curve IDs survive, affected dimensions become reference, and Undo restores the side.
+Conflicting fixed targets, unsupported edge constraints and overlarge clusters
+reject without mutation.
+
+=== Collapse implementation evidence (1 November 2026)
+
+* Issue #60 specification recorded before implementation in issuecomment-6556107948.
+  Core RED: `build/issue60-collapse-red.log` (explicit mode still rejected the short line).
+  Controller RED: explicit merge returned false. QML RED: collapse checkbox missing.
+* Added opt-in `collapse_short_edges` argument (default false), simple-chain and
+  arc-binding guards, constraint translation/reference conversion and post-solve
+  contour validation before swap. Default merge rejection remains unchanged.
+* Core tests cover adjacent chamfers, fixed conflicts, driving edge-length conflicts,
+  entire-loop rejection and unchanged snapshots. Controller verifies one-step Undo/Redo.
+  QML exercises checkbox default/reset, visible dimension notice and actual merge
+  through keypad, including Undo/Redo after success. Desktop screenshot reviewed:
+  `build/u11-release/sketch_u13_collapse_keypad.png`.
+* Release: 300/300 (`build/issue60-collapse-release.log`, 20.19 s).
+  Debug/Werror: 300/300 (`build/issue60-collapse-werror.log`, 20.44 s).
+  Antora and whitespace checks pass.
+* Scope: collapse of simple line-chain edges in profiles. Arc-bound edges, unsupported
+  constraints or invalid resulting contours reject transactionally. Not physical tablet
+  or Android verification. No commit/push/PR.
+
+== Pre-merge review: preserve complete holes (1 November 2026)
+
+Independent review found that a 0.3x0.2 rectangular hole inside a 50x20 face could
+be erased by explicit collapse at tolerance 0.5: external face count stayed one.
+`MergeVertices.CollapseCannotEraseAnEntireHole` reproduced the defect before the fix
+(`build/issue60-hole-collapse-red.log`). Before swapping, reject deletion of every
+edge of any original outer or hole loop, and reject any reduction in hole count.
+The original snapshot remains unchanged on rejection.

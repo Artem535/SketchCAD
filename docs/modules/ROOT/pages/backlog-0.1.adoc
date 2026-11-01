@@ -245,6 +245,41 @@ Free/constrained/fixed/singular fixtures; actual touch/mouse drag; latency measu
 === Verification
 Intersections/tangent/ambiguous picks, invalid edit rollback; UI preview/cancel; constraint integrity после edit.
 
+[[u11]]
+== U11: Chamfer a sketch corner
+
+* Requirements: S01-EDIT, S01-DIM, S01-UNDO, S01-UI.
+* Dependencies: U04 part 2, U08.
+* Specification: xref:sketch-chamfer.adoc[].
+* Deliverable: equal-distance chamfer between two lines, retained virtual sharp and overall dimensions,
+  parametric leg dimensions, preview, numeric input and one-step Undo/Redo.
+* Verification: core geometry/constraints/DOF/rollback, tool state, controller and QML interaction.
+  Desktop evidence does not establish Android support.
+
+[[u12]]
+== U12: Fillet a sketch corner
+
+* Requirements: S01-EDIT, S01-CON, S01-DIM, S01-UNDO, S01-FILE, S01-UI.
+* Dependencies: U04 part 2, U08, U11, F01.
+* Specification: xref:sketch-fillet.adoc[].
+* Deliverable: tangent-arc fillet between two lines with endpoint-aware arc tangency (`kTangentStart`, `kTangentEnd`),
+  retained virtual sharp and overall dimensions, driving radius dimension, staged tablet grip/keypad preview,
+  schema-v2 persistence and one-step Undo/Redo.
+* Verification: core geometry/constraints/DOF/rollback/trim-extend, project round-trip, tool state, controller and QML
+  interaction. Desktop evidence does not establish Android support.
+
+[[u13]]
+== U13: Merge nearby vertices and extract closed profiles
+
+* Requirements: S01-EDIT, S01-GEO, S01-UNDO, S01-UI.
+* Dependencies: U04, U11, U12.
+* Specification: xref:sketch-profiles.adoc[].
+* Deliverable: Qt/OCCT-free `merge_nearby_vertices` with tolerance validation and transactional solve/Undo, plus
+  `analyze_profiles` extracting exact CCW outer contours, CW inner holes, open-endpoint markers and crossing
+  diagnostics, rendered on the sketch canvas with a top-bar profile pill and keypad merge command.
+* Verification: core GoogleTest (analytical areas, holes, islands, chamfers, fillets, open gaps, crossings, rollback),
+  controller and QML Qt Test, populated screenshot. Desktop evidence does not establish Android support.
+
 [[u05]]
 == U05: Align the sketch shell and theme with the tablet mockup
 

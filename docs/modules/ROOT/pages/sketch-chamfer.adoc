@@ -1,0 +1,298 @@
+= U11: Chamfer tool
+:toc:
+
+Issue: https://github.com/Artem535/SketchCAD/issues/56[#56]. Requirement: S01-EDIT. Depends on U04 part 2 (xref:sketch-editing.adoc[], trim/extend),
+U08 (xref:default-dimensions.adoc[], dynamic input).
+
+Origin: the user asked for chamfers in the sketcher. This is the 2D sketch chamfer at a corner between two lines, as
+nanoCAD's CHAMFER with equal distances; the 3D chamfer of a body edge stays in 1.0 (R10-FEATURE, after OCCT).
+
+Not in this increment: unequal distances or distance + angle, chamfers between a line and an arc, several corners in
+one tap (a whole polyline or rectangle), fillets.
+
+== Core (`sketch_edit.h`, Qt-free)
+* `bool chamfer(Sketch&, EntityId corner, double distance)` edits the sketch in place (used inside one `Document`
+  command); false and unchanged when nothing applies.
+* `std::optional<CurvePiece> chamfer_preview(const Sketch&, EntityId corner, double distance)`: the chamfer segment
+  that `chamfer` would add, for display only.
+* `pick_corner(const Sketch&, Position, double tolerance)` (`sketch_view.h`): the nearest point within the tolerance
+  that is an end of exactly two lines (ties by lower ID); nullopt otherwise.
+* `ChamferStatus chamfer_status(const Sketch&, EntityId corner, double distance)` shares validation with preview and
+  editing: `kReady`, `kNotCorner`, `kInvalidDistance`, `kTooLong`, `kCollinear`, `kEqualLength`.
+  Picking tests topology only, so a collinear or equal-constrained corner can still explain its rejection.
+  Non-finite cursor coordinates or tolerance, and negative tolerance, pick nothing.
+
+=== Geometry
+* The corner `P` is an end of exactly two lines, `L1` (from `P` to its other end `A`) and `L2` (from `P` to `B`).
+  Arcs and circles do not count; a point used by any other entity (a third line, a circle centre) is not a corner.
+* With unit directions `u1 = (A − P) / |A − P|` and `u2 = (B − P) / |B − P|`, two new points are created at
+  `P1 = P + distance · u1` and `P2 = P + distance · u2`, and a new line `P1 → P2` (the chamfer) is added. It is a
+  construction line when both `L1` and `L2` are construction lines, a normal line otherwise.
+* `L1` and `L2` keep their IDs; their end at `P` is replaced by `P1` and `P2`.
+* `P` stays as the *virtual sharp* (the user's choice, as in SolidWorks): same ID and position, now a construction
+  point that ends no line, drawn like other construction geometry. It marks the former corner, so dimensions and
+  relations to the corner survive the chamfer.
+* Rejected (false, unchanged): `distance` not finite or ≤ the length tolerance; `distance` ≥ the length of `L1` or of
+  `L2` minus the length tolerance (the line would vanish or flip); `L1` and `L2` collinear (angle between them within
+  the angle tolerance of 0° or 180°).
+
+=== Constraints
+* The virtual sharp `P` gets `kOnCurve` on `L1` and on `L2` (each treats its line as infinite), so it stays at the
+  intersection of the two lines. All constraints already on `P` stay (fix, coincident, point–point and point–line
+  distances, `kOnCurve` on other curves).
+* The chamfer is parametric: two driving point–point `kDistance` dimensions, `P`–`P1` and `P`–`P2`, both equal to
+  `distance`, are always added (whether automatic dimensions are on or off). Editing one of them later moves that end
+  of the chamfer; the two legs may then differ.
+* A `kLength` on `L1` (driving or reference) becomes a point–point `kDistance` from `A` to `P` with the same value and
+  `reference` flag, and automatic placement (the old placement is dropped). The same for `L2` with `B`. So the overall
+  size stays: a rectangle's width and height survive a chamfer of its corner.
+* Other constraints on `L1` and `L2` stay (horizontal, vertical, parallel, perpendicular, angle, tangency).
+* Rejected (false, unchanged) when `L1` or `L2` is in a `kEqual` (equal lengths would pull the shortened line back).
+* Degrees of freedom do not change: `P1`, `P2` add four, the two `kOnCurve` and the two legs remove four.
+* The result must solve (`kSolved` with the commit step), otherwise the whole command fails and nothing changes.
+* Constraint IDs are retained when converting lengths, so existing dimension selections remain valid. Changes are
+  transactional, including allocation failure; failed edits consume no IDs in the supplied sketch.
+
+== Tool (`ToolSession`), controller and QML
+* `Tool::kChamfer` ("Фаска", icon `chamfer.svg`), name `chamfer`, rail button `tool_chamfer` after `tool_extend`.
+* Staged interaction (approved 28 October 2026): choose the first line, choose the second line, set the equal
+  setback with the existing keypad, inspect the dashed preview, then confirm with “Готово” or Enter.
+  The two lines must share one existing topological corner under the core rules above; crossing unconnected lines,
+  arcs, circles, the same line twice and unsupported corners are rejected. Invalid second picks retain the first.
+* Selected lines are highlighted. Persistent prompts read “Выберите первый отрезок”, “Выберите второй отрезок”,
+  and “Задайте отступ и подтвердите”. The distance chip appears only after both lines are chosen.
+  No geometry, constraints, IDs, revision or history change before explicit confirmation. While this tool is active,
+  canvas presses select its lines instead of editing or dragging dimension labels whose touch targets overlap them.
+* `InputField::kDistance` becomes active after both lines are chosen. `enter_value(d)` updates only the staged
+  distance and preview. Finite positive distances are required. A geometrically too-long distance clears the preview,
+  explains the rejection and disables confirmation, while retaining the pair so a smaller distance can repair it.
+  Default 2 mm; the last entered distance is retained across tool changes within the session.
+* Hover after selection never retargets the chosen corner. Extra canvas taps while the pair is staged do not commit
+  or replace it. A successful `finish()` runs one transactional “Chamfer” command, clears the staged selection and
+  returns to the first-line prompt. A solver rejection rolls back and retains the staged pair for retry or cancellation.
+* Esc or “Отмена”, tool switching and reset discard all staged picks and preview without changing the sketch.
+  Undo/Redo discard staged state before operating on committed history, following existing ToolSession behavior.
+* Controller properties `chamfer_step` (`first`, `second`, `distance`, or empty for other tools) and `can_finish`
+  drive the prompts and confirmation. Existing constraint/delete actions are not offered for staged chamfer picks.
+* Error keys include `chamfer_pick_line`, `chamfer_not_corner`, `chamfer_too_long`, `chamfer_collinear`,
+  `chamfer_equal_length`, `invalid_value`, and `chamfer_failed`; QML translates them. Solver rejection uses the
+  existing solver-status message. Clearing a rejection after correction or cancellation also hides its toast, so an
+  obsolete error cannot remain over a successful preview/result. Help describes the staged workflow, equal setbacks
+  and cancellation.
+* The distance chip retains its filled surface background, border and pencil mark. Typing a digit when distance
+  input is active opens the keypad; accepting the keypad changes the preview and still requires “Готово” or Enter.
+
+== Tablet preview sizing (approved 31 October 2026)
+
+Issue: https://github.com/Artem535/SketchCAD/issues/58[#58].
+
+After the two lines are chosen, show both equal setback dimensions on the canvas using the existing live dimension
+style. Each has a minimum 48 px tap target. Tapping either opens the existing keypad for the same equal setback;
+accepting it refreshes the preview without committing. The filled distance chip remains available, including when a
+numerically entered setback is too long. Cancelling the keypad leaves the staged pair intact.
+
+A dedicated `chamferHandle` has a 56 × 56 px target, a visible grip and a leader to the chamfer midpoint. Its centre is
+64 screen px beyond that midpoint along the corner bisector, bounded inside the viewport so the finger does not cover
+the chamfer. It appears only for a valid staged preview. Mouse, stylus and single-finger drag resize the preview even
+when the general finger mode pans the canvas. Dragging the grip must not pan the viewport, move existing geometry,
+start a committed gesture, edit committed dimensions, consume document IDs or add history. Dragging elsewhere retains
+normal pan behavior. Pinch/zoom and view changes refresh the dimensions, grip and leader in screen coordinates.
+
+The Qt-free tool consumes finite world-coordinate drag deltas. Project the delta onto the midpoint's path
+`v = (u1 + u2) / 2`, with unit incident-line directions from the chosen corner, so `delta_distance = dot(delta, v) /
+dot(v, v)`. Both offsets stay equal, including oblique corners. Clamp drag sizes to a positive nondegenerate setback
+below the shorter adjacent line; moving back from a limit responds immediately. Invalid/nonfinite deltas and calls
+without a valid pair do nothing. Numeric input retains its existing explicit too-long error rather than clamping.
+Both setback values and the chip update during dragging. Release ends only the drag; Done/Enter still commits one
+transaction and one Undo step. Cancel, reset, tool changes and successful finish remove live dimensions, grip and
+leader together. Existing dimension manipulation outside this tool remains unchanged.
+
+=== Implementation plan
+
+Continue on the existing dirty `feat/u11-chamfer` checkout; preserve the earlier #57 changes and `.dt/`. No commit or
+publication is authorized. Use the existing Qt-free geometry, live dimension layout and numeric editor; no dependencies.
+
+. Update this specification, then create a linked `enhancement`, `area:ui`, `status:ready` issue before tests.
+. RED core tests in `tests/sketch_tool_test.cpp`: two live distance dimensions, projected resizing on right/oblique
+  corners, finite/clamped bounds, unchanged sketch/revision/history, lifecycle cleanup and one confirmed undo step.
+  Add `resize_chamfer(Position delta)` and read-only corner-position access in `sketch_tool.h` and
+  `src/sketch_tool_chamfer.cpp`; derive live dimensions in a display-only `preview_` sketch. Run the tool test binary.
+. RED controller/QML tests: missing grip data and live dimensions, mouse drag leaves document unchanged and updates
+  both values, tapping either opens keypad, touch/stylus policies, actual single-finger drag in pan mode does not pan,
+  release requires confirmation, cancel clears controls. Implement screen projection/clamped grip placement and
+  finite pixel-delta forwarding in `sketch_controller.cpp/.h`; implement grip/leader and input routing in
+  `SketchViewport.qml`, using the existing live labels/keypad. Update Help and prompts.
+. Run Release and Debug/Werror CTest, Antora and whitespace checks. Inspect staged/committed screenshots, request
+  independent review and fix actionable findings with regressions. Record evidence and limitations here, handoff and
+  issue. Synthetic touch/mouse desktop tests do not establish Android hardware support.
+
+== Acceptance / test cases
+Core (`sketch_edit_test`):
+
+* a right-angle corner of two lines, distance 2: two new points 2 mm from the corner along each line, a new chamfer
+  line between them (length 2√2); `L1` and `L2` keep their IDs; the corner point keeps its ID and position, is a
+  construction point, ends no line and has `kOnCurve` on both lines; two leg dimensions of 2; the sketch solves and
+  `diagnose` reports the same DOF as before;
+* a horizontal `L1` with a driving `kLength` 10 becomes a `kDistance` 10 from its far end to the virtual sharp, and `L1`
+  stays horizontal; a reference length stays a reference;
+* a rectangle 20 × 10 with automatic dimensions: after chamfering one corner its width and height dimensions still
+  measure 20 and 10 and the other corners are unchanged; setting one leg dimension to 3 moves that chamfer end only;
+* a corner with `kFix` keeps the fix on the virtual sharp;
+* rejected and unchanged: distance ≥ a line's length, distance ≤ 0 or NaN, collinear lines, a line in a `kEqual`,
+  a point shared by three lines, a circle centre, an arc end, a virtual sharp;
+* construction: both lines construction → construction chamfer; one of them normal → normal chamfer;
+* `chamfer_preview` describes exactly the added segment; `pick_corner` ignores points that are not two-line corners.
+
+`sketch_tool_test`: two distinct adjacent line picks stage a chamfer without mutation; distance changes update the
+preview without mutation, even after hover elsewhere; finish creates one solved command; Undo/Redo restore exact
+snapshots. Invalid first/second picks, same-line picks, nonadjacent pairs and too-long distances keep history unchanged;
+correcting the distance enables finish. Cancel after either pick, tool change/reset and undo/redo clear staged state;
+solver rejection retains a retryable staged pair with no mutation. Distance survives tool changes.
+Qt (`sketch_controller_test`): step prompts, input availability, selected paths, preview, readiness, messages,
+confirmation and cancellation reflect the core state. QML (`qml_test`): draw rectangle, choose two lines, edit distance
+using real keypad, assert no mutation until confirmation, commit to five lines; test cancellation and Enter/Esc paths.
+Screenshots capture staged preview and the committed result. Desktop-only evidence; Android/device checks separate.
+
+== Staged workflow implementation plan (28 October 2026)
+
+Issue: https://github.com/Artem535/SketchCAD/issues/57[#57].
+Continue in `feat/u11-chamfer`; preserve `.dt/`. The user approved this sequence in chat.
+Use writing-plans and test-driven-development practices; keep canonical plan here under the repository convention.
+
+. Update specification; create a linked enhancement issue with `area:ui`, `status:ready` before tests.
+. RED: adapt the six original chamfer ToolSession tests to two picks and finish; add staged mutation, invalid-pair,
+  cancellation, retry and too-long correction assertions. Record behavioral failures, then implement isolated staged
+  picks, shared-corner validation, stable preview and transactional finish in `sketch_tool.cpp/.h`.
+. RED: adapt controller and QML scenarios to selection before input and explicit confirmation; assert missing stage
+  and readiness properties, no premature mutation, keypad behavior and keyboard/cancel paths. Implement controller
+  properties/messages, persistent QML prompts/chip/confirmation and updated Help.
+. Build and run full Release and Debug/Werror CTest, Antora, diff whitespace checks; inspect preview screenshot.
+  Record evidence in specification, handoff and issue. Leave changes for review; publication remains user-controlled.
+
+== Implementation plan (24 October 2026)
+
+Use the existing `feat/u11-chamfer` checkout. Preserve `.dt/` and its project file.
+No new dependencies. Core remains Qt-free; use existing snapshot validation, solver commit step and numeric editor.
+
+. Core geometry and picking (`src/sketch_chamfer.cpp`, internal `src/sketch_corner.h`, `sketch_edit.h`,
+  `sketch_view.cpp/.h`, `CMakeLists.txt`, `tests/sketch_edit_test.cpp`):
+  write corner, dimension-conversion, DOF, invalid-input, allocator-exhaustion and preview/picking tests;
+  observe RED; implement topology validation and one snapshot-based transaction; run the edit test binary.
+. Tool state (`sketch_tool.cpp/.h`, `tests/sketch_tool_test.cpp`):
+  write RED for tap/undo/redo, retained distance, preview refresh, rejected taps and commit-step rollback;
+  add `kChamfer`, `kDistance` and shared status reporting; run tool and edit tests.
+. Desktop UI (`sketch_controller.cpp`, `Main.qml`, `Help.qml`, `DimensionEditor.qml`, `icons/chamfer.svg`,
+  `tests/sketch_controller_test.cpp`, `tests/qml_test.cpp`):
+  observe RED for the tool name, distance editor, preview, messages, five-line rectangle and help;
+  wire the existing controls, run Qt tests and inspect `sketch_u11_chamfer.png`.
+. Verification: build and run full CTest in separate Fedora Release and Debug/Werror trees; build Antora against
+  working-tree documentation; record exact outcomes and limitations here and in the issue; update the handoff.
+  Commit/push/PR publication is a separate user-controlled step; intended PR uses `Closes #<issue>`.
+
+== Execution record
+
+24 October 2026: user selected continuation of U11 in the current branch. Design retained from the existing draft.
+Environment refreshed: Fedora 44 host, Qt 6.11.2, GCC 16.2.1; old caches contain toolbox Qt paths, so use new build
+trees `build/u11-release` and `build/u11-werror`, reusing the installed vcpkg dependency prefix.
+Ruling: configure through the vcpkg toolchain with `VCPKG_MANIFEST_INSTALL=OFF` and the existing installed directory;
+using only `CMAKE_PREFIX_PATH` bypasses vcpkg's gflags wrapper and fails to define both legacy and namespaced targets.
+
+* Core RED: 10 new tests against no-op stubs, 7 expected behavior failures and 3 rejection-only passes,
+  `build/issue56-core-red.log`. GREEN: all 24 edit tests pass, `build/issue56-core-green.log`.
+* Tool RED: all four new chamfer tests fail on missing input/preview/command/message behavior,
+  `build/issue56-tool-red.log`.
+* Test correction before QML execution: use the existing `applyDimension` button and scroll the tool rail just as
+  the extend scenario does; there is no `key_accept` control. Acceptance expectations were unchanged.
+* Controller RED: `set_tool("chamfer")` left the previous tool selected; QML RED: `tool_chamfer` missing
+  (`build/issue56-controller-red.log`, `build/issue56-qml-red.log`).
+* Tool GREEN: initially 56/56, finally 58/58 GoogleTest cases after the two regression fixes below.
+  Controller GREEN: 33 Qt Test results including setup/cleanup.
+* The virtual sharp initially used normal point rendering. A new controller assertion observed RED
+  (`build/issue56-construction-red.log`); construction points now use the existing construction path.
+* QML test timing correction: wait for the keypad's closing transition before the sketch tap; no product behavior
+  changed. Final scenario enables automatic dimensions, sets 3 mm through real controls, chamfers to five lines
+  and verifies four dimensions (overall width/height and two legs).
+* Full native desktop GREEN: finally 245/245 CTest entries in both Release and Debug/Werror;
+  `build/issue56-release-green.log`, `build/issue56-werror-green.log`. Debug uses
+  `-Wall -Wextra -Werror -Wno-error=self-move`, without sanitizers. An initial dangling-else warning around a
+  GoogleTest assertion was corrected with braces, preserving expectations.
+* Offscreen environment: `QT_QPA_PLATFORMTHEME= QT_STYLE_OVERRIDE=Basic`; CTest sets offscreen/software rendering
+  on QML targets. An inherited `gtk3` theme failed before test initialization and is not RED evidence.
+* `npm run docs` passes; the generated `public/sketchcad/sketch-chamfer.html` contains the working-tree U11
+  specification, including issue #56. Antora's local source uses the checked-out worktree; this was verified
+  against the installed aggregator and the generated page, without committing source changes.
+* Visual inspection: `build/u11-release/sketch_u11_chamfer.png` shows the 40 × 30 rectangle, 3 mm leg dimensions,
+  virtual sharp, active tool and distance control. No overlapping labels or clipped controls in this fixture.
+* Self-review regression: `ToolSession::reset()` retained the new error message; observed RED in
+  `build/issue56-reset-red.log`, then cleared the message while keeping the session distance. Final full suites pass.
+* Independent-review regression: a direct chamfer tap with no preceding hover retained a previous tool's snap
+  marker. Observed RED with snapping enabled in `build/issue56-snap-red.log`; chamfer presses now clear the old snap.
+  This is a desktop input-state test of a no-hover path, not Android/touch-hardware validation.
+* Independent read-only review approved the final implementation with no remaining actionable findings.
+  The reviewer independently reproduced and verified the stale-snap fix, checked cancel/Undo, unconstrained
+  oblique corners at five angles (six DOF retained), and allocation exhaustion with zero through six available IDs
+  (transaction unchanged; seven available IDs succeeds). Extra diagnostics were confined to `/tmp`.
+* 27 October 2026: re-verified before commit. The session ran in an Ubuntu 26.04 toolbox, so both Fedora trees
+  were rebuilt on the host through `host-spawn`; 245/245 CTest entries pass in Release and Debug/Werror.
+* 27 October 2026, user acceptance on the desktop found two issues, both fixed test-first:
+  the mouse wheel over the tool rail zoomed the sketch once the list reached its end (RED
+  `build/u11-rail-wheel-red.log`, scale 7.36 → 1.02; the rail now swallows unused wheel events, see
+  xref:sketch-editing.adoc[]), and the distance button looked like a caption, so the user did not find how to set
+  the size (RED `build/u11-chip-red.log`; now a filled chip). 245/245 CTest in Release and Debug/Werror.
+* Further manual acceptance by the user, Android/device tests and remote CI are not claimed.
+  Committed locally on `feat/u11-chamfer`; push, PR publication and merge are separate user decisions.
+
+
+== Staged workflow verification (#57, 28 October 2026)
+
+* Specification and plan updated before issue #57; issue created with `enhancement`, `area:ui`, `status:ready`.
+* Tool RED: 5/6 targeted tests failed on missing staged selection, deferred commit, distance input and cancellation;
+  `build/issue57-tool-red.log`. The sixth snap-clearing regression already passed. Implementation keeps the new
+  interaction in `src/sketch_tool_chamfer.cpp`, reusing the original Qt-free geometry/solver transaction.
+* Controller RED: missing `chamfer_step` (`build/issue57-controller-red.log`). QML RED: missing `chamferPrompt`
+  (`build/issue57-qml-red.log`). Further QML testing found that a dimension label's 48 px touch target overlapped
+  the picked line and opened its editor; the viewport now routes chamfer presses directly to line selection.
+* GREEN: complete CTest 247/247 in Release and Debug/Werror (`build/issue57-release-green.log`,
+  `build/issue57-werror-green.log`). Core tests cover staged immutability, both selection orders, invalid pairs,
+  circle/T-junction/crossing/collinear/equal constraints, long-distance correction, cancellation, tool change/reset,
+  Undo/Redo and solver rollback/retry. QML covers real line taps with automatic dimensions, keypad editing,
+  disabled confirmation for too-long distance, Done, Enter, Esc and cancellation. The keypad's Enter accepts
+  the value without committing; a subsequent Enter confirms the chamfer.
+* Visual check: `build/u11-release/sketch_u11_chamfer_preview.png` shows highlighted lines, dashed chamfer,
+  setback chip, stage prompt and Done/Cancel controls; `sketch_u11_chamfer.png` shows the committed result.
+* Final visual review caught an obsolete too-long-distance toast after a corrected successful chamfer. RED:
+  `build/issue57-toast-red.log` (`!shown("toast")` failed). Clearing the controller error now immediately hides
+  its toast and stops the timer, per xref:tablet-shell.adoc[]. The real-keypad regression covers this correction.
+* `npm run docs` and `git diff --check` pass. Review of the final diff and preview screenshot found no additional
+  actionable issue; this pass was self-review, not an independent review.
+* Further manual acceptance, Android/device checks and remote CI remain unverified. Changes for #57 are uncommitted;
+  push, PR and merge remain user decisions. Intended eventual PR must close #56 and #57.
+
+
+== Tablet preview sizing execution record (#58, 31 October 2026)
+
+* This specification and implementation plan preceded issue #58, labelled `enhancement`, `area:ui`, `status:ready`.
+  Existing uncommitted #57 changes and `.dt/` were preserved.
+* RED `build/issue58-dimensions-red.log`: live setback constraints expected 2, actual 0. The resize tests then failed
+  to compile on the missing preview-only API (`build/issue58-resize-red.log`). Core GREEN: 63/63 ToolSession tests.
+* RED `build/issue58-controller-red.log`: staged grip data missing. RED `build/issue58-qml-red.log`: no
+  `chamferHandle`. Controller adds screen-constant grip placement, leader, finite screen-to-world delta conversion;
+  the Qt-free tool projects and clamps the full world delta and builds two display-only dimensions.
+* QML GREEN covers actual mouse grip drag, both dimension tap targets opening the numeric keypad, equal values,
+  unchanged document/revision and view, explicit confirmation and exact Undo. Synthetic single-finger input also
+  resizes in finger-pan mode without panning, then cancellation clears all preview controls.
+* Touch-test harness correction: retain a single `QTouchEventSequence` across press/move/release and allow queued
+  event delivery; fresh sequences per event failed to deliver the intended drag. This was a test correction,
+  not a product fix, and is not evidence of an Android hardware run.
+* Independent reviewer identified axis-by-axis clamping: at a size limit, perpendicular movement could change the
+  setback. Reproduced with real QML mouse input, `build/issue58-review-red.log`; corrected by forwarding the complete
+  `DragHandler.translationChanged` vector once per event. The regression and mouse/touch/keypad scenarios pass
+  (`build/issue58-qml-green.log`).
+* Visually inspected `build/u11-release/sketch_u11_chamfer_grip.png`: two visible setback dimensions, offset grip
+  and leader, selected lines, dashed chamfer and Done/Cancel controls. No new dependencies or persistence changes.
+* Independent reviewer rechecked the full-vector fix and found no remaining concrete actionable findings. Review
+  was read-only; the reviewer did not independently rerun tests. Pinch handoff and physical stylus were not exercised.
+* Full Fedora desktop verification: 250/250 CTest entries in Release (20.86 s) and Debug/Werror (19.59 s),
+  `build/issue58-release-green.log`, `build/issue58-werror-green.log`; Antora and `git diff --check` pass.
+  Physical tablet, Android/stylus hardware and remote CI acceptance remain separate; no new commit, push or PR
+  is authorized. User requested a separate Fillet tool with the same radius interaction; it remains a follow-up.

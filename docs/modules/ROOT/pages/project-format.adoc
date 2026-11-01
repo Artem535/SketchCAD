@@ -63,9 +63,11 @@ encoding preserves round-trip double precision and rejects NaN/infinity. Records
 }
 ----
 
-All listed root fields are required. `version` is an integer; future versions fail with an explicit unsupported-version error.
+All listed root fields are required. `version` is an integer; versions above 2 fail with an explicit unsupported-version error. Readers support v1 and v2.
 Unknown or duplicate keys, duplicate IDs, unknown entity/constraint kinds and trailing non-whitespace data are rejected.
 Schema v1 is strict: extensions require a new version with an explicit conversion, not silent data dropping.
+Schema v2 (U12, issue #59) has the same record shapes, adding only the endpoint-tangency tags described below.
+Write v2 when such bindings exist; write v1 for ordinary sketches. V1 records cannot use v2-only tags.
 
 IDs, `next_id` and `revision` use canonical unsigned decimal strings (`0` or a nonzero digit followed by digits),
 within uint64 range. Entity and constraint IDs share one namespace and cannot be zero. `next_id` must exceed all
@@ -93,7 +95,10 @@ Every constraint stores all persistent fields explicitly: `id`, `kind`, `first`,
 Zero `second` denotes a unary constraint. Boolean fields require JSON booleans, not numbers or strings.
 
 Stable kind names: `coincident`, `horizontal`, `vertical`, `parallel`, `perpendicular`, `tangent`,
-`equal`, `fix`, `on_curve`, `length`, `distance`, `angle`, `radius`. C++ enum ordinals are never serialized.
+`equal`, `fix`, `on_curve`, `length`, `distance`, `angle`, `radius`. V2 additionally supports `tangent_start`,
+`tangent_end`: first=line, second=arc, side=+1 selects line.start/-1 selects line.end, internal captures the oriented
+normal branch. Validate contact/arc cache consistency and reject malformed stored start/sweep values rather than
+repairing them on load. C++ enum ordinals are never serialized.
 Validate kind/argument combinations, dimension ranges, point-line distance side, reference support and
 placement eligibility against the model contracts. Fix targets, internal tangency and distance sides must
 be restored directly; recomputing them from current coordinates loses the stored intent.

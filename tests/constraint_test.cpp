@@ -188,3 +188,85 @@ TEST(Constraint, OnCurveTakesAPointThenALineCircleOrArc) {
   ASSERT_TRUE(f.s.erase(ids[1]));
   EXPECT_TRUE(f.s.erase(f.circle));
 }
+
+TEST(ArcBindings, ValidationAndSnapshotMetadata) {
+  using K = ConstraintKind;
+  Sketch s;
+  const auto p = *s.create_point({0, 0}), q = *s.create_point({4, 0});
+  const auto center = *s.create_point({0, 2});
+  const auto line = *s.create_line(p, q);
+  const auto arc = *s.create_arc(center, 2, 0, 1);
+  EXPECT_FALSE(s.add_arc_tangency(K::kTangent, line, arc, p));
+  EXPECT_FALSE(s.add_arc_tangency(K::kTangentStart, line, arc, center));
+  EXPECT_FALSE(s.add_arc_tangency(K::kTangentStart, arc, line, p));
+  EXPECT_FALSE(s.add_constraint(K::kTangentStart, line, arc));
+  const auto binding = s.add_arc_tangency(K::kTangentStart, line, arc, p);
+  ASSERT_TRUE(binding);
+  EXPECT_EQ(s.constraint(*binding)->side, 1);
+  EXPECT_FALSE(s.add_arc_tangency(K::kTangentStart, line, arc, q));
+  EXPECT_FALSE(s.add_arc_tangency(K::kTangentEnd, line, arc, p));
+  auto snapshot = s.snapshot();
+  ASSERT_TRUE(Sketch::from_snapshot(snapshot));
+  for (int invalid = 0; invalid != 5; ++invalid) {
+    auto bad = snapshot;
+    auto& c = bad.constraints.back();
+    if (invalid == 0) c.side = 0;
+    if (invalid == 1) c.reference = true;
+    if (invalid == 2) c.value = 2;
+    if (invalid == 3) c.target.x = 1;
+    if (invalid == 4)
+      bad.constraints.push_back(c), bad.constraints.back().id = bad.next_id++;
+    EXPECT_FALSE(Sketch::from_snapshot(bad)) << invalid;
+  }
+  const auto center_line = *s.create_line(center, q);
+  EXPECT_FALSE(s.add_arc_tangency(K::kTangentEnd, center_line, arc, center));
+  EXPECT_FALSE(s.add_arc_tangency(K::kTangentEnd, center_line, arc, q));
+}
+
+TEST(ArcBindings, CapturesNormalBranchAndPreservesItInUnsolvedSnapshot) {
+  Sketch s;
+  const auto p = *s.create_point({0, 0}), q = *s.create_point({4, 0});
+  const auto center = *s.create_point({0, 2});
+  const auto forward = *s.create_line(p, q), backward = *s.create_line(q, p);
+  const auto arc = *s.create_arc(center, 2, 0, 1);
+  const auto arc2 = *s.create_arc(center, 2, 0, 1);
+  const auto a = s.add_arc_tangency(ConstraintKind::kTangentStart, forward, arc, p);
+  const auto b = s.add_arc_tangency(ConstraintKind::kTangentEnd, backward, arc2, p);
+  ASSERT_TRUE(a);
+  ASSERT_TRUE(b);
+  EXPECT_FALSE(s.constraint(*a)->internal);
+  EXPECT_TRUE(s.constraint(*b)->internal);
+  ASSERT_TRUE(s.update_point(center, {0, -2}));
+  const auto restored = Sketch::from_snapshot(s.snapshot());
+  ASSERT_TRUE(restored);
+  EXPECT_FALSE(restored->constraint(*a)->internal);
+  EXPECT_TRUE(restored->constraint(*b)->internal);
+  EXPECT_EQ(*restored, s);
+}
+
+TEST(ArcBindings, UpdateLineAndArcPreserveBindingInvariants) {
+  Sketch s;
+  const auto p1 = *s.create_point({2, 0}), q1 = *s.create_point({10, 0});
+  const auto p2 = *s.create_point({0, 2}), q2 = *s.create_point({0, 10});
+  const auto center = *s.create_point({2, 2});
+  const auto alt = *s.create_point({3, 3});
+  const auto on_pt = *s.create_point({5, 0});
+  const auto l1 = *s.create_line(p1, q1);
+  const auto l2 = *s.create_line(p2, q2);
+  const auto arc = *s.create_arc(center, 2, -1.57, 1.57);
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentStart, l1, arc, p1));
+  ASSERT_TRUE(s.add_arc_tangency(K::kTangentEnd, l2, arc, p2));
+  ASSERT_TRUE(s.add_constraint(K::kOnCurve, on_pt, l1));
+  ASSERT_TRUE(s.add_constraint(K::kOnCurve, on_pt, arc));
+  const Sketch before = s;
+  EXPECT_FALSE(s.update_line(l1, center, q1));
+  EXPECT_FALSE(s.update_line(l1, p1, center));
+  EXPECT_FALSE(s.update_line(l1, p2, q1));
+  EXPECT_FALSE(s.update_line(l1, on_pt, q1));
+  EXPECT_FALSE(s.update_arc(arc, p1, 2, -1.57, 1.57));
+  EXPECT_FALSE(s.update_arc(arc, q2, 2, -1.57, 1.57));
+  EXPECT_FALSE(s.update_arc(arc, on_pt, 2, -1.57, 1.57));
+  EXPECT_TRUE(s == before);
+  EXPECT_TRUE(s.update_arc(arc, alt, 2, -1.57, 1.57));
+  EXPECT_TRUE(Sketch::from_snapshot(s.snapshot()));
+}

@@ -91,6 +91,9 @@ class Sketch {
 
   std::optional<EntityId> add_constraint(ConstraintKind kind, EntityId first,
                                          EntityId second = 0);
+  // Bind an arc start/end to an explicit endpoint of a line.
+  std::optional<EntityId> add_arc_tangency(ConstraintKind kind, EntityId line,
+                                           EntityId arc, EntityId endpoint);
   // `reference` adds a reference dimension (U10): length, point-point
   // distance or radius only; not solver input.
   std::optional<EntityId> add_dimension(ConstraintKind kind, EntityId first,

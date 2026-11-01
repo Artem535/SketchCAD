@@ -5,9 +5,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Ceres CONFIG REQUIRED)
 find_package(reflectcpp CONFIG REQUIRED)
 add_library(sketchcad_core src/project_io.cpp src/recovery_io.cpp src/autosave_schedule.cpp src/document.cpp src/sketch.cpp
-            src/sketch_tool.cpp src/sketch_view.cpp src/constraint_solver.cpp
+            src/sketch_tool.cpp src/sketch_tool_chamfer.cpp src/sketch_view.cpp src/constraint_solver.cpp
             src/constraint_diagnostics.cpp src/drag.cpp
-            src/dimension_layout.cpp src/sketch_edit.cpp)
+            src/dimension_layout.cpp src/sketch_edit.cpp src/sketch_chamfer.cpp src/sketch_fillet.cpp
+            src/sketch_profile.cpp)
 target_include_directories(sketchcad_core PUBLIC include)
 target_link_libraries(sketchcad_core PRIVATE Ceres::ceres reflectcpp::reflectcpp)
 enable_testing()
@@ -21,7 +22,7 @@ target_link_libraries(document_test PRIVATE sketchcad_core GTest::gtest_main)
 gtest_discover_tests(document_test)
 foreach(name project_io_test recovery_io_test autosave_schedule_test sketch_view_test sketch_tool_test constraint_test dimension_test
   constraint_diagnostics_test
-  constraint_solver_test drag_test dimension_layout_test sketch_edit_test)
+  constraint_solver_test drag_test dimension_layout_test sketch_edit_test sketch_fillet_test sketch_profile_test)
   add_executable(${name} tests/${name}.cpp)
   target_link_libraries(${name} PRIVATE sketchcad_core GTest::gtest_main)
   gtest_discover_tests(${name})

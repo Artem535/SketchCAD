@@ -16,7 +16,7 @@ Undo/Redo and command rollback cover the constraint set together with the geomet
 * A constraint has a stable ID from the same per-document allocator as entities; IDs are never reused
   and never collide with entity IDs.
 * `Constraint { id, kind, first, second, target, internal }`. `second` is 0 for unary kinds.
-  `target` is used only by `kFix`, `internal` only by circle–circle tangency.
+  `target` is used only by `kFix`, `internal` by circle–circle tangency and U12 endpoint-arc tangency.
 * `add_constraint(kind, first, second = 0)` validates kinds and references (table below) and returns the ID,
   or `nullopt` without changing the sketch or the allocator.
   It only records the relation; it does not move geometry. Solving is a separate step.
@@ -38,6 +38,7 @@ Undo/Redo and command rollback cover the constraint set together with the geomet
 |`kPerpendicular` |line, line (distinct) |dot(d~1~, d~2~) / (\|d~1~\| \|d~2~\|) |
 |`kTangent` |line, circle/arc (either order, stored line first) |distance(center, infinite line) − r [mm] |Arcs are treated as their full circle.
 |`kTangent` |circle/arc, circle/arc (distinct) |\|c~1~c~2~\| − (r~1~ + r~2~) external, \|c~1~c~2~\| − \|r~1~ − r~2~\| internal [mm] |`internal` is chosen at creation from the closer of the two configurations and stored.
+|`kTangentStart`, `kTangentEnd` |line, arc + explicit line endpoint (`add_arc_tangency`, U12) |signed normal projection − r [mm]; radial · unit tangent [mm] |Endpoint-aware arc tangency; derives bound arc angle(s) after solving (xref:sketch-fillet.adoc[]).
 |`kEqual` |line, line (distinct) |\|d~1~\| − \|d~2~\| [mm] |Equal length.
 |`kEqual` |circle/arc, circle/arc (distinct) |r~1~ − r~2~ [mm] |Equal radius.
 |`kFix` |point |x − x~0~, y − y~0~ [mm] |Target is the position at creation.
@@ -52,7 +53,7 @@ Construction geometry may be constrained like normal geometry.
 
 * Variables are the positions of points and the radii of circles/arcs that constraints reference
   (directly, or through a line's endpoints and a curve's center). Everything else is left untouched.
-  Arc angles are not variables in S01.
+  Arc angles are not variables in S01 (bound arc angles in U12 are derived analytically from solved contact positions; see xref:sketch-fillet.adoc[]).
 * All constraints are hard residuals in one Ceres problem (Levenberg–Marquardt, dense QR);
   radii have a positive lower bound, so a solution never needs a non-positive radius.
 * No stabilization or drag residuals are added in S01. Under-constrained sketches move as little as the solver needs;
