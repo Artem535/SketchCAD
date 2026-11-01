@@ -26,6 +26,7 @@ constexpr double kPickPx = 16;
 constexpr double kSnapPx = 12;
 constexpr double kPointMarkerPx = 3;
 constexpr double kSelectedMarkerPx = 6;
+constexpr double kGapMarkerPx = 6.5;
 constexpr int kMajorEvery = 5;
 
 constexpr std::array<std::pair<Tool, const char*>, 11> kTools{{
@@ -223,6 +224,76 @@ bool SketchController::resize_chamfer(double dx, double dy) {
   return true;
 }
 
+int SketchController::hole_count() const {
+  int total = 0;
+  for (const auto& face : profile_analysis_.faces)
+    total += static_cast<int>(face.holes.size());
+  return total;
+}
+
+bool SketchController::merge_vertices(double tolerance,
+                                     bool collapse_short_edges) {
+  if (document_.gesture_active()) {
+    message_ = QStringLiteral("invalid_action");
+    emit changed();
+    return false;
+  }
+  conflict_entities_.clear();
+  if (!std::isfinite(tolerance) || !(tolerance > 0) || tolerance > 1e6) {
+    message_ = QStringLiteral("invalid_value");
+    refresh_scene();
+    emit changed();
+    return false;
+  }
+  Sketch probe = document_.sketch();
+  const auto probe_result = sketchcad::merge_nearby_vertices(
+      probe, tolerance, collapse_short_edges);
+  switch (probe_result.status) {
+    case sketchcad::MergeStatus::kInvalidTolerance:
+      message_ = QStringLiteral("invalid_value");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kNothingToMerge:
+      merge_tolerance_ = tolerance;
+      message_ = QStringLiteral("merge_nothing");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kCollapsedEntity:
+      message_ = QStringLiteral("merge_collapsed");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kConflict:
+      message_ = QStringLiteral("conflict");
+      refresh_scene();
+      emit changed();
+      return false;
+    case sketchcad::MergeStatus::kMerged:
+      break;
+  }
+  last_status_ = sketchcad::SolveStatus::kSolved;
+  const bool ok = document_.execute("Merge vertices", [&](Sketch& s) {
+    return sketchcad::merge_nearby_vertices(s, tolerance, collapse_short_edges)
+               .status ==
+           sketchcad::MergeStatus::kMerged;
+  });
+  if (ok) {
+    session_.cancel();
+    session_.clear_selection();
+    merge_tolerance_ = tolerance;
+    message_.clear();
+  } else {
+    message_ = last_status_ != sketchcad::SolveStatus::kSolved
+                   ? status_message(last_status_)
+                   : QStringLiteral("conflict");
+  }
+  refresh_scene();
+  emit changed();
+  return ok;
+}
+
 void SketchController::refresh_tool_message() {
   message_ = QString::fromStdString(session_.message());
   if ((message_ == QStringLiteral("chamfer_failed") ||
@@ -378,6 +449,42 @@ static QString arc_path(const sketchcad::ViewTransform& view, Position c,
   return path;
 }
 
+static QString loop_path(const sketchcad::ViewTransform& view,
+                         const sketchcad::ProfileLoop& loop) {
+  if (loop.edges.empty()) return {};
+  if (loop.edges.size() == 1 &&
+      loop.edges.front().kind == sketchcad::ProfileEdgeKind::kCircle) {
+    const auto& e = loop.edges.front();
+    const double sweep =
+        e.sweep_angle != 0 ? e.sweep_angle : 2 * std::numbers::pi;
+    return arc_path(view, e.center, e.radius, 0, sweep) + QStringLiteral("Z ");
+  }
+  QString path = move_to(view.to_screen(loop.edges.front().start));
+  for (const auto& e : loop.edges) {
+    if (e.kind == sketchcad::ProfileEdgeKind::kLine) {
+      path += line_to(view.to_screen(e.end));
+    } else if (e.kind == sketchcad::ProfileEdgeKind::kArc) {
+      const int pieces = std::max(
+          1, static_cast<int>(
+                 std::ceil(std::abs(e.sweep_angle) / std::numbers::pi - 1e-9)));
+      const double rp = e.radius * view.scale();
+      for (int i = 1; i <= pieces; ++i) {
+        const double angle = e.start_angle + e.sweep_angle * i / pieces;
+        const ScreenPoint p =
+            i == pieces
+                ? view.to_screen(e.end)
+                : view.to_screen({e.center.x + e.radius * std::cos(angle),
+                                  e.center.y + e.radius * std::sin(angle)});
+        path += QStringLiteral("A %1 %1 0 0 %2 %3 %4 ")
+                    .arg(num(rp), e.sweep_angle > 0 ? "0" : "1", num(p.x),
+                         num(p.y));
+      }
+    }
+  }
+  path += QStringLiteral("Z ");
+  return path;
+}
+
 QString SketchController::curve_path(const Sketch& sketch,
                                      const Entity& entity) const {
   const auto position = [&](sketchcad::EntityId id) {
@@ -420,6 +527,24 @@ void SketchController::refresh_scene() {
   for (EntityId id : session_.selected())
     selected_path_ += entity_path(sketch, id, kSelectedMarkerPx);
   refresh_analysis();
+  profile_fill_path_.clear();
+  for (const auto& face : profile_analysis_.faces) {
+    profile_fill_path_ += loop_path(view_, face.outer);
+    for (const auto& hole : face.holes)
+      profile_fill_path_ += loop_path(view_, hole);
+  }
+  open_endpoints_path_.clear();
+  if (!session_.in_progress()) {
+    for (const auto& ep : profile_analysis_.open_endpoints)
+      open_endpoints_path_ += marker_path(ep.position, kGapMarkerPx);
+    for (const auto& pos : profile_analysis_.invalid_intersections) {
+      const ScreenPoint s = view_.to_screen(pos);
+      open_endpoints_path_ +=
+          marker_path(pos, kGapMarkerPx) +
+          QStringLiteral("M %1 %2 L %3 %4 M %1 %4 L %3 %2 ")
+              .arg(num(s.x - 4), num(s.y - 4), num(s.x + 4), num(s.y + 4));
+    }
+  }
   if (selected_constraint_ && !sketch.constraint(selected_constraint_))
     selected_constraint_ = 0;
   constraint_path_.clear();
@@ -639,6 +764,13 @@ void SketchController::refresh_analysis() {
     analysed_revision_ = document_.revision();
     analysed_ = true;
     applicable_selection_.reset();
+  }
+  if (profile_revision_ != document_.revision() || !profile_analysed_ ||
+      document_.gesture_active() || profile_was_gesture_) {
+    profile_analysis_ = sketchcad::analyze_profiles(sketch);
+    profile_revision_ = document_.revision();
+    profile_analysed_ = true;
+    profile_was_gesture_ = document_.gesture_active();
   }
   if (applicable_selection_ != session_.selected()) {
     applicable_.clear();
@@ -1060,6 +1192,7 @@ void SketchController::prepare_file_operation() {
   conflict_entities_.clear();
   message_.clear();
   analysed_ = false;
+  profile_analysed_ = false;
   refresh_scene();
   emit changed();
 }

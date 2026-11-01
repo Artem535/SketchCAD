@@ -2,23 +2,28 @@
 :toc:
 :toclevels: 3
 
-Актуальный срез: 31 октября 2026, U11 (фаска) и U12 (скругление), ветка `feat/u11-chamfer`.
-Исходная фаска: https://github.com/Artem535/SketchCAD/issues/56[#56], локальные коммиты `3786e85`, `38b5ed3`.
-Пошаговый сценарий фаски https://github.com/Artem535/SketchCAD/issues/57[#57], управление предпросмотром под планшет
-https://github.com/Artem535/SketchCAD/issues/58[#58] и скругление угла https://github.com/Artem535/SketchCAD/issues/59[#59]
-находятся в рабочем дереве без нового коммита.
-Инструмент «Скруглить» (U12, xref:sketch-fillet.adoc[]) реализован по тому же пошаговому сценарию: выбор двух смежных
-отрезков → предпросмотр касательной дуги, живой размер радиуса `R` и маркер 56 px с отступом 64 px → перетаскивание
-мышью/стилусом/пальцем (в том числе при включённом «Палец») или ввод с цифровой панели → «Готово» (один шаг Undo).
-Добавлены привязки конца отрезка к началу/концу дуги (`kTangentStart`, `kTangentEnd`, схема файла v2; обычные эскизы
-по-прежнему пишутся в v1), сохранение мнимой вершины угла и габаритных размеров, а также корректная работа `trim`/`extend`
-с привязанными контактами дуги.
-Локально 275/275 CTest в `build/u11-release` и `build/u11-werror`; `git diff --check` и сборка Antora чистые.
-Проверены снимки `build/u11-release/sketch_u11_chamfer_grip.png`, `sketch_u12_fillet_preview.png` и `sketch_u12_fillet.png`.
-Десктопные мышь и синтетический touch проверены; физический планшет, Android, стилус и remote CI — нет.
-`.dt/tmp_res.sketchcad` сохранён без изменений. Commit/push/PR — только по решению пользователя.
-Следующий приоритет по xref:roadmap.adoc[]: объединение близких вершин и извлечение/проверка замкнутых контуров →
-OCCT / 3D-просмотр и первое параметрическое выдавливание.
+Актуальный срез: 31 октября 2026, U13: объединение вершин и проверка профилей, ветка `feat/3d-profiles-extrude`.
+Пошаговая фаска, маркер и скругление (#57/#58/#59) уже вошли в локальный коммит `57db96d`; не переделывать их.
+Текущее изменение https://github.com/Artem535/SketchCAD/issues/60[#60] находится в рабочем дереве без нового коммита.
+Спецификация, план и свидетельства: xref:sketch-profiles.adoc[].
+
+Реализованы объединение близких концов основных отрезков с заданным допуском (по умолчанию 0.5 мм),
+перепривязка ограничений/ID и транзакционный solve/rollback, одна операция Undo/Redo. Меню «Объединить вершины…»
+и индикатор открытых концов открывают цифровую панель допуска. Успешное объединение сбрасывает незавершённый
+предпросмотр; отказ сохраняет начатое построение, активный drag не прерывается командой объединения.
+Аналитическое извлечение линий/дуг/окружностей распознаёт внешние контуры, отверстия и вложенные островки,
+исключает вспомогательную геометрию, показывает заливку и кольца открытых концов/пересечений. Площадь считается
+локально для точности при больших координатах; перекрытия дуг проверяются аналитически с учётом roundoff на шве.
+Профили обновляются во время drag/cancel; верхняя панель адаптирована к ширине 720 px.
+
+Локально 295/295 CTest в Release (`build/issue60-release-green.log`, 18.49 s) и Debug/Werror
+(`build/issue60-werror-green.log`, 18.45 s). Независимое ревью нашло два дефекта; оба воспроизведены RED,
+исправлены и перепроверены отдельным harness. Остальных actionable findings в проверенной области не осталось.
+Antora и `git diff --check` проходят. Проверены `sketch_u13_profiles_open.png`, `sketch_u13_profiles_closed.png`,
+`sketch_u13_profiles_compact.png` в `build/u11-release/`.
+Физический планшет/Android/стилус, remote CI и 3D-выдавливание не проверены и не заявлены.
+Сохранены `.dt/` и `skills/`. Новые commit/push/PR требуют отдельного разрешения пользователя.
+Далее — OCCT / spike 3D-просмотра (xref:adr-0001-3d-viewer.adoc[], #19) и первое параметрическое выдавливание.
 
 Хост — Fedora 44 (Qt 6.11.2, GCC 16.2.1). Сессия агента может оказаться в toolbox Ubuntu 26.04 (`/run/.toolboxenv`):
 тогда деревья `build/u11-*` собирать на хосте через `host-spawn bash -lc '...'`, а `build/ubuntu` — внутри toolbox.
@@ -333,3 +338,21 @@ Help/HelpPopup — термины справки. Theme — светлая и т
 * У свободных (не привязанных через U12) концов дуг нет отдельных сущностей-точек.
 * Справочный угол и расстояние от точки до линии не поддержаны.
 * Пересекающиеся размеры не разносятся автоматически (их двигают вручную, U09).
+
+== Acceptance follow-up, 1 November 2026 (#60)
+
+Maximum corner grip previously left a 4e-7 mm line between chamfer and fillet.
+Shared contour-aware bounds now reject numeric slivers and clamp grip sizes safely.
+Release and Debug/Werror pass 297/297, Antora and diff whitespace pass.
+See xref:sketch-profiles.adoc[] for RED/GREEN evidence and limitations.
+The original recovery and a separate repaired project (chamfer 9.6 mm) are in
+`build/issue60-user-recovery/`. App closure is not reproduced; no crash-fix claim.
+No new commit/push/PR.
+
+== Explicit short-edge collapse, 1 November 2026 (#60)
+
+The merge keypad now offers an unchecked collapse option and an explicit notice that
+point-distance dimensions involving collapsed endpoints become reference dimensions.
+Default merge remains non-destructive. Adjacent chamfers can become a single vertex,
+with closed-profile validation, fixed/unsupported-constraint rejection and one-step Undo/Redo.
+See xref:sketch-profiles.adoc[] for exact scope and tests. No commit/push/PR.

@@ -6,6 +6,7 @@ import QtQuick.Dialogs as FileDialogs
 // Tablet shell from design/sketchcad-tablet.html (tablet-shell.adoc).
 ApplicationWindow {
     id: window
+    readonly property bool compactHeader: width < 1150
     readonly property bool cornerTool: sketch.tool === "chamfer" || sketch.tool === "fillet"
     readonly property string cornerStep: sketch.tool === "fillet" ? sketch.fillet_step : sketch.chamfer_step
 
@@ -211,6 +212,8 @@ ApplicationWindow {
         case "degenerate": return qsTr("Ограничение схлопывает геометрию — изменение отменено")
         case "invalid_action": return qsTr("Ограничение не подходит к выбранным объектам")
         case "invalid_dimension": return qsTr("Размер не подходит к выбранным объектам")
+        case "merge_nothing": return qsTr("Нет вершин ближе заданного допуска")
+        case "merge_collapsed": return qsTr("Есть короткое ребро. Для его удаления включите «Схлопывать короткие рёбра» или уменьшите допуск.")
         case "fillet_pick_line": return qsTr("Выберите другой отрезок")
         case "fillet_not_corner": return qsTr("Нужен общий угол двух отрезков")
         case "fillet_too_long": return qsTr("Радиус слишком большой для этого угла")
@@ -235,6 +238,18 @@ ApplicationWindow {
         }
         return sketch.dof === 0 ? qsTr("DOF 0 · Полностью определён")
                                 : qsTr("Свободно: DOF %1").arg(sketch.dof)
+    }
+
+    function profileText() {
+        if (sketch.profile_ready) {
+            if (sketch.hole_count > 0)
+                return qsTr("Контуров: %1 · Отв.: %2").arg(sketch.profile_count).arg(sketch.hole_count)
+            return sketch.profile_count === 1 ? qsTr("Контур замкнут")
+                                              : qsTr("Контуров: %1").arg(sketch.profile_count)
+        }
+        if (sketch.open_endpoint_count > 0)
+            return qsTr("Открытых концов: %1").arg(sketch.open_endpoint_count)
+        return qsTr("Пересечений: %1").arg(sketch.invalid_intersection_count)
     }
 
     function applyAction(key) {
@@ -376,19 +391,22 @@ ApplicationWindow {
                     objectName: "projectName"
                     text: project.display_name
                     elide: Text.ElideMiddle
-                    Layout.maximumWidth: 220
+                    Layout.maximumWidth: window.compactHeader ? 120 : 220
                     font.pixelSize: 16
                     font.weight: Font.Medium
                     color: theme.ink
                 }
                 Label {
                     objectName: "projectState"
+                    Layout.maximumWidth: window.compactHeader ? 120 : 220
+                    elide: Text.ElideRight
                     text: (project.dirty ? qsTr("Не сохранено · объектов: %1") : qsTr("Сохранено · объектов: %1")).arg(sketch.entity_count)
                     font.pixelSize: 12
                     color: theme.muted
                 }
             }
             Rectangle {
+                visible: !window.compactHeader
                 Layout.leftMargin: 8
                 implicitWidth: modes.implicitWidth + 6
                 implicitHeight: 48
@@ -406,6 +424,46 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             AbstractButton {
+                id: profilePill
+                objectName: "profileStatus"
+                visible: sketch.profile_count > 0 || sketch.open_endpoint_count > 0
+                         || sketch.invalid_intersection_count > 0
+                readonly property bool ok: sketch.profile_ready
+                readonly property color tint: ok ? theme.ok : theme.err
+                text: window.profileText()
+                implicitHeight: 40
+                leftPadding: 10
+                rightPadding: 14
+                onClicked: sketch.open_endpoint_count > 0 ? editor.openMergeTolerance()
+                                                          : helpPopup.show("profiles")
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: sketch.open_endpoint_count > 0 ? help.hint("merge_vertices")
+                                                             : help.hint("profiles")
+                contentItem: Row {
+                    spacing: 6
+                    Label {
+                        text: profilePill.ok ? "⬢" : "◌"
+                        color: profilePill.tint
+                        font.pixelSize: 15
+                        font.weight: Font.Bold
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Label {
+                        text: profilePill.text
+                        color: profilePill.tint
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+                background: Rectangle {
+                    objectName: "profileStatus_background"
+                    radius: 20
+                    color: profilePill.ok ? theme.okContainer : theme.errContainer
+                }
+            }
+            AbstractButton {
                 id: dof
                 objectName: "dofStatus"
                 readonly property string state: sketch.diagnosis === "conflicting"
@@ -415,14 +473,17 @@ ApplicationWindow {
                 readonly property color tint: state === "err" ? theme.err
                                             : state === "warn" ? theme.warn
                                             : state === "ok" ? theme.ok : theme.primary
-                text: window.diagnosisText()
+                text: window.compactHeader
+                      ? (sketch.diagnosis === "conflicting" ? qsTr("Конфликт")
+                         : sketch.dof < 0 ? "DOF ?" : qsTr("DOF %1").arg(sketch.dof))
+                      : window.diagnosisText()
                 implicitHeight: 40
                 leftPadding: 10
                 rightPadding: 14
                 onClicked: sketch.highlight_dependent()
                 ToolTip.visible: hovered
                 ToolTip.delay: 600
-                ToolTip.text: qsTr("Показать избыточные и конфликтующие ограничения")
+                ToolTip.text: window.diagnosisText() + "\n" + qsTr("Показать избыточные и конфликтующие ограничения")
                 contentItem: Row {
                     spacing: 8
                     Label {
@@ -522,6 +583,13 @@ ApplicationWindow {
                     }
                     MenuSeparator {}
                     MenuItem {
+                        objectName: "mergeVerticesAction"
+                        text: qsTr("Объединить вершины…")
+                        enabled: !project.busy
+                        onTriggered: editor.openMergeTolerance()
+                    }
+                    MenuSeparator {}
+                    MenuItem {
                         objectName: "darkThemeToggle"
                         text: qsTr("Тёмная тема")
                         checkable: true
@@ -609,7 +677,7 @@ ApplicationWindow {
             font.weight: Font.Medium
             verticalAlignment: Text.AlignVCenter
         }
-        // A filled chip, so it reads as a control over the grid.
+        // A filled chip, not a bare caption over the grid.
         background: Rectangle {
             objectName: "chamferDistance_background"
             radius: 20

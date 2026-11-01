@@ -11,6 +11,7 @@
 #include "sketchcad/diagnostics.h"
 #include "sketchcad/dimension_layout.h"
 #include "sketchcad/solver.h"
+#include "sketchcad/sketch_profile.h"
 using namespace sketchcad;
 namespace {
 constexpr double kPi = std::numbers::pi;
@@ -335,6 +336,36 @@ TEST_F(Tools, ChamferPreviewHasTwoEditableSetbackDimensionsAndCleansUp) {
   EXPECT_TRUE(session.preview().entities().empty());
   ASSERT_TRUE(session.undo());
   EXPECT_TRUE(sketch() == before);
+}
+
+TEST_F(Tools, CornerGripLimitsKeepFilletedPlateUsable) {
+  for (const Tool tool : {Tool::kChamfer, Tool::kFillet}) {
+    for (const double delta : {-1000., 1000.}) {
+      Document plate;
+      ASSERT_TRUE(plate.execute("Plate", [](Sketch& s) {
+        const auto rect = s.create_rectangle({12, 32}, 42, 22);
+        return rect && fillet(s, rect->points[3], 12.370427255361118) &&
+               fillet(s, rect->points[1], 12.370427255361118);
+      }));
+      ToolSession corner(plate);
+      corner.set_pick_tolerance(1);
+      corner.set_tool(tool);
+      corner.press({30, 32});
+      corner.press({12, 36});
+      ASSERT_TRUE(corner.can_finish());
+      const Sketch before = plate.sketch();
+      ASSERT_TRUE(corner.resize_chamfer({delta, delta}));
+      EXPECT_EQ(plate.sketch(), before);
+      ASSERT_TRUE(corner.can_finish());
+      ASSERT_TRUE(corner.finish());
+      const auto profile = analyze_profiles(plate.sketch());
+      EXPECT_TRUE(profile.ready_for_extrude());
+      EXPECT_EQ(profile.faces.size(), 1u);
+      EXPECT_NE(diagnose(plate.sketch()).status, DiagnosisStatus::kUnknown);
+      ASSERT_TRUE(corner.undo());
+      EXPECT_EQ(plate.sketch(), before);
+    }
+  }
 }
 
 TEST_F(Tools, ChamferGripProjectsDragClampsAndNeverMutatesDocument) {

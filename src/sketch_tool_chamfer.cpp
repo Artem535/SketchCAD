@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "sketch_corner.h"
 #include "sketchcad/sketch_tool.h"
 #include "sketchcad/solver.h"
 
@@ -133,8 +134,9 @@ bool ToolSession::resize_chamfer(Position delta) {
   const double setback_factor =
       std::hypot(piece.a.x - origin->x, piece.a.y - origin->y) / size;
   const double lower =
-      4 * kLengthTolerance * std::max({1., 1 / spread, 1 / setback_factor});
-  upper = (upper - 4 * kLengthTolerance) / setback_factor;
+      2 * detail::kCornerLengthMargin *
+      std::max({1., 1 / spread, 1 / setback_factor});
+  upper = (upper - 2 * detail::kCornerLengthMargin) / setback_factor;
   if (!(upper > lower)) return false;
   const double next = std::clamp(target, lower, upper);
   if (next == size) return false;

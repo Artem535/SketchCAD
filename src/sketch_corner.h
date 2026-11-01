@@ -4,8 +4,13 @@
 #include <optional>
 
 #include "sketchcad/sketch.h"
+#include "sketchcad/sketch_profile.h"
 
 namespace sketchcad::detail {
+// Retained legs must remain distinct in the contour graph, with room for
+// solver residuals. A solver-only epsilon leaves invisible, unusable slivers.
+inline constexpr double kCornerLengthMargin = 4 * kProfileEndpointTolerance;
+
 // Topology only: two incident lines, no other geometry using the point.
 inline std::optional<std::array<SketchLine, 2>> corner_lines(const Sketch& s,
                                                              EntityId point) {

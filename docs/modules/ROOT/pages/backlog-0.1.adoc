@@ -268,6 +268,18 @@ Intersections/tangent/ambiguous picks, invalid edit rollback; UI preview/cancel;
 * Verification: core geometry/constraints/DOF/rollback/trim-extend, project round-trip, tool state, controller and QML
   interaction. Desktop evidence does not establish Android support.
 
+[[u13]]
+== U13: Merge nearby vertices and extract closed profiles
+
+* Requirements: S01-EDIT, S01-GEO, S01-UNDO, S01-UI.
+* Dependencies: U04, U11, U12.
+* Specification: xref:sketch-profiles.adoc[].
+* Deliverable: Qt/OCCT-free `merge_nearby_vertices` with tolerance validation and transactional solve/Undo, plus
+  `analyze_profiles` extracting exact CCW outer contours, CW inner holes, open-endpoint markers and crossing
+  diagnostics, rendered on the sketch canvas with a top-bar profile pill and keypad merge command.
+* Verification: core GoogleTest (analytical areas, holes, islands, chamfers, fillets, open gaps, crossings, rollback),
+  controller and QML Qt Test, populated screenshot. Desktop evidence does not establish Android support.
+
 [[u05]]
 == U05: Align the sketch shell and theme with the tablet mockup
 

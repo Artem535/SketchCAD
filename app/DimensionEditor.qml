@@ -74,6 +74,17 @@ Popup {
         open()
     }
 
+    function openMergeTolerance() {
+        collapseShortEdges.checked = false
+        field = "merge_tolerance"
+        kind = "merge_tolerance"
+        dimensionId = 0
+        error = ""
+        buffer = format(controller.merge_tolerance)
+        fresh = true
+        open()
+    }
+
     function press(key) {
         if (fresh) buffer = ""
         fresh = false
@@ -89,7 +100,8 @@ Popup {
             error = describe("invalid_value")
             return
         }
-        const ok = field !== "" ? controller.enter_value(value)
+        const ok = field === "merge_tolerance" ? controller.merge_vertices(value, collapseShortEdges.checked)
+                 : field !== "" ? controller.enter_value(value)
                                 : controller.set_dimension(dimensionId, value)
         if (ok) close()
         else error = describe(controller.message)
@@ -114,6 +126,7 @@ Popup {
             Layout.leftMargin: 10
             Label {
                 text: {
+                    if (editor.field === "merge_tolerance") return qsTr("Допуск объединения вершин")
                     if (editor.field === "width") return qsTr("Ширина")
                     if (editor.field === "height") return qsTr("Высота")
                     switch (editor.kind) {
@@ -133,7 +146,8 @@ Popup {
                 icon.source: "qrc:/icons/help.svg"
                 icon.color: editor.theme.muted
                 focusPolicy: Qt.NoFocus
-                onClicked: editor.helpPopup.show(editor.field !== "" ? "input" : editor.kind)
+                onClicked: editor.helpPopup.show(editor.field === "merge_tolerance" ? "merge_vertices"
+                                               : editor.field !== "" ? "input" : editor.kind)
             }
         }
         RowLayout {
@@ -162,6 +176,25 @@ Popup {
             visible: text !== ""
             color: editor.theme.err
             font.pixelSize: 14
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            Layout.leftMargin: 10
+            Layout.rightMargin: 10
+        }
+        CheckBox {
+            id: collapseShortEdges
+            objectName: "collapseShortEdges"
+            visible: editor.field === "merge_tolerance"
+            text: qsTr("Схлопывать короткие рёбра")
+            Material.foreground: editor.theme.ink
+            Layout.fillWidth: true
+            onToggled: editor.error = ""
+        }
+        Label {
+            objectName: "collapseDimensionsNotice"
+            visible: collapseShortEdges.visible && collapseShortEdges.checked
+            text: qsTr("Размеры до объединяемых концов станут справочными. Остальные размеры и связи сохранятся.")
+            color: editor.theme.muted
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
             Layout.leftMargin: 10

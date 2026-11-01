@@ -33,6 +33,7 @@
 ** xref:sketch-editing.adoc[Snaps, construction, trim]
 ** xref:sketch-chamfer.adoc[Chamfer tool]
 ** xref:sketch-fillet.adoc[Fillet tool]
+** xref:sketch-profiles.adoc[Vertex merge and closed profiles]
 
 * Project files
 ** xref:project-format.adoc[F01: Project format and file commands]

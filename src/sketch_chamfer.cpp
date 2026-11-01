@@ -31,7 +31,8 @@ ChamferPlan plan_chamfer(const Sketch& s, EntityId corner, double distance) {
     const auto far = std::get<SketchPoint>(*s.entity(plan.far[i])).position;
     const double dx = far.x - p.x, dy = far.y - p.y;
     const double length = std::hypot(dx, dy);
-    if (!std::isfinite(length) || distance >= length - kLengthTolerance) {
+    if (!std::isfinite(length) ||
+        distance >= length - detail::kCornerLengthMargin) {
       plan.status = ChamferStatus::kTooLong;
       return plan;
     }

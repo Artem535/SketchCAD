@@ -879,12 +879,13 @@ class QmlTest : public QObject {
         "tangent",    "equal",      "fix",      "length",      "distance",
         "angle",      "radius",     "on_curve", "construction"};
     const QStringList keys = window_->property("helpKeys").toStringList();
-    QCOMPARE(keys.size(), 30);
+    QCOMPARE(keys.size(), 32);
     for (const QString& key :
          actions + QStringList{"constraint", "dimension", "dof", "defined",
                                "redundant", "conflict", "snap", "finger",
                                "autodim", "input", "modes", "reference", "trim",
-                               "extend", "chamfer", "fillet"}) {
+                               "extend", "chamfer", "fillet", "profiles",
+                               "merge_vertices"}) {
       QVERIFY2(keys.contains(key), qPrintable(key));
       QVariant hint;
       QVERIFY(QMetaObject::invokeMethod(window_, "helpHint",
@@ -964,6 +965,156 @@ class QmlTest : public QObject {
     QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
                                        "/sketch_u07_help.png"));
   }
+  void collapse_short_edge_through_keypad() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    controller.set_tool("rectangle");
+    tap(controller, 20, 20);
+    tap(controller, 70, 40);
+    controller.set_tool("chamfer");
+    tap(controller, 45, 40);
+    tap(controller, 20, 35);
+    QVERIFY(controller.enter_value(10.51));
+    QVERIFY(controller.finish());
+    tap(controller, 45, 20);
+    tap(controller, 20, 24);
+    QVERIFY(controller.enter_value(9.48992));
+    QVERIFY(controller.finish());
+    const auto before = controller.document().sketch();
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("mergeVerticesAction"));
+    click(item("mergeVerticesAction"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    click(item("applyDimension"));
+    QVERIFY(shown("dimensionEditor"));
+    QVERIFY(controller.document().sketch() == before);
+    click(item("collapseShortEdges"));
+    QTRY_VERIFY(shown("collapseDimensionsNotice"));
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_collapse_keypad.png"));
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QVERIFY(controller.profile_ready());
+    QVERIFY(controller.undo());
+    QVERIFY(controller.document().sketch() == before);
+    QVERIFY(controller.redo());
+    QVERIFY(controller.profile_ready());
+  }
+
+  void profiles_and_merge_vertices_from_pill_and_menu() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    window_->setProperty("darkTheme", false);
+    click(item("snapToggle"));
+    QVERIFY(!shown("profileStatus"));
+
+    // Draw an almost-closed 4-segment loop with ~0.5 mm corner gaps.
+    click(item("tool_line"));
+    tap(controller, 20.0, 20.0);
+    tap(controller, 69.6, 20.0);
+    tap(controller, 70.0, 20.3);
+    tap(controller, 70.0, 59.6);
+    tap(controller, 69.7, 60.0);
+    tap(controller, 20.4, 60.0);
+    tap(controller, 20.0, 59.7);
+    tap(controller, 20.0, 20.4);
+    click(item("tool_select"));
+
+    QTRY_VERIFY(shown("profileStatus"));
+    QVERIFY(!controller.profile_ready());
+    QCOMPARE(controller.open_endpoint_count(), 8);
+    QVERIFY(!controller.open_endpoints_path().isEmpty());
+    QCOMPARE(color_of("profileStatus_background"), QColor("#fbe5e3"));
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_profiles_open.png"));
+
+    // Menu action opens keypad prefilled with default tolerance (0.5 mm);
+    // a tiny tolerance keeps the keypad open with an inline message.
+    click(item("moreButton"));
+    QTRY_VERIFY(shown("mergeVerticesAction"));
+    click(item("mergeVerticesAction"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QCOMPARE(text_of("dimensionValue"), QString("0.5"));
+    QVERIFY(shown("collapseShortEdges"));
+    QVERIFY(!item("collapseShortEdges")->property("checked").toBool());
+    click(item("collapseShortEdges"));
+    QVERIFY(item("collapseShortEdges")->property("checked").toBool());
+    QVERIFY(shown("collapseDimensionsNotice"));
+    type("0.1");
+    click(item("applyDimension"));
+    QVERIFY(shown("dimensionEditor"));
+    QVERIFY(!text_of("dimensionError").isEmpty());
+    click(item("cancelDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+
+    // Tapping the open-gap pill opens the tolerance keypad and merges corners.
+    click(item("profileStatus"));
+    QTRY_VERIFY(shown("dimensionEditor"));
+    QVERIFY(!item("collapseShortEdges")->property("checked").toBool());
+    type("1");
+    click(item("applyDimension"));
+    QTRY_VERIFY(!shown("dimensionEditor"));
+    QCOMPARE(controller.document().undo_label(), std::string("Merge vertices"));
+    QVERIFY(controller.profile_ready());
+    QCOMPARE(controller.profile_count(), 1);
+    QCOMPARE(color_of("profileStatus_background"), QColor("#e2f4ee"));
+
+    // Add a circular hole inside and fillet a corner: profile stays closed.
+    click(item("tool_circle"));
+    tap(controller, 45, 40);
+    tap(controller, 52, 40);
+    QCOMPARE(controller.hole_count(), 1);
+    QVERIFY(controller.profile_ready());
+    auto* rail = item("toolRailFlick");
+    QVERIFY(rail);
+    rail->setProperty(
+        "contentY", rail->property("contentHeight").toReal() - rail->height());
+    QTest::qWait(20);
+    click(item("tool_fillet"));
+    tap(controller, 45, 20);
+    tap(controller, 20, 40);
+    click(item("finishShape"));
+    QVERIFY(controller.profile_ready());
+    QCOMPARE(controller.profile_count(), 1);
+    QCOMPARE(controller.hole_count(), 1);
+    QTest::qWait(100);
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_profiles_closed.png"));
+  }
+
+  void profile_controls_fit_the_minimum_tablet_width() {
+    SketchController controller;
+    QQmlApplicationEngine engine;
+    open(engine, controller);
+    window_->resize(720, 800);
+    QTest::qWait(30);
+    controller.set_tool("rectangle");
+    auto at = controller.screen_of(20, 20);
+    controller.press(at.x(), at.y());
+    controller.release(at.x(), at.y());
+    at = controller.screen_of(60, 50);
+    controller.press(at.x(), at.y());
+    controller.release(at.x(), at.y());
+    QTRY_VERIFY(controller.profile_ready());
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    const auto* pill = item("profileStatus");
+    const auto* dof = item("dofStatus");
+    const auto* menu = item("moreButton");
+    QVERIFY(pill && dof && menu);
+    const auto pill_at = pill->mapToScene({0, 0});
+    const auto dof_at = dof->mapToScene({0, 0});
+    const auto menu_at = menu->mapToScene({0, 0});
+    QVERIFY(pill_at.x() >= 0);
+    QVERIFY(pill_at.x() + pill->width() <= dof_at.x());
+    QVERIFY(dof_at.x() + dof->width() <= menu_at.x());
+    QVERIFY(menu_at.x() + menu->width() <= window_->width());
+    QVERIFY(window_->grabWindow().save(QCoreApplication::applicationDirPath() +
+                                       "/sketch_u13_profiles_compact.png"));
+  }
+
   void dimensions_in_eskd_style() {
     SketchController controller;
     QQmlApplicationEngine engine;

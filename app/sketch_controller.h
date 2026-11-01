@@ -7,6 +7,7 @@
 
 #include "sketchcad/diagnostics.h"
 #include "sketchcad/document.h"
+#include "sketchcad/sketch_profile.h"
 #include "sketchcad/sketch_tool.h"
 #include "sketchcad/sketch_view.h"
 #include "sketchcad/solver.h"
@@ -89,11 +90,25 @@ class SketchController : public QObject {
                  preview_dimension_labels NOTIFY changed)
   // Points with a fix constraint, drawn as filled handles.
   Q_PROPERTY(QString fixed_path READ fixed_path NOTIFY changed)
+  // U13: closed profile fill, open-gap/crossing rings, and vertex merging.
+  Q_PROPERTY(QString profile_fill_path READ profile_fill_path NOTIFY changed)
+  Q_PROPERTY(
+      QString open_endpoints_path READ open_endpoints_path NOTIFY changed)
+  Q_PROPERTY(int profile_count READ profile_count NOTIFY changed)
+  Q_PROPERTY(int hole_count READ hole_count NOTIFY changed)
+  Q_PROPERTY(int open_endpoint_count READ open_endpoint_count NOTIFY changed)
+  Q_PROPERTY(int invalid_intersection_count READ invalid_intersection_count
+                 NOTIFY changed)
+  Q_PROPERTY(bool profile_ready READ profile_ready NOTIFY changed)
+  Q_PROPERTY(double merge_tolerance READ merge_tolerance NOTIFY changed)
 
  public:
   explicit SketchController(QObject* parent = nullptr);
 
   const sketchcad::Document& document() const { return document_; }
+  const sketchcad::ProfileAnalysis& profile_analysis() const {
+    return profile_analysis_;
+  }
 
   QString tool() const;
   void set_tool(const QString& name);
@@ -143,6 +158,20 @@ class SketchController : public QObject {
   QVariantList selection_properties() const;
   QString selection_title() const;
   QString fixed_path() const { return fixed_path_; }
+  QString profile_fill_path() const { return profile_fill_path_; }
+  QString open_endpoints_path() const { return open_endpoints_path_; }
+  int profile_count() const {
+    return static_cast<int>(profile_analysis_.faces.size());
+  }
+  int hole_count() const;
+  int open_endpoint_count() const {
+    return static_cast<int>(profile_analysis_.open_endpoints.size());
+  }
+  int invalid_intersection_count() const {
+    return static_cast<int>(profile_analysis_.invalid_intersections.size());
+  }
+  bool profile_ready() const { return profile_analysis_.ready_for_extrude(); }
+  double merge_tolerance() const { return merge_tolerance_; }
   bool auto_dimensions() const { return session_.auto_dimensions(); }
   void set_auto_dimensions(bool enabled);
   QString input_field() const;
@@ -180,6 +209,8 @@ class SketchController : public QObject {
   Q_INVOKABLE bool remove_constraint(qulonglong id);
   Q_INVOKABLE bool enter_value(double value);
   Q_INVOKABLE bool resize_chamfer(double dx, double dy);
+  Q_INVOKABLE bool merge_vertices(double tolerance,
+                                  bool collapse_short_edges = false);
   // U09: moving a dimension by its text, as one gesture.
   Q_INVOKABLE bool begin_dimension_drag(qulonglong id);
   Q_INVOKABLE void drag_dimension(double x, double y);
@@ -242,6 +273,13 @@ class SketchController : public QObject {
   QString constraint_path_;
   QString conflict_path_;
   QString fixed_path_;
+  QString profile_fill_path_;
+  QString open_endpoints_path_;
+  sketchcad::ProfileAnalysis profile_analysis_;
+  std::uint64_t profile_revision_ = 0;
+  bool profile_analysed_ = false;
+  bool profile_was_gesture_ = false;
+  double merge_tolerance_ = sketchcad::kDefaultMergeTolerance;
   QString dimension_path_;
   QString dimension_arrows_path_;
   QString preview_dimension_path_;

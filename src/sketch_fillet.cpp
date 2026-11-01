@@ -47,7 +47,8 @@ FilletPlan plan_fillet(const Sketch& s, EntityId corner, double radius) {
   }
   const double setback = radius * (1 + dot) / std::abs(cross);
   if (!std::isfinite(setback) || setback <= kLengthTolerance ||
-      setback >= std::min(lengths[0], lengths[1]) - kLengthTolerance) {
+      setback >= std::min(lengths[0], lengths[1]) -
+                     detail::kCornerLengthMargin) {
     plan.status = FilletStatus::kTooLong;
     return plan;
   }

@@ -49,6 +49,15 @@ Item {
             fillColor: "transparent"
             PathSvg { path: root.controller.axes_path }
         }
+        // Closed profile fill (U13); OddEvenFill leaves inner holes clear.
+        ShapePath {
+            strokeColor: "transparent"
+            strokeWidth: 0
+            fillColor: Qt.rgba(root.accent.r, root.accent.g, root.accent.b,
+                               root.theme.dark ? 0.14 : 0.09)
+            fillRule: ShapePath.OddEvenFill
+            PathSvg { path: root.controller.profile_fill_path }
+        }
         // ESKD dimension lines and arrows (ADR-0004).
         ShapePath {
             strokeColor: root.theme.muted
@@ -124,6 +133,13 @@ Item {
             strokeWidth: 1.5
             fillColor: root.accent
             PathSvg { path: root.controller.fixed_path }
+        }
+        // Open contour endpoints and untrimmed crossings (U13).
+        ShapePath {
+            strokeColor: root.theme.err
+            strokeWidth: 2
+            fillColor: Qt.rgba(root.theme.err.r, root.theme.err.g, root.theme.err.b, 0.16)
+            PathSvg { path: root.controller.open_endpoints_path }
         }
         ShapePath {
             strokeColor: root.accent
