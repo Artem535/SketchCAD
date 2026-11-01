@@ -265,3 +265,12 @@ reject without mutation.
 * Scope: collapse of simple line-chain edges in profiles. Arc-bound edges, unsupported
   constraints or invalid resulting contours reject transactionally. Not physical tablet
   or Android verification. No commit/push/PR.
+
+== Pre-merge review: preserve complete holes (1 November 2026)
+
+Independent review found that a 0.3x0.2 rectangular hole inside a 50x20 face could
+be erased by explicit collapse at tolerance 0.5: external face count stayed one.
+`MergeVertices.CollapseCannotEraseAnEntireHole` reproduced the defect before the fix
+(`build/issue60-hole-collapse-red.log`). Before swapping, reject deletion of every
+edge of any original outer or hole loop, and reject any reduction in hole count.
+The original snapshot remains unchanged on rejection.

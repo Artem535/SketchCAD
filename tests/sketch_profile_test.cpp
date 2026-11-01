@@ -52,6 +52,19 @@ TEST(MergeVertices, CollapseRejectsUnsupportedConstraintsAndEntireLoop) {
   }
 }
 
+TEST(MergeVertices, CollapseCannotEraseAnEntireHole) {
+  Sketch s;
+  ASSERT_TRUE(s.create_rectangle({0, 0}, 50, 20));
+  ASSERT_TRUE(s.create_rectangle({10, 10}, .3, .2));
+  const auto profile = analyze_profiles(s);
+  ASSERT_TRUE(profile.ready_for_extrude());
+  ASSERT_EQ(profile.faces.size(), 1u);
+  ASSERT_EQ(profile.faces[0].holes.size(), 1u);
+  const Sketch before = s;
+  EXPECT_EQ(merge_nearby_vertices(s, .5, true).status, MergeStatus::kConflict);
+  EXPECT_EQ(s, before);
+}
+
 TEST(MergeVertices, CollapsePreservesConflictingFixedTargetsAndDrivingEdgeLength) {
   for (bool fixed : {false, true}) {
     Sketch s;

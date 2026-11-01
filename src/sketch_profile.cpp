@@ -535,7 +535,22 @@ MergeResult merge_nearby_vertices(Sketch& sketch, double tolerance,
   if (!removed_lines.empty()) {
     const auto before = analyze_profiles(sketch);
     const auto after = analyze_profiles(*candidate);
+    const auto erased_loop = [&](const ProfileLoop& loop) {
+      return std::all_of(loop.edges.begin(), loop.edges.end(),
+                         [&](const ProfileEdge& edge) {
+                           return removed_lines.contains(edge.entity_id);
+                         });
+    };
+    std::size_t before_holes = 0, after_holes = 0;
+    for (const auto& face : before.faces) {
+      if (erased_loop(face.outer)) return {MergeStatus::kConflict, 0};
+      for (const auto& hole : face.holes)
+        if (erased_loop(hole)) return {MergeStatus::kConflict, 0};
+      before_holes += face.holes.size();
+    }
+    for (const auto& face : after.faces) after_holes += face.holes.size();
     if (after.faces.empty() || !after.invalid_intersections.empty() ||
+        after_holes < before_holes ||
         after.faces.size() < before.faces.size() ||
         after.open_endpoints.size() > before.open_endpoints.size())
       return {MergeStatus::kConflict, 0};
